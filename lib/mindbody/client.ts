@@ -63,10 +63,14 @@ export class MindbodyClient {
     });
   }
 
-  async getStaff(accessToken?: string) {
+  async getStaff(accessToken?: string, pagination?: { offset?: number; limit?: number }) {
     return this.request("/staff/staff", {
       method: "GET",
       accessToken,
+      searchParams: {
+        Offset: pagination?.offset,
+        Limit: pagination?.limit,
+      },
     });
   }
 
@@ -74,6 +78,34 @@ export class MindbodyClient {
     return this.request("/site/sites", {
       method: "GET",
       accessToken,
+    });
+  }
+
+  async getLocations(accessToken?: string) {
+    return this.request("/site/locations", {
+      method: "GET",
+      accessToken,
+    });
+  }
+
+  async getResources(accessToken?: string) {
+    return this.request("/site/resources", {
+      method: "GET",
+      accessToken,
+    });
+  }
+
+  async getClassDescriptions(
+    accessToken?: string,
+    pagination?: { offset?: number; limit?: number },
+  ) {
+    return this.request("/class/classdescriptions", {
+      method: "GET",
+      accessToken,
+      searchParams: {
+        Offset: pagination?.offset,
+        Limit: pagination?.limit,
+      },
     });
   }
 

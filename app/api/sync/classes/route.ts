@@ -1,7 +1,191 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DateTime } from "luxon";
-import { createMindbodyClient } from "@/lib/mindbody/client";
+import { MindbodyClient, createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import type { MindbodyStaffMember } from "@/types/mindbody";
+
+type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
+
+async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string, timezone: string) {
+  const result = await mindbody.getLocations(accessToken);
+  const locations = result.Locations ?? [];
+  const idMap = new Map<number, string>();
+
+  for (const location of locations) {
+    const { data, error } = await supabase
+      .from("Locations")
+      .upsert(
+        {
+          mindbody_location_id: location.Id,
+          organization_id: organizationId,
+          name: location.Name,
+          timezone,
+          active: location.HasClasses ?? true,
+        },
+        { onConflict: "mindbody_location_id" },
+      )
+      .select("id")
+      .single();
+
+    if (!error && data) {
+      idMap.set(location.Id, data.id);
+    } else if (error) {
+      console.error(error);
+    }
+  }
+
+  return idMap;
+}
+
+async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string) {
+  const result = await mindbody.getResources(accessToken);
+  const resources = result.Resources ?? [];
+  const idMap = new Map<number, string>();
+
+  for (const resource of resources) {
+    const { data, error } = await supabase
+      .from("rooms")
+      .upsert(
+        {
+          mindbody_resource_id: resource.Id,
+          name: resource.Name,
+          active: true,
+        },
+        { onConflict: "mindbody_resource_id" },
+      )
+      .select("id")
+      .single();
+
+    if (!error && data) {
+      idMap.set(resource.Id, data.id);
+    } else if (error) {
+      console.error(error);
+    }
+  }
+
+  return idMap;
+}
+
+async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string) {
+  // Departments are sourced from MindBody's Program (via /class/classdescriptions),
+  // not Category -- CategoryId is null on every class in this data, whereas
+  // Program (Membership, Yoga, Boot Camp, ...) is always populated and is what
+  // actually distinguishes classes. Paginate through the full site-wide
+  // description list so departments aren't limited to whatever's in a given
+  // sync's date window.
+  const programs = new Map<number, string>();
+  let offset = 0;
+  const limit = 200;
+
+  for (;;) {
+    const page = await mindbody.getClassDescriptions(accessToken, { offset, limit });
+    const descriptions = page.ClassDescriptions ?? [];
+
+    for (const description of descriptions) {
+      if (description.Program?.Id != null) {
+        programs.set(description.Program.Id, description.Program.Name ?? "Unknown");
+      }
+    }
+
+    offset += descriptions.length;
+    const total = page.PaginationResponse?.TotalResults ?? 0;
+    if (descriptions.length === 0 || offset >= total) {
+      break;
+    }
+  }
+
+  const idMap = new Map<number, string>();
+
+  for (const [programId, programName] of programs) {
+    const { data, error } = await supabase
+      .from("departments")
+      .upsert(
+        {
+          mindbody_program_id: programId,
+          name: programName,
+          active: true,
+        },
+        { onConflict: "mindbody_program_id" },
+      )
+      .select("id")
+      .single();
+
+    if (!error && data) {
+      idMap.set(programId, data.id);
+    } else if (error) {
+      console.error(error);
+    }
+  }
+
+  return idMap;
+}
+
+async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string) {
+  // getStaff with no pagination params silently returns MindBody's default
+  // page size, not the full roster -- confirmed empirically: two real
+  // instructors (ids 100000237, 100000285) were missing from an unpaginated
+  // call despite being present in the full 141-member roster. Paginate
+  // through everything, same as syncDepartments does for classdescriptions.
+  const allMembers: MindbodyStaffMember[] = [];
+  let offset = 0;
+  const limit = 200;
+
+  for (;;) {
+    const page = await mindbody.getStaff(accessToken, { offset, limit });
+    const pageMembers = (page.StaffMembers ?? []) as MindbodyStaffMember[];
+    allMembers.push(...pageMembers);
+
+    offset += pageMembers.length;
+    const total = page.PaginationResponse?.TotalResults ?? 0;
+    if (pageMembers.length === 0 || offset >= total) {
+      break;
+    }
+  }
+
+  // MindBody's staff roster includes reserved/system placeholder accounts
+  // (e.g. Id -5 "Autoemail", Id -4 "Client") with negative ids -- exclude them.
+  const members = allMembers.filter((member) => member.Id > 0);
+  const idMap = new Map<number, string>();
+
+  for (const member of members) {
+    const displayName =
+      member.DisplayName ??
+      member.Name ??
+      ([member.FirstName, member.LastName].filter(Boolean).join(" ") || "Unknown");
+
+    const { data, error } = await supabase
+      .from("staff")
+      .upsert(
+        {
+          mindbody_staff_id: member.Id,
+          organization_id: organizationId,
+          // MindBody has no per-staff location concept (confirmed empirically:
+          // filtering /staff/staff by different LocationIds returns identical
+          // results) -- location_id stays null.
+          location_id: null,
+          first_name: member.FirstName ?? "Unknown",
+          last_name: member.LastName ?? "Unknown",
+          display_name: displayName,
+          email: member.Email,
+          phone: member.MobilePhone ?? member.HomePhone ?? member.WorkPhone,
+          active: !member.EmploymentEnd,
+          hire_date: member.EmploymentStart,
+          separation_date: member.EmploymentEnd,
+        },
+        { onConflict: "mindbody_staff_id" },
+      )
+      .select("id")
+      .single();
+
+    if (!error && data) {
+      idMap.set(member.Id, data.id);
+    } else if (error) {
+      console.error(error);
+    }
+  }
+
+  return idMap;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -43,6 +227,14 @@ export async function GET(request: NextRequest) {
     if (orgError || !org) {
       throw new Error(orgError?.message ?? "Failed to upsert organization.");
     }
+
+    // Reference data is synced from site-wide MindBody endpoints (not scoped
+    // to the classes date window below), so staff/rooms/departments resolve
+    // correctly regardless of which day is being synced.
+    await syncLocations(mindbody, supabase, accessToken, org.id, org.timezone);
+    const roomIdByResourceId = await syncRooms(mindbody, supabase, accessToken);
+    const departmentIdByProgramId = await syncDepartments(mindbody, supabase, accessToken);
+    const staffIdByMindbodyId = await syncStaff(mindbody, supabase, accessToken, org.id);
 
     const result = await mindbody.getClasses(accessToken, { startDateTime, endDateTime, locationId });
     const classes = result.Classes ?? [];
@@ -93,9 +285,12 @@ export async function GET(request: NextRequest) {
 
             fill_rate: fillRate,
 
-            staff_id: null,
-            department_id: null,
-            room_id: null,
+            staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
+            department_id:
+              cls.ClassDescription?.Program?.Id != null
+                ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
+                : null,
+            room_id: cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) ?? null : null,
             substitute_staff_id: null,
           },
           {
