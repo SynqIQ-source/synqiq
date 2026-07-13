@@ -1,4 +1,5 @@
 import { getEnv, getOptionalEnv } from "@/lib/env";
+import type { MindbodyOccurrenceId } from "@/lib/mindbody/types";
 
 type MindbodyClientOptions = {
   baseUrl?: string;
@@ -47,10 +48,18 @@ export class MindbodyClient {
     });
   }
 
-  async getClasses(accessToken?: string) {
+  async getClasses(
+    accessToken?: string,
+    filters?: { startDateTime?: string; endDateTime?: string; locationId?: number },
+  ) {
     return this.request("/class/classes", {
       method: "GET",
       accessToken,
+      searchParams: {
+        StartDateTime: filters?.startDateTime,
+        EndDateTime: filters?.endDateTime,
+        LocationIds: filters?.locationId,
+      },
     });
   }
 
@@ -61,12 +70,22 @@ export class MindbodyClient {
     });
   }
 
-  async getClassVisits(classId: string | number, accessToken?: string) {
+  async getSite(accessToken?: string) {
+    return this.request("/site/sites", {
+      method: "GET",
+      accessToken,
+    });
+  }
+
+  async getClassVisits(occurrenceId: MindbodyOccurrenceId, accessToken?: string) {
     return this.request("/class/classvisits", {
       method: "GET",
       accessToken,
       searchParams: {
-        ClassID: classId,
+        // MindBody's ClassID param is occurrence-scoped (matches Classes[].Id),
+        // NOT ClassScheduleId -- confirmed empirically, passing the series id
+        // silently resolves to a different (wrong) class with no error.
+        ClassID: occurrenceId,
       },
     });
   }

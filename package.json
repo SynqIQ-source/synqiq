@@ -12,17 +12,19 @@
   "dependencies": {
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.1",
+    "luxon": "^3.7.2",
     "next": "^15.2.4",
     "react": "18.2.0",
-"react-dom": "18.2.0"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
+    "@next/eslint-plugin-next": "^15.2.4",
     "@tailwindcss/postcss": "^4.0.15",
+    "@types/luxon": "^3.7.2",
     "@types/node": "^22.13.10",
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.4",
-    "@next/eslint-plugin-next": "^15.2.4",
     "eslint": "^9.23.0",
     "eslint-config-next": "^15.2.4",
     "eslint-plugin-react": "^7.37.5",
