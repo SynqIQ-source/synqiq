@@ -10,11 +10,9 @@ type DateRangeFilter = {
 
 type OverviewRow = {
   id: string;
-  start_datetime: string | null;
   max_capacity: number | null;
-  total_booked: number | null;
-  total_signed_in: number | null;
   fill_rate: number | null;
+  attendance_rate: number | null;
   staff: { id: string; display_name: string } | null;
 };
 
@@ -30,11 +28,9 @@ async function getOverviewRows(range: DateRangeFilter = {}) {
     .select(
       `
       id,
-      start_datetime,
       max_capacity,
-      total_booked,
-      total_signed_in,
       fill_rate,
+      attendance_rate,
       staff:staff!class_occurrences_staff_id_fkey ( id, display_name )
       `,
     )
@@ -112,24 +108,16 @@ export default async function DashboardPage() {
   const totalClasses = rows.length;
   const averageFillRate = average(rows.map((row) => row.fill_rate ?? 0));
 
-  // attendance_rate is null on every row today (never populated by the
-  // sync) -- compute the show-up rate directly from total_signed_in /
-  // total_booked instead. Two cases get excluded rather than counted as 0%:
-  // classes nobody booked (attendance isn't meaningful with no bookings),
-  // and classes that haven't happened yet (an upcoming class legitimately
-  // has 0 sign-ins because check-in hasn't occurred, not because of a
-  // no-show).
-  const now = new Date();
+  // attendance_rate is now a real stored column, populated by the sync
+  // route using the same eligibility rule verified here previously: null
+  // for classes nobody booked or that haven't happened yet, so filtering on
+  // "not null" is exactly "eligible for the average" -- no ad-hoc
+  // recomputation needed on read.
   const rowsEligibleForAttendance = rows.filter(
-    (row) =>
-      (row.total_booked ?? 0) > 0 &&
-      row.start_datetime !== null &&
-      new Date(row.start_datetime) <= now,
+    (row) => row.attendance_rate !== null,
   );
   const averageAttendanceRate = average(
-    rowsEligibleForAttendance.map(
-      (row) => ((row.total_signed_in ?? 0) / (row.total_booked ?? 1)) * 100,
-    ),
+    rowsEligibleForAttendance.map((row) => row.attendance_rate ?? 0),
   );
 
   const instructorStats = computeInstructorStats(rows);

@@ -250,11 +250,20 @@ export async function GET(request: NextRequest) {
           ? Number(((totalBooked / maxCapacity) * 100).toFixed(2))
           : 0;
 
-      const startDatetime = DateTime.fromISO(cls.StartDateTime, {
+      const startDateTimeUtc = DateTime.fromISO(cls.StartDateTime, {
         zone: org.timezone,
-      })
-        .toUTC()
-        .toISO();
+      }).toUTC();
+      const startDatetime = startDateTimeUtc.toISO();
+
+      // Same eligibility rule verified on the dashboard: only meaningful for
+      // classes that have already happened and had at least one booking.
+      // An upcoming class has 0 sign-ins because check-in hasn't occurred
+      // yet, not because of a no-show, and a class nobody booked has no
+      // attendance concept at all -- both stay null rather than 0.
+      const attendanceRate =
+        totalBooked > 0 && startDateTimeUtc <= DateTime.utc()
+          ? Number((((cls.TotalSignedIn ?? 0) / totalBooked) * 100).toFixed(2))
+          : null;
 
       const { error } = await supabase
         .from("class_occurrences")
@@ -284,6 +293,7 @@ export async function GET(request: NextRequest) {
             total_signed_in: cls.TotalSignedIn ?? 0,
 
             fill_rate: fillRate,
+            attendance_rate: attendanceRate,
 
             staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
             department_id:
