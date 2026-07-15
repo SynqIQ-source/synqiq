@@ -50,7 +50,13 @@ export class MindbodyClient {
 
   async getClasses(
     accessToken?: string,
-    filters?: { startDateTime?: string; endDateTime?: string; locationId?: number },
+    filters?: {
+      startDateTime?: string;
+      endDateTime?: string;
+      locationId?: number;
+      offset?: number;
+      limit?: number;
+    },
   ) {
     return this.request("/class/classes", {
       method: "GET",
@@ -59,6 +65,8 @@ export class MindbodyClient {
         StartDateTime: filters?.startDateTime,
         EndDateTime: filters?.endDateTime,
         LocationIds: filters?.locationId,
+        Offset: filters?.offset,
+        Limit: filters?.limit,
       },
     });
   }

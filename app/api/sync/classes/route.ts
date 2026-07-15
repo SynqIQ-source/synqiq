@@ -6,6 +6,25 @@ import type { MindbodyStaffMember } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3, backoffMs = 1000): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= attempts) {
+        throw error;
+      }
+      console.error(`Attempt ${attempt} failed, retrying in ${backoffMs}ms:`, error);
+      await delay(backoffMs);
+      backoffMs *= 2;
+    }
+  }
+}
+
 async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string, timezone: string) {
   const result = await mindbody.getLocations(accessToken);
   const locations = result.Locations ?? [];
@@ -236,89 +255,120 @@ export async function GET(request: NextRequest) {
     const departmentIdByProgramId = await syncDepartments(mindbody, supabase, accessToken);
     const staffIdByMindbodyId = await syncStaff(mindbody, supabase, accessToken, org.id);
 
-    const result = await mindbody.getClasses(accessToken, { startDateTime, endDateTime, locationId });
-    const classes = result.Classes ?? [];
-
+    // Paginate through every class in the window -- a single unpaginated
+    // call silently truncates to MindBody's default page size (the same bug
+    // fixed for /staff/staff: it looks like "it worked" while quietly
+    // dropping most of the results). A small delay between pages and a
+    // retry-with-backoff around each fetch keep this polite at the volume a
+    // 90-day, all-locations sync pulls (roughly 1,000 classes / ~5 pages),
+    // and give it a chance to recover from a transient MindBody hiccup
+    // instead of failing the whole sync outright.
     let imported = 0;
+    let totalClasses = 0;
+    let offset = 0;
+    const pageLimit = 200;
 
-    for (const cls of classes) {
-      const maxCapacity = cls.MaxCapacity ?? 0;
-      const totalBooked = cls.TotalBooked ?? 0;
+    for (;;) {
+      const page = await withRetry(() =>
+        mindbody.getClasses(accessToken, {
+          startDateTime,
+          endDateTime,
+          locationId,
+          offset,
+          limit: pageLimit,
+        }),
+      );
+      const classes = page.Classes ?? [];
+      totalClasses = page.PaginationResponse?.TotalResults ?? classes.length;
 
-      const fillRate =
-        maxCapacity > 0
-          ? Number(((totalBooked / maxCapacity) * 100).toFixed(2))
-          : 0;
+      for (const cls of classes) {
+        const maxCapacity = cls.MaxCapacity ?? 0;
+        const totalBooked = cls.TotalBooked ?? 0;
 
-      const startDateTimeUtc = DateTime.fromISO(cls.StartDateTime, {
-        zone: org.timezone,
-      }).toUTC();
-      const startDatetime = startDateTimeUtc.toISO();
+        const fillRate =
+          maxCapacity > 0
+            ? Number(((totalBooked / maxCapacity) * 100).toFixed(2))
+            : 0;
 
-      // Same eligibility rule verified on the dashboard: only meaningful for
-      // classes that have already happened and had at least one booking.
-      // An upcoming class has 0 sign-ins because check-in hasn't occurred
-      // yet, not because of a no-show, and a class nobody booked has no
-      // attendance concept at all -- both stay null rather than 0.
-      const attendanceRate =
-        totalBooked > 0 && startDateTimeUtc <= DateTime.utc()
-          ? Number((((cls.TotalSignedIn ?? 0) / totalBooked) * 100).toFixed(2))
-          : null;
+        const startDateTimeUtc = DateTime.fromISO(cls.StartDateTime, {
+          zone: org.timezone,
+        }).toUTC();
+        const startDatetime = startDateTimeUtc.toISO();
 
-      const { error } = await supabase
-        .from("class_occurrences")
-        .upsert(
-          {
-            // MindBody's occurrence-level Id: the true unique per-class-instance
-            // identifier, stable across re-syncs. Do not confuse with
-            // ClassScheduleId, which identifies the recurring series and is
-            // shared by every occurrence of that series.
-            mindbody_occurrence_id: cls.Id,
-            mindbody_class_schedule_id: cls.ClassScheduleId,
-            organization_id: org.id,
+        // Same eligibility rule verified on the dashboard: only meaningful for
+        // classes that have already happened and had at least one booking.
+        // An upcoming class has 0 sign-ins because check-in hasn't occurred
+        // yet, not because of a no-show, and a class nobody booked has no
+        // attendance concept at all -- both stay null rather than 0.
+        const attendanceRate =
+          totalBooked > 0 && startDateTimeUtc <= DateTime.utc()
+            ? Number((((cls.TotalSignedIn ?? 0) / totalBooked) * 100).toFixed(2))
+            : null;
 
-            class_name: cls.ClassDescription?.Name ?? "Unknown",
+        const { error } = await supabase
+          .from("class_occurrences")
+          .upsert(
+            {
+              // MindBody's occurrence-level Id: the true unique per-class-instance
+              // identifier, stable across re-syncs. Do not confuse with
+              // ClassScheduleId, which identifies the recurring series and is
+              // shared by every occurrence of that series.
+              mindbody_occurrence_id: cls.Id,
+              mindbody_class_schedule_id: cls.ClassScheduleId,
+              organization_id: org.id,
 
-            instructor_name:
-              cls.Staff?.Name ??
-              cls.Staff?.FirstName ??
-              "Unknown",
+              class_name: cls.ClassDescription?.Name ?? "Unknown",
 
-            start_datetime: startDatetime,
+              instructor_name:
+                cls.Staff?.Name ??
+                cls.Staff?.FirstName ??
+                "Unknown",
 
-            max_capacity: maxCapacity,
-            web_capacity: cls.WebCapacity ?? 0,
+              start_datetime: startDatetime,
 
-            total_booked: totalBooked,
-            total_signed_in: cls.TotalSignedIn ?? 0,
+              max_capacity: maxCapacity,
+              web_capacity: cls.WebCapacity ?? 0,
 
-            fill_rate: fillRate,
-            attendance_rate: attendanceRate,
+              total_booked: totalBooked,
+              total_signed_in: cls.TotalSignedIn ?? 0,
 
-            staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
-            department_id:
-              cls.ClassDescription?.Program?.Id != null
-                ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
-                : null,
-            room_id: cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) ?? null : null,
-            substitute_staff_id: null,
-          },
-          {
-            onConflict: "mindbody_occurrence_id",
-          },
-        );
+              fill_rate: fillRate,
+              attendance_rate: attendanceRate,
 
-      if (!error) {
-        imported++;
-      } else {
-        console.error(error);
+              staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
+              department_id:
+                cls.ClassDescription?.Program?.Id != null
+                  ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
+                  : null,
+              room_id: cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) ?? null : null,
+              substitute_staff_id: null,
+            },
+            {
+              onConflict: "mindbody_occurrence_id",
+            },
+          );
+
+        if (!error) {
+          imported++;
+        } else {
+          console.error(error);
+        }
       }
+
+      offset += classes.length;
+      if (classes.length === 0 || offset >= totalClasses) {
+        break;
+      }
+
+      // Courtesy pacing between MindBody page fetches, not needed between
+      // the Supabase upserts above (different service, no shared limit).
+      await delay(300);
     }
 
     return NextResponse.json({
       success: true,
       imported,
-      total: classes.length,
+      total: totalClasses,
     });
   } catch (error) {
     return NextResponse.json(
