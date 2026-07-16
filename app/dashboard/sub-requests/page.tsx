@@ -4,7 +4,56 @@ import { StaffSelect } from "@/components/staff-select";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
+import { CancelRequestButton } from "./cancel-request-button";
 import { ResponseButtons, type ResponseStatus } from "./response-buttons";
+
+type MyRequestRow = {
+  id: string;
+  status: "open" | "pending_selection" | "approved";
+  occurrence: {
+    id: string;
+    class_name: string | null;
+    start_datetime: string | null;
+    end_datetime: string | null;
+    substitute_staff_id: string | null;
+    substituteStaff: { display_name: string } | null;
+    room: { name: string | null } | null;
+    organization: { timezone: string | null } | null;
+  } | null;
+};
+
+async function getMyRequests(staffId: string) {
+  const supabase = createSupabaseAdminClient();
+
+  const { data, error } = await supabase
+    .from("substitution_requests")
+    .select(
+      `
+      id,
+      status,
+      occurrence:class_occurrences!substitution_requests_occurrence_id_fkey (
+        id,
+        class_name,
+        start_datetime,
+        end_datetime,
+        substitute_staff_id,
+        substituteStaff:staff!class_occurrences_substitute_staff_id_fkey ( display_name ),
+        room:rooms!class_occurrences_room_id_fkey ( name ),
+        organization:organizations!class_occurrences_organization_id_fkey ( timezone )
+      )
+      `,
+    )
+    .eq("requested_by", staffId)
+    .in("status", ["open", "pending_selection", "approved"])
+    .order("created_at", { ascending: true })
+    .returns<MyRequestRow[]>();
+
+  if (error) {
+    throw new Error(`Failed to load your requests: ${error.message}`);
+  }
+
+  return data ?? [];
+}
 
 type OpenRequestRow = {
   id: string;
@@ -142,36 +191,117 @@ export default async function SubRequestsPage({
 
   const staffOptions = await getActiveStaff();
   const rows = staffId ? await getOpenRequestsQualifiedFor(staffId) : [];
+  const myRequests = staffId ? await getMyRequests(staffId) : [];
 
   return (
     <DashboardShell
       title="Sub Requests"
-      description="Open coverage requests you're qualified to cover."
+      description="Your own coverage requests, and open requests you're qualified to cover."
     >
       <StaffSelect staffOptions={staffOptions} staffId={staffId} />
 
-      <div className="mt-6">
+      {staffId ? (
+        <div className="mt-6">
+          <h2 className="text-base font-semibold text-zinc-950">
+            My Requests
+          </h2>
+          {myRequests.length === 0 ? (
+            <p className="mt-2 text-sm text-zinc-600">
+              You have no open substitution requests.
+            </p>
+          ) : (
+            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {myRequests.map((request) => {
+                const occurrence = request.occurrence;
+                const className = occurrence?.class_name ?? "Unknown class";
+                const dateLabel = formatDateLabel(
+                  occurrence?.start_datetime ?? null,
+                  occurrence?.organization?.timezone ?? null,
+                );
+                const timeRange = formatClassTime(
+                  occurrence?.start_datetime ?? null,
+                  occurrence?.end_datetime ?? null,
+                  occurrence?.organization?.timezone ?? null,
+                );
+                const timeFormatted = dateLabel
+                  ? `${dateLabel}, ${timeRange}`
+                  : timeRange;
+                const roomName = occurrence?.room?.name ?? "Not assigned";
+
+                return (
+                  <div
+                    key={request.id}
+                    className="flex flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5"
+                  >
+                    <div>
+                      <h3 className="text-base font-semibold text-zinc-950">
+                        {className}
+                      </h3>
+                      <dl className="mt-3 space-y-1 text-sm text-zinc-600">
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-zinc-500">Time</dt>
+                          <dd className="text-right text-zinc-950">
+                            {timeFormatted}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-zinc-500">Room</dt>
+                          <dd className="text-right text-zinc-950">
+                            {roomName}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    <div className="mt-5">
+                      {request.status === "approved" ? (
+                        <span className="inline-flex items-center rounded-full bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700">
+                          Approved — {occurrence?.substituteStaff?.display_name ?? "Unknown"}
+                        </span>
+                      ) : request.status === "open" ? (
+                        <CancelRequestButton
+                          requestId={request.id}
+                          callerStaffId={staffId}
+                        />
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
+                          Pending selection
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      <div className="mt-8">
+        <h2 className="text-base font-semibold text-zinc-950">
+          Requests You Can Cover
+        </h2>
         {!staffId ? (
-          <section className="rounded-lg border border-zinc-200 bg-white p-6">
-            <h2 className="text-base font-semibold text-zinc-950">
+          <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-6">
+            <h3 className="text-base font-semibold text-zinc-950">
               Select your name
-            </h2>
+            </h3>
             <p className="mt-2 text-sm leading-6 text-zinc-600">
               Choose your name above to see open requests you&apos;re
               qualified to cover.
             </p>
           </section>
         ) : rows.length === 0 ? (
-          <section className="rounded-lg border border-zinc-200 bg-white p-6">
-            <h2 className="text-base font-semibold text-zinc-950">
+          <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-6">
+            <h3 className="text-base font-semibold text-zinc-950">
               Nothing to cover right now
-            </h2>
+            </h3>
             <p className="mt-2 text-sm leading-6 text-zinc-600">
               No open requests currently match your class eligibility.
             </p>
           </section>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map(({ request, myStatus }) => {
               const occurrence = request.occurrence;
               const className = occurrence?.class_name ?? "Unknown class";

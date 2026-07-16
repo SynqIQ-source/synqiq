@@ -12,6 +12,7 @@ type ScheduleOccurrenceRow = {
   class_name: string | null;
   start_datetime: string | null;
   end_datetime: string | null;
+  substitute_staff_id: string | null;
   staff: { display_name: string } | null;
   department: { name: string | null } | null;
   room: { name: string | null } | null;
@@ -48,12 +49,17 @@ async function getScheduleForStaffOnDate(
       class_name,
       start_datetime,
       end_datetime,
+      substitute_staff_id,
       staff:staff!class_occurrences_staff_id_fkey ( display_name ),
       department:departments!class_occurrences_department_id_fkey ( name ),
       room:rooms!class_occurrences_room_id_fkey ( name )
       `,
     )
-    .eq("staff_id", staffId)
+    // Own classes, or classes they're covering as an approved substitute --
+    // the latter matters so a substitute who can't make it after all can
+    // still hit Create Sub Request on it themselves (which will supersede
+    // the approved request -- see app/api/substitution-requests/route.ts).
+    .or(`staff_id.eq.${staffId},substitute_staff_id.eq.${staffId}`)
     .not("mindbody_occurrence_id", "is", null)
     .gte("start_datetime", dayStart.toUTC().toISO())
     .lt("start_datetime", dayEnd.toUTC().toISO())
@@ -126,6 +132,7 @@ export default async function SchedulePage({
               );
               const roomName = occurrence.room?.name ?? "Not assigned";
               const staffDisplayName = occurrence.staff?.display_name ?? "";
+              const isCovering = occurrence.substitute_staff_id === staffId;
 
               return (
                 <div
@@ -153,6 +160,7 @@ export default async function SchedulePage({
                         <dt className="text-zinc-500">Instructor</dt>
                         <dd className="text-right text-zinc-950">
                           {staffDisplayName}
+                          {isCovering ? " (you're covering)" : ""}
                         </dd>
                       </div>
                     </dl>

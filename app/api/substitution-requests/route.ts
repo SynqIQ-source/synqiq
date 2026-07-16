@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-// Non-terminal statuses -- an occurrence can't have two active requests at
-// once (guards against double-submission), but can have a new one after a
-// prior request reached a terminal state (completed/cancelled).
+// Non-terminal statuses -- an occurrence can't have two open/pending
+// requests at once (guards against double-submission). 'approved' is
+// non-terminal too, but is handled differently below: a new request
+// supersedes it (the arranged substitute fell through) rather than being
+// blocked by it. A prior request that reached a truly terminal state
+// (completed/cancelled) never blocks a new one.
 const NON_TERMINAL_STATUSES = ["open", "pending_selection", "approved"];
 
 type QualifiedInstructor = {
@@ -61,15 +64,49 @@ export async function POST(request: NextRequest) {
       throw new Error(existingRequestError.message);
     }
 
+    let supersededRequestId: string | null = null;
+
     if (existingRequest) {
-      return NextResponse.json(
-        {
-          error: "An active substitution request already exists for this occurrence.",
-          existingRequestId: existingRequest.id,
-          existingStatus: existingRequest.status,
-        },
-        { status: 409 },
-      );
+      if (existingRequest.status !== "approved") {
+        // open / pending_selection -- a genuinely unresolved request already
+        // exists, don't allow a duplicate/parallel one.
+        return NextResponse.json(
+          {
+            error: "An active substitution request already exists for this occurrence.",
+            existingRequestId: existingRequest.id,
+            existingStatus: existingRequest.status,
+          },
+          { status: 409 },
+        );
+      }
+
+      // approved -- the previously-arranged substitute can no longer cover
+      // this class after all. Close out the old approval (as 'cancelled',
+      // same terminal status the manual /cancel endpoint uses) and clear the
+      // occurrence's substitute assignment, then fall through to create a
+      // fresh request below instead of leaving the class permanently stuck
+      // on one approval. Either the covering instructor (from their own
+      // Schedule page, now widened to show classes they're substituting for)
+      // or a manager (from the Substitutions board) can trigger this.
+      const { error: supersedeError } = await supabase
+        .from("substitution_requests")
+        .update({ status: "cancelled", resolved_at: new Date().toISOString() })
+        .eq("id", existingRequest.id);
+
+      if (supersedeError) {
+        throw new Error(supersedeError.message);
+      }
+
+      const { error: clearSubError } = await supabase
+        .from("class_occurrences")
+        .update({ substitute_staff_id: null })
+        .eq("id", occurrenceId);
+
+      if (clearSubError) {
+        throw new Error(clearSubError.message);
+      }
+
+      supersededRequestId = existingRequest.id;
     }
 
     const { data: substitutionRequest, error: insertError } = await supabase
@@ -138,6 +175,7 @@ export async function POST(request: NextRequest) {
       request: substitutionRequest,
       departmentResolved: Boolean(occurrence.department_id),
       qualifiedInstructors,
+      supersededRequestId,
     });
   } catch (error) {
     return NextResponse.json(

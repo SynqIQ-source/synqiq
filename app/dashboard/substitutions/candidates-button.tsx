@@ -4,10 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Interest = {
-  id: string;
+  id: string | null;
   staffId: string;
-  status: "interested" | "declined";
-  respondedAt: string;
+  status: "interested" | "declined" | "no_response";
+  respondedAt: string | null;
   displayName: string | null;
   email: string | null;
 };
@@ -18,10 +18,24 @@ type CandidatesButtonProps = {
   startFormatted: string;
   roomName: string;
   requestedByName: string;
+  callerStaffId: string | null;
 };
 
 type FetchStatus = "idle" | "loading" | "loaded" | "error";
 type SelectStatus = "idle" | "selecting" | "error";
+type CancelStatus = "idle" | "cancelling" | "error";
+
+const STATUS_STYLES: Record<Interest["status"], string> = {
+  interested: "bg-teal-50 text-teal-700",
+  no_response: "bg-amber-50 text-amber-700",
+  declined: "bg-zinc-100 text-zinc-600",
+};
+
+const STATUS_LABELS: Record<Interest["status"], string> = {
+  interested: "Interested",
+  no_response: "No response yet",
+  declined: "Declined",
+};
 
 export function CandidatesButton({
   requestId,
@@ -29,6 +43,7 @@ export function CandidatesButton({
   startFormatted,
   roomName,
   requestedByName,
+  callerStaffId,
 }: CandidatesButtonProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
@@ -38,12 +53,16 @@ export function CandidatesButton({
   const [selectStatus, setSelectStatus] = useState<SelectStatus>("idle");
   const [selectError, setSelectError] = useState<string | null>(null);
   const [selectingStaffId, setSelectingStaffId] = useState<string | null>(null);
+  const [cancelStatus, setCancelStatus] = useState<CancelStatus>("idle");
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   async function openModal() {
     setIsOpen(true);
     setSelectStatus("idle");
     setSelectError(null);
     setSelectingStaffId(null);
+    setCancelStatus("idle");
+    setCancelError(null);
     setFetchStatus("loading");
     setFetchError(null);
 
@@ -111,6 +130,40 @@ export function CandidatesButton({
     }
   }
 
+  async function handleCancel() {
+    if (!callerStaffId) {
+      setCancelStatus("error");
+      setCancelError("Select your name above first.");
+      return;
+    }
+
+    setCancelStatus("cancelling");
+    setCancelError(null);
+
+    try {
+      const response = await fetch(`/api/substitution-requests/${requestId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callerStaffId }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setCancelStatus("error");
+        setCancelError(data?.error ?? "Failed to cancel this request.");
+        return;
+      }
+
+      setIsOpen(false);
+      router.refresh();
+    } catch (error) {
+      setCancelStatus("error");
+      setCancelError(
+        error instanceof Error ? error.message : "Failed to cancel this request.",
+      );
+    }
+  }
+
   return (
     <>
       <button
@@ -153,7 +206,7 @@ export function CandidatesButton({
                 <p className="text-sm text-red-600">{fetchError}</p>
               ) : interests.length === 0 ? (
                 <p className="text-sm text-zinc-500">
-                  No one has responded yet.
+                  No qualified instructors found for this class.
                 </p>
               ) : (
                 <ul className="divide-y divide-zinc-200">
@@ -162,7 +215,7 @@ export function CandidatesButton({
 
                     return (
                       <li
-                        key={interest.id}
+                        key={interest.staffId}
                         className="flex items-center justify-between gap-4 py-3"
                       >
                         <div>
@@ -175,13 +228,9 @@ export function CandidatesButton({
                         </div>
                         <div className="flex items-center gap-3">
                           <span
-                            className={
-                              isInterested
-                                ? "rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700"
-                                : "rounded-full bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600"
-                            }
+                            className={`rounded-full px-2 py-1 text-xs font-medium ${STATUS_STYLES[interest.status]}`}
                           >
-                            {isInterested ? "Interested" : "Declined"}
+                            {STATUS_LABELS[interest.status]}
                           </span>
                           {isInterested ? (
                             <button
@@ -206,9 +255,20 @@ export function CandidatesButton({
               {selectStatus === "error" ? (
                 <p className="mt-3 text-sm text-red-600">{selectError}</p>
               ) : null}
+              {cancelStatus === "error" ? (
+                <p className="mt-3 text-sm text-red-600">{cancelError}</p>
+              ) : null}
             </div>
 
-            <div className="mt-5 flex justify-end">
+            <div className="mt-5 flex justify-between">
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={cancelStatus === "cancelling"}
+                className="rounded-md border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+              >
+                {cancelStatus === "cancelling" ? "Cancelling..." : "Cancel Request"}
+              </button>
               <button
                 type="button"
                 onClick={closeModal}
