@@ -2,28 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { MindbodyClient, createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { delay, withRetry } from "@/lib/retry";
 import type { MindbodyStaffMember } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function withRetry<T>(fn: () => Promise<T>, attempts = 3, backoffMs = 1000): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt >= attempts) {
-        throw error;
-      }
-      console.error(`Attempt ${attempt} failed, retrying in ${backoffMs}ms:`, error);
-      await delay(backoffMs);
-      backoffMs *= 2;
-    }
-  }
-}
 
 async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string, timezone: string) {
   const result = await mindbody.getLocations(accessToken);

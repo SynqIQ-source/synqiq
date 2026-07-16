@@ -130,6 +130,25 @@ export class MindbodyClient {
     });
   }
 
+  async substituteClassTeacher(
+    occurrenceId: MindbodyOccurrenceId,
+    staffId: number,
+    accessToken?: string,
+  ) {
+    return this.request("/class/substituteclassteacher", {
+      method: "POST",
+      accessToken,
+      body: {
+        // Occurrence-level Id, same ClassId/ClassID-is-occurrence-scoped
+        // rule as getClassVisits -- confirmed empirically (see conversation
+        // history): passing the recurring series id instead silently
+        // resolves to a different, unrelated class with no error.
+        ClassId: occurrenceId,
+        StaffId: staffId,
+      },
+    });
+  }
+
   private async request(path: string, options: MindbodyRequestOptions = {}) {
     const url = new URL(`${this.baseUrl}${path}`);
 
@@ -152,7 +171,19 @@ export class MindbodyClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Mindbody request failed: ${response.status} ${response.statusText}`);
+      const bodyText = await response.text().catch(() => "");
+      let detail = bodyText;
+      try {
+        const parsed = JSON.parse(bodyText);
+        if (parsed?.Error?.Message) {
+          detail = parsed.Error.Message;
+        }
+      } catch {
+        // Not JSON -- fall back to the raw body text.
+      }
+      throw new Error(
+        `Mindbody request failed: ${response.status} ${response.statusText}${detail ? ` -- ${detail}` : ""}`,
+      );
     }
 
     return response.json();
