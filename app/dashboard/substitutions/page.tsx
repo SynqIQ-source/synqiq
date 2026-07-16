@@ -1,6 +1,8 @@
 import { DateTime } from "luxon";
+import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
+import { getCurrentStaff } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getActiveStaff } from "@/lib/staff";
 import { CandidatesButton } from "./candidates-button";
@@ -82,7 +84,8 @@ export default async function SubstitutionsPage({
   searchParams: Promise<{ staffId?: string }>;
 }) {
   const params = await searchParams;
-  const callerStaffId = params.staffId ?? null;
+  const currentStaff = await getCurrentStaff();
+  const callerStaffId = currentStaff?.id ?? params.staffId ?? null;
 
   const staffOptions = await getActiveStaff();
   const requests = await getActiveSubstitutionRequests();
@@ -92,7 +95,14 @@ export default async function SubstitutionsPage({
       title="Substitutions"
       description="Open and upcoming coverage requests."
     >
-      <StaffSelect staffOptions={staffOptions} staffId={callerStaffId} />
+      {currentStaff ? (
+        <CurrentUserBanner
+          displayName={currentStaff.displayName}
+          role={currentStaff.role}
+        />
+      ) : (
+        <StaffSelect staffOptions={staffOptions} staffId={callerStaffId} />
+      )}
 
       <p className="mt-2 text-xs text-zinc-500">
         Select your name to cancel or re-request coverage -- both actions

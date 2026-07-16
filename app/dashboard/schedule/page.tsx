@@ -1,6 +1,8 @@
 import { DateTime } from "luxon";
+import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
+import { getCurrentStaff } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
@@ -83,7 +85,13 @@ export default async function SchedulePage({
 
   const date =
     params.date ?? DateTime.now().setZone(timezone).toISODate() ?? "";
-  const staffId = params.staffId ?? null;
+
+  // A real session always wins over the "select your name" stand-in --
+  // once someone has a login, they no longer pick themselves from a
+  // dropdown. Staff without a login yet still use the dropdown exactly as
+  // before.
+  const currentStaff = await getCurrentStaff();
+  const staffId = currentStaff?.id ?? params.staffId ?? null;
 
   const staffOptions = await getActiveStaff();
   const occurrences = staffId
@@ -96,7 +104,14 @@ export default async function SchedulePage({
       description="Your own class schedule, day by day -- request a substitute directly from a class card."
     >
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <StaffSelect staffOptions={staffOptions} staffId={staffId} />
+        {currentStaff ? (
+          <CurrentUserBanner
+            displayName={currentStaff.displayName}
+            role={currentStaff.role}
+          />
+        ) : (
+          <StaffSelect staffOptions={staffOptions} staffId={staffId} />
+        )}
         <DateNav date={date} />
       </div>
 

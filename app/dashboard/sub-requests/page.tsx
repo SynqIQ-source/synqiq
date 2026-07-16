@@ -1,6 +1,8 @@
 import { DateTime } from "luxon";
+import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
+import { getCurrentStaff } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
@@ -187,7 +189,8 @@ export default async function SubRequestsPage({
   searchParams: Promise<{ staffId?: string }>;
 }) {
   const params = await searchParams;
-  const staffId = params.staffId ?? null;
+  const currentStaff = await getCurrentStaff();
+  const staffId = currentStaff?.id ?? params.staffId ?? null;
 
   const staffOptions = await getActiveStaff();
   const rows = staffId ? await getOpenRequestsQualifiedFor(staffId) : [];
@@ -198,7 +201,14 @@ export default async function SubRequestsPage({
       title="Sub Requests"
       description="Your own coverage requests, and open requests you're qualified to cover."
     >
-      <StaffSelect staffOptions={staffOptions} staffId={staffId} />
+      {currentStaff ? (
+        <CurrentUserBanner
+          displayName={currentStaff.displayName}
+          role={currentStaff.role}
+        />
+      ) : (
+        <StaffSelect staffOptions={staffOptions} staffId={staffId} />
+      )}
 
       {staffId ? (
         <div className="mt-6">
