@@ -1,14 +1,10 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { StaffSelect } from "@/components/staff-select";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { StaffSelect } from "./staff-select";
+import { getActiveStaff } from "@/lib/staff";
 import { DateNav } from "./date-nav";
 import { SubRequestButton } from "./sub-request-button";
-
-type StaffOption = {
-  id: string;
-  display_name: string;
-};
 
 type ScheduleOccurrenceRow = {
   id: string;
@@ -30,22 +26,6 @@ async function getOrgTimezone() {
     .maybeSingle();
 
   return data?.timezone ?? "utc";
-}
-
-async function getActiveStaff(): Promise<StaffOption[]> {
-  const supabase = createSupabaseAdminClient();
-  const { data, error } = await supabase
-    .from("staff")
-    .select("id, display_name")
-    .eq("active", true)
-    .order("display_name")
-    .returns<StaffOption[]>();
-
-  if (error) {
-    throw new Error(`Failed to load staff: ${error.message}`);
-  }
-
-  return data ?? [];
 }
 
 async function getScheduleForStaffOnDate(

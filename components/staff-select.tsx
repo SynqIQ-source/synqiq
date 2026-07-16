@@ -1,11 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-
-type StaffOption = {
-  id: string;
-  display_name: string;
-};
+import type { StaffOption } from "@/lib/staff";
 
 type StaffSelectProps = {
   staffOptions: StaffOption[];
