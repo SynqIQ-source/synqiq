@@ -277,6 +277,10 @@ export async function GET(request: NextRequest) {
         }).toUTC();
         const startDatetime = startDateTimeUtc.toISO();
 
+        const endDatetime = cls.EndDateTime
+          ? DateTime.fromISO(cls.EndDateTime, { zone: org.timezone }).toUTC().toISO()
+          : null;
+
         // Same eligibility rule verified on the dashboard: only meaningful for
         // classes that have already happened and had at least one booking.
         // An upcoming class has 0 sign-ins because check-in hasn't occurred
@@ -307,6 +311,7 @@ export async function GET(request: NextRequest) {
                 "Unknown",
 
               start_datetime: startDatetime,
+              end_datetime: endDatetime,
 
               max_capacity: maxCapacity,
               web_capacity: cls.WebCapacity ?? 0,

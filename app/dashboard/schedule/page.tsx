@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
 import { DateNav } from "./date-nav";
 import { SubRequestButton } from "./sub-request-button";
@@ -10,6 +11,7 @@ type ScheduleOccurrenceRow = {
   id: string;
   class_name: string | null;
   start_datetime: string | null;
+  end_datetime: string | null;
   staff: { display_name: string } | null;
   department: { name: string | null } | null;
   room: { name: string | null } | null;
@@ -45,6 +47,7 @@ async function getScheduleForStaffOnDate(
       id,
       class_name,
       start_datetime,
+      end_datetime,
       staff:staff!class_occurrences_staff_id_fkey ( display_name ),
       department:departments!class_occurrences_department_id_fkey ( name ),
       room:rooms!class_occurrences_room_id_fkey ( name )
@@ -62,16 +65,6 @@ async function getScheduleForStaffOnDate(
   }
 
   return data ?? [];
-}
-
-function formatStartTime(startDatetime: string | null, timezone: string) {
-  if (!startDatetime) {
-    return "N/A";
-  }
-
-  return DateTime.fromISO(startDatetime, { zone: "utc" })
-    .setZone(timezone)
-    .toFormat("h:mm a ZZZZ");
 }
 
 export default async function SchedulePage({
@@ -126,8 +119,9 @@ export default async function SchedulePage({
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {occurrences.map((occurrence) => {
               const className = occurrence.class_name ?? "Unknown class";
-              const startFormatted = formatStartTime(
+              const timeFormatted = formatClassTime(
                 occurrence.start_datetime,
+                occurrence.end_datetime,
                 timezone,
               );
               const roomName = occurrence.room?.name ?? "Not assigned";
@@ -146,7 +140,7 @@ export default async function SchedulePage({
                       <div className="flex justify-between gap-4">
                         <dt className="text-zinc-500">Time</dt>
                         <dd className="text-right text-zinc-950">
-                          {startFormatted}
+                          {timeFormatted}
                         </dd>
                       </div>
                       <div className="flex justify-between gap-4">
@@ -168,7 +162,7 @@ export default async function SchedulePage({
                     <SubRequestButton
                       occurrenceId={occurrence.id}
                       className={className}
-                      startFormatted={startFormatted}
+                      timeFormatted={timeFormatted}
                       roomName={roomName}
                       staffDisplayName={staffDisplayName}
                       requestedBy={staffId}

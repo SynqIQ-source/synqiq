@@ -5,7 +5,7 @@ import { useState } from "react";
 type SubRequestButtonProps = {
   occurrenceId: string;
   className: string;
-  startFormatted: string;
+  timeFormatted: string;
   roomName: string;
   staffDisplayName: string;
   requestedBy: string;
@@ -16,7 +16,7 @@ type SubmitStatus = "idle" | "submitting" | "success" | "error";
 export function SubRequestButton({
   occurrenceId,
   className,
-  startFormatted,
+  timeFormatted,
   roomName,
   staffDisplayName,
   requestedBy,
@@ -101,7 +101,7 @@ export function SubRequestButton({
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-zinc-500">Time</dt>
-                <dd className="text-right text-zinc-950">{startFormatted}</dd>
+                <dd className="text-right text-zinc-950">{timeFormatted}</dd>
               </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-zinc-500">Room</dt>

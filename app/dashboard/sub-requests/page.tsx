@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
 import { ResponseButtons, type ResponseStatus } from "./response-buttons";
 
@@ -13,6 +14,7 @@ type OpenRequestRow = {
     id: string;
     class_name: string | null;
     start_datetime: string | null;
+    end_datetime: string | null;
     staff_id: string | null;
     department_id: string | null;
     room: { name: string | null } | null;
@@ -58,6 +60,7 @@ async function getOpenRequestsQualifiedFor(staffId: string) {
         id,
         class_name,
         start_datetime,
+        end_datetime,
         staff_id,
         department_id,
         room:rooms!class_occurrences_room_id_fkey ( name ),
@@ -119,14 +122,14 @@ async function getOpenRequestsQualifiedFor(staffId: string) {
   }));
 }
 
-function formatStartTime(startDatetime: string | null, timezone: string | null) {
+function formatDateLabel(startDatetime: string | null, timezone: string | null) {
   if (!startDatetime) {
-    return "N/A";
+    return null;
   }
 
   return DateTime.fromISO(startDatetime, { zone: "utc" })
     .setZone(timezone ?? "utc")
-    .toFormat("EEE, MMM d 'at' h:mm a ZZZZ");
+    .toFormat("EEE, MMM d");
 }
 
 export default async function SubRequestsPage({
@@ -172,10 +175,18 @@ export default async function SubRequestsPage({
             {rows.map(({ request, myStatus }) => {
               const occurrence = request.occurrence;
               const className = occurrence?.class_name ?? "Unknown class";
-              const startFormatted = formatStartTime(
+              const dateLabel = formatDateLabel(
                 occurrence?.start_datetime ?? null,
                 occurrence?.organization?.timezone ?? null,
               );
+              const timeRange = formatClassTime(
+                occurrence?.start_datetime ?? null,
+                occurrence?.end_datetime ?? null,
+                occurrence?.organization?.timezone ?? null,
+              );
+              const timeFormatted = dateLabel
+                ? `${dateLabel}, ${timeRange}`
+                : timeRange;
               const roomName = occurrence?.room?.name ?? "Not assigned";
               const requestedByName =
                 request.requestedByStaff?.display_name ?? "Unknown";
@@ -193,7 +204,7 @@ export default async function SubRequestsPage({
                       <div className="flex justify-between gap-4">
                         <dt className="text-zinc-500">Time</dt>
                         <dd className="text-right text-zinc-950">
-                          {startFormatted}
+                          {timeFormatted}
                         </dd>
                       </div>
                       <div className="flex justify-between gap-4">

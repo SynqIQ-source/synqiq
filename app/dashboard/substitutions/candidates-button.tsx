@@ -86,7 +86,13 @@ export function CandidatesButton({
 
       if (!response.ok) {
         setSelectStatus("error");
-        setSelectError(data?.error ?? "Failed to select this candidate.");
+        // `details` carries MindBody's actual raw error text (see
+        // app/api/substitution-requests/[id]/select/route.ts) -- `error` alone
+        // is just our generic "MindBody rejected the substitution" wrapper.
+        const message = data?.details
+          ? `${data?.error ?? "Failed to select this candidate."} (${data.details})`
+          : data?.error ?? "Failed to select this candidate.";
+        setSelectError(message);
         setSelectingStaffId(null);
         return;
       }
