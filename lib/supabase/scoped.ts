@@ -25,3 +25,5 @@ export async function getScopedClient(currentStaff: CurrentStaff | null) {
 
   return createSupabaseAdminClient();
 }
+
+export type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;

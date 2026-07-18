@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
 
 // Non-terminal statuses -- an occurrence can't have two open/pending
 // requests at once (guards against double-submission). 'approved' is
@@ -19,17 +20,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const occurrenceId: string | undefined = body?.occurrenceId;
-    // TODO: no auth/session system exists yet, so requestedBy is taken as a
-    // plain client-supplied field with no verification. Revisit once staff
-    // login exists -- MindBody's /usertoken/issue was investigated as a way
-    // to delegate identity, but its User.Id is a session-scoped artifact of
-    // the calling API credential, not a stable Staff.Id (confirmed: two
-    // calls with the identical site-owner credential returned different
-    // User.Id values, neither of which exists anywhere in the real 137-row
-    // staff roster). A real instructor-level credential would need to be
-    // tested before that approach could work.
-    const requestedBy: string | undefined = body?.requestedBy;
     const reason: string | undefined = body?.reason;
+
+    // A real session's identity always wins over whatever the client sent --
+    // the whole point of moving this route off the admin client is to stop
+    // trusting a client-supplied requestedBy. No session yet (the ~137 staff
+    // without a login) still trusts the body, same as before -- MindBody's
+    // /usertoken/issue was investigated as a way to delegate identity for
+    // them too, but its User.Id is a session-scoped artifact of the calling
+    // API credential, not a stable Staff.Id (confirmed: two calls with the
+    // identical site-owner credential returned different User.Id values,
+    // neither of which exists anywhere in the real 137-row staff roster).
+    const currentStaff = await getCurrentStaff();
+    const requestedBy: string | undefined = currentStaff?.id ?? body?.requestedBy;
 
     if (!occurrenceId || !requestedBy) {
       return NextResponse.json(
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createSupabaseAdminClient();
+    const supabase = await getScopedClient(currentStaff);
 
     const { data: occurrence, error: occurrenceError } = await supabase
       .from("class_occurrences")

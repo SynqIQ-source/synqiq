@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
 import { respondToSubstitutionRequest } from "@/lib/substitutions/respond";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -7,13 +8,19 @@ type RouteParams = { params: Promise<{ id: string }> };
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const { id: requestId } = await params;
   const body = await request.json();
-  const staffId: string | undefined = body?.staffId;
+
+  // A real session's identity always wins over whatever the client sent --
+  // no session yet (the ~137 staff without a login) still trusts the body,
+  // same as before.
+  const currentStaff = await getCurrentStaff();
+  const staffId: string | undefined = currentStaff?.id ?? body?.staffId;
 
   if (!staffId) {
     return NextResponse.json({ error: "staffId is required." }, { status: 400 });
   }
 
-  const result = await respondToSubstitutionRequest(requestId, staffId, "interested");
+  const supabase = await getScopedClient(currentStaff);
+  const result = await respondToSubstitutionRequest(supabase, requestId, staffId, "interested");
 
   if (!result.ok) {
     return NextResponse.json(
@@ -57,7 +64,8 @@ type CandidateEntry = {
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const { id: requestId } = await params;
-    const supabase = createSupabaseAdminClient();
+    const currentStaff = await getCurrentStaff();
+    const supabase = await getScopedClient(currentStaff);
 
     const { data: substitutionRequest, error: requestError } = await supabase
       .from("substitution_requests")

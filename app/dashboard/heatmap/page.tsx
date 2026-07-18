@@ -1,9 +1,7 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
-import { getScopedClient } from "@/lib/supabase/scoped";
-
-type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
+import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 
 type HeatmapRow = {
   start_datetime: string | null;

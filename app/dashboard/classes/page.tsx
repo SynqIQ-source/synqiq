@@ -1,11 +1,9 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
-import { getScopedClient } from "@/lib/supabase/scoped";
+import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { HistoryWindowSelect } from "./history-window-select";
 import { PeriodNav } from "./period-nav";
-
-type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
 type TableOccurrenceRow = {
   id: string;

@@ -1,4 +1,4 @@
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 
 export type SubstitutionResponseStatus = "interested" | "declined";
 
@@ -24,12 +24,11 @@ export type RespondResult =
  * overwritten.
  */
 export async function respondToSubstitutionRequest(
+  supabase: ScopedSupabaseClient,
   requestId: string,
   staffId: string,
   status: SubstitutionResponseStatus,
 ): Promise<RespondResult> {
-  const supabase = createSupabaseAdminClient();
-
   const { data: substitutionRequest, error: requestError } = await supabase
     .from("substitution_requests")
     .select("id, status, occurrence_id")

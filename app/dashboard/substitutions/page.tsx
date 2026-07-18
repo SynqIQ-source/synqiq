@@ -3,7 +3,7 @@ import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
 import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
-import { getScopedClient } from "@/lib/supabase/scoped";
+import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { getActiveStaff } from "@/lib/staff";
 import { CandidatesButton } from "./candidates-button";
 import { RequestNewSubButton } from "./request-new-sub-button";
@@ -24,8 +24,6 @@ type SubstitutionRequestRow = {
     organization: { timezone: string | null } | null;
   } | null;
 };
-
-type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
 async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient) {
   // The full active pipeline a manager needs to see: 'open' (needs

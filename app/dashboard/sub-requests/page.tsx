@@ -3,7 +3,7 @@ import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
 import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
-import { getScopedClient } from "@/lib/supabase/scoped";
+import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
 import { CancelRequestButton } from "./cancel-request-button";
@@ -23,8 +23,6 @@ type MyRequestRow = {
     organization: { timezone: string | null } | null;
   } | null;
 };
-
-type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
 async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string) {
   const { data, error } = await supabase

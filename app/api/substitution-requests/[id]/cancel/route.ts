@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -7,7 +8,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: requestId } = await params;
     const body = await request.json();
-    const callerStaffId: string | undefined = body?.callerStaffId;
+
+    // A real session's identity always wins over whatever the client sent.
+    // No session yet still trusts the body, same as before.
+    const currentStaff = await getCurrentStaff();
+    const callerStaffId: string | undefined = currentStaff?.id ?? body?.callerStaffId;
 
     if (!callerStaffId) {
       return NextResponse.json(
@@ -16,7 +21,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const supabase = createSupabaseAdminClient();
+    const supabase = await getScopedClient(currentStaff);
 
     const { data: substitutionRequest, error: requestError } = await supabase
       .from("substitution_requests")
@@ -38,12 +43,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // TODO: no auth/session system exists yet, so this is a plain equality
-    // check against a client-supplied callerStaffId, not a verified identity
-    // -- same caveat as requestedBy elsewhere in this file's sibling routes.
-    // Once real auth/roles exist, this should become "requester OR admin",
-    // not just requester -- there is no admin concept in the data model at
-    // all today, so that half can't be implemented yet.
+    // callerStaffId is trustworthy now when a real session exists (derived
+    // above, not read from the body), but this check stays regardless of
+    // which client is in use -- substitution_requests_update_own would
+    // reject a mismatched UPDATE too, but Postgres RLS makes a non-matching
+    // UPDATE affect zero rows silently rather than error, and nothing below
+    // checks the affected row count. This is still the real gate. TODO:
+    // could become "requester OR admin" now that real roles exist
+    // (substitution_requests_update_admin already supports it at the DB
+    // layer) -- not changed here since it's a scope decision, not a
+    // mechanical migration.
     if (callerStaffId !== substitutionRequest.requested_by) {
       return NextResponse.json(
         { error: "Only the original requester can cancel this request." },

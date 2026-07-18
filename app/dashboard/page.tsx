@@ -1,8 +1,6 @@
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
-import { getScopedClient } from "@/lib/supabase/scoped";
-
-type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
+import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 
 type DateRangeFilter = {
   /** Inclusive lower bound (ISO datetime, UTC) -- omitted means no lower bound. */
