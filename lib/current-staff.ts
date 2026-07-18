@@ -43,3 +43,35 @@ export async function getCurrentStaff(): Promise<CurrentStaff | null> {
     organizationId: staff.organization_id,
   };
 }
+
+// A real session always wins (handled by callers passing currentStaff in).
+// This only decides what happens when there's no session: the "select your
+// name" dropdown may still stand in for a staff member who has no login yet
+// (auth_user_id null) -- but once a staff row has a real login, the
+// dropdown can no longer impersonate it. Accessing that identity then
+// requires actually being authenticated as them.
+export async function resolveViewedStaffId(
+  currentStaff: CurrentStaff | null,
+  requestedStaffId: string | null,
+): Promise<string | null> {
+  if (currentStaff) {
+    return currentStaff.id;
+  }
+
+  if (!requestedStaffId) {
+    return null;
+  }
+
+  const adminSupabase = createSupabaseAdminClient();
+  const { data: staff } = await adminSupabase
+    .from("staff")
+    .select("auth_user_id")
+    .eq("id", requestedStaffId)
+    .maybeSingle();
+
+  if (staff?.auth_user_id) {
+    return null;
+  }
+
+  return requestedStaffId;
+}

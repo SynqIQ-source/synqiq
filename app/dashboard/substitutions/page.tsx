@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
-import { getCurrentStaff } from "@/lib/current-staff";
+import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getActiveStaff } from "@/lib/staff";
 import { CandidatesButton } from "./candidates-button";
@@ -85,7 +85,7 @@ export default async function SubstitutionsPage({
 }) {
   const params = await searchParams;
   const currentStaff = await getCurrentStaff();
-  const callerStaffId = currentStaff?.id ?? params.staffId ?? null;
+  const callerStaffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
   const staffOptions = await getActiveStaff();
   const requests = await getActiveSubstitutionRequests();

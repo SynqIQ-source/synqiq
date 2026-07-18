@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
-import { getCurrentStaff } from "@/lib/current-staff";
+import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
@@ -91,7 +91,7 @@ export default async function SchedulePage({
   // dropdown. Staff without a login yet still use the dropdown exactly as
   // before.
   const currentStaff = await getCurrentStaff();
-  const staffId = currentStaff?.id ?? params.staffId ?? null;
+  const staffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
   const staffOptions = await getActiveStaff();
   const occurrences = staffId
