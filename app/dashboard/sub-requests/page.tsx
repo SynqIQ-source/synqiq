@@ -3,7 +3,7 @@ import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
 import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getScopedClient } from "@/lib/supabase/scoped";
 import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
 import { CancelRequestButton } from "./cancel-request-button";
@@ -24,9 +24,9 @@ type MyRequestRow = {
   } | null;
 };
 
-async function getMyRequests(staffId: string) {
-  const supabase = createSupabaseAdminClient();
+type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
+async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string) {
   const { data, error } = await supabase
     .from("substitution_requests")
     .select(
@@ -78,9 +78,10 @@ type EligibilityRow = {
   class_name: string;
 };
 
-async function getOpenRequestsQualifiedFor(staffId: string) {
-  const supabase = createSupabaseAdminClient();
-
+async function getOpenRequestsQualifiedFor(
+  supabase: ScopedSupabaseClient,
+  staffId: string,
+) {
   // Same eligibility rule used at request-creation time
   // (app/api/substitution-requests/route.ts): a row in
   // instructor_class_eligibility for this staff member's (department, class
@@ -145,9 +146,8 @@ async function getOpenRequestsQualifiedFor(staffId: string) {
 
   // Batch-load this staff member's own response to each qualifying request --
   // same underlying data as GET .../interest/mine, queried directly here
-  // since this is a server component with its own admin-client access
-  // (the same convention every other dashboard page follows) rather than
-  // making the page fetch its own API route.
+  // since this is a server component with its own scoped Supabase access
+  // rather than making the page fetch its own API route.
   const myResponses = new Map<string, ResponseStatus>();
   const requestIds = qualifying.map((request) => request.id);
 
@@ -192,9 +192,15 @@ export default async function SubRequestsPage({
   const currentStaff = await getCurrentStaff();
   const staffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
+  // Adam's real session -> RLS-scoped client, so the same-org select
+  // policies on substitution_requests/instructor_class_eligibility/
+  // substitution_interests are the actual enforcement. Everyone else
+  // (dropdown, no session yet) -> the admin client, same as before.
+  const supabase = await getScopedClient(currentStaff);
+
   const staffOptions = await getActiveStaff();
-  const rows = staffId ? await getOpenRequestsQualifiedFor(staffId) : [];
-  const myRequests = staffId ? await getMyRequests(staffId) : [];
+  const rows = staffId ? await getOpenRequestsQualifiedFor(supabase, staffId) : [];
+  const myRequests = staffId ? await getMyRequests(supabase, staffId) : [];
 
   return (
     <DashboardShell

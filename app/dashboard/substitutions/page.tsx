@@ -3,7 +3,7 @@ import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
 import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getScopedClient } from "@/lib/supabase/scoped";
 import { getActiveStaff } from "@/lib/staff";
 import { CandidatesButton } from "./candidates-button";
 import { RequestNewSubButton } from "./request-new-sub-button";
@@ -25,11 +25,9 @@ type SubstitutionRequestRow = {
   } | null;
 };
 
-async function getActiveSubstitutionRequests() {
-  // Same RLS caveat as every other dashboard page (app/dashboard/classes/page.tsx
-  // has the full explanation): service-role client, fine for a single-org sandbox.
-  const supabase = createSupabaseAdminClient();
+type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
+async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient) {
   // The full active pipeline a manager needs to see: 'open' (needs
   // candidates reviewed) and 'approved' (a substitute is arranged) --
   // scoped to classes that haven't happened yet. !inner on the occurrence
@@ -87,8 +85,15 @@ export default async function SubstitutionsPage({
   const currentStaff = await getCurrentStaff();
   const callerStaffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
+  // Adam's real session -> RLS-scoped client, so the
+  // substitution_requests_select_same_org policy is the actual
+  // enforcement. Everyone else (dropdown, no session yet) -> the admin
+  // client, same as before -- RLS has no way to authorize a session-less
+  // caller, so this preserves current behavior rather than locking them out.
+  const supabase = await getScopedClient(currentStaff);
+
   const staffOptions = await getActiveStaff();
-  const requests = await getActiveSubstitutionRequests();
+  const requests = await getActiveSubstitutionRequests(supabase);
 
   return (
     <DashboardShell

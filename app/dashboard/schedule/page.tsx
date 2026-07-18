@@ -3,7 +3,7 @@ import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffSelect } from "@/components/staff-select";
 import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getScopedClient } from "@/lib/supabase/scoped";
 import { formatClassTime } from "@/lib/format-class-time";
 import { getActiveStaff } from "@/lib/staff";
 import { DateNav } from "./date-nav";
@@ -20,10 +20,11 @@ type ScheduleOccurrenceRow = {
   room: { name: string | null } | null;
 };
 
-async function getOrgTimezone() {
+type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
+
+async function getOrgTimezone(supabase: ScopedSupabaseClient) {
   // Single-org sandbox today (see app/api/sync/classes/route.ts) -- one row,
   // upserted by mindbody_site_id. Same simplification as the rest of the app.
-  const supabase = createSupabaseAdminClient();
   const { data } = await supabase
     .from("organizations")
     .select("timezone")
@@ -34,12 +35,11 @@ async function getOrgTimezone() {
 }
 
 async function getScheduleForStaffOnDate(
+  supabase: ScopedSupabaseClient,
   staffId: string,
   date: string,
   timezone: string,
 ) {
-  const supabase = createSupabaseAdminClient();
-
   const dayStart = DateTime.fromISO(date, { zone: timezone }).startOf("day");
   const dayEnd = dayStart.plus({ days: 1 });
 
@@ -81,10 +81,6 @@ export default async function SchedulePage({
   searchParams: Promise<{ date?: string; staffId?: string }>;
 }) {
   const params = await searchParams;
-  const timezone = await getOrgTimezone();
-
-  const date =
-    params.date ?? DateTime.now().setZone(timezone).toISODate() ?? "";
 
   // A real session always wins over the "select your name" stand-in --
   // once someone has a login, they no longer pick themselves from a
@@ -93,9 +89,19 @@ export default async function SchedulePage({
   const currentStaff = await getCurrentStaff();
   const staffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
+  // Adam's real session -> RLS-scoped client, so the org/select policies are
+  // the actual enforcement. Everyone else (dropdown, no session yet) -> the
+  // admin client, same as before -- RLS has no way to authorize a
+  // session-less caller, so this preserves current behavior.
+  const supabase = await getScopedClient(currentStaff);
+  const timezone = await getOrgTimezone(supabase);
+
+  const date =
+    params.date ?? DateTime.now().setZone(timezone).toISODate() ?? "";
+
   const staffOptions = await getActiveStaff();
   const occurrences = staffId
-    ? await getScheduleForStaffOnDate(staffId, date, timezone)
+    ? await getScheduleForStaffOnDate(supabase, staffId, date, timezone)
     : [];
 
   return (
