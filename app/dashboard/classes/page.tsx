@@ -2,9 +2,9 @@ import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { HistoryWindowSelect } from "./history-window-select";
-import { WeekNav } from "./week-nav";
+import { PeriodNav } from "./period-nav";
 
-type WeekOccurrenceRow = {
+type TableOccurrenceRow = {
   id: string;
   mindbody_occurrence_id: number | null;
   class_name: string | null;
@@ -53,7 +53,7 @@ async function getOrgTimezone() {
 // every org's data. Needs either RLS policies scoped by organization_id + a
 // real authenticated (non-admin) client, or equivalent app-level tenant
 // scoping, before this goes near a shared alpha.
-async function getWeekOccurrences(weekStart: DateTime) {
+async function getOccurrencesForRange(rangeStart: DateTime, rangeEnd: DateTime) {
   const supabase = createSupabaseAdminClient();
 
   const { data, error } = await supabase
@@ -75,13 +75,13 @@ async function getWeekOccurrences(weekStart: DateTime) {
       `,
     )
     .not("mindbody_occurrence_id", "is", null)
-    .gte("start_datetime", weekStart.toUTC().toISO())
-    .lt("start_datetime", weekStart.plus({ days: 7 }).toUTC().toISO())
+    .gte("start_datetime", rangeStart.toUTC().toISO())
+    .lt("start_datetime", rangeEnd.toUTC().toISO())
     .order("start_datetime", { ascending: true })
-    .returns<WeekOccurrenceRow[]>();
+    .returns<TableOccurrenceRow[]>();
 
   if (error) {
-    throw new Error(`Failed to load week's class occurrences: ${error.message}`);
+    throw new Error(`Failed to load class occurrences: ${error.message}`);
   }
 
   return data ?? [];
@@ -186,11 +186,21 @@ function buildHistoricalAverageMap(rows: HistoricalOccurrenceRow[], timezone: st
   return map;
 }
 
-function resolveWeekStart(weekParam: string | undefined, timezone: string) {
-  const parsed = weekParam
-    ? DateTime.fromISO(weekParam, { zone: timezone })
-    : DateTime.invalid("no week param");
+type ViewMode = "day" | "week";
+
+function resolveViewMode(viewModeParam: string | undefined): ViewMode {
+  return viewModeParam === "day" ? "day" : "week";
+}
+
+function resolveDate(dateParam: string | undefined, viewMode: ViewMode, timezone: string) {
+  const parsed = dateParam
+    ? DateTime.fromISO(dateParam, { zone: timezone })
+    : DateTime.invalid("no date param");
   const base = parsed.isValid ? parsed : DateTime.now().setZone(timezone);
+
+  if (viewMode === "day") {
+    return base.startOf("day");
+  }
 
   // Normalize to Monday regardless of what was passed in -- `weekday` is
   // ISO (Monday=1..Sunday=7), so this is locale-independent.
@@ -229,7 +239,8 @@ export default async function ClassesPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    week?: string;
+    viewMode?: string;
+    date?: string;
     historyWindow?: string;
     historyStart?: string;
     historyEnd?: string;
@@ -238,15 +249,18 @@ export default async function ClassesPage({
   const params = await searchParams;
   const timezone = await getOrgTimezone();
 
-  const weekStart = resolveWeekStart(params.week, timezone);
-  const weekStartIso = weekStart.toISODate() ?? "";
+  const viewMode = resolveViewMode(params.viewMode);
+  const displayStart = resolveDate(params.date, viewMode, timezone);
+  const displayStartIso = displayStart.toISODate() ?? "";
+  const displayEnd = displayStart.plus(viewMode === "day" ? { days: 1 } : { days: 7 });
+  const today = DateTime.now().setZone(timezone).startOf("day").toISODate() ?? "";
 
   const { historyWindow, historyStart, historyEnd } = resolveHistoryWindow(params, timezone);
   const historyWindowStart = DateTime.fromISO(historyStart, { zone: timezone }).startOf("day");
   const historyWindowEnd = DateTime.fromISO(historyEnd, { zone: timezone }).endOf("day");
 
-  const [weekOccurrences, historicalOccurrences] = await Promise.all([
-    getWeekOccurrences(weekStart),
+  const [tableOccurrences, historicalOccurrences] = await Promise.all([
+    getOccurrencesForRange(displayStart, displayEnd),
     getHistoricalOccurrences(historyWindowStart, historyWindowEnd),
   ]);
 
@@ -258,7 +272,7 @@ export default async function ClassesPage({
       description="Live Mindbody class schedule data."
     >
       <div className="flex flex-wrap items-start justify-between gap-6">
-        <WeekNav week={weekStartIso} />
+        <PeriodNav viewMode={viewMode} date={displayStartIso} today={today} />
         <HistoryWindowSelect
           historyWindow={historyWindow}
           historyStart={historyStart}
@@ -284,14 +298,16 @@ export default async function ClassesPage({
             </tr>
           </thead>
           <tbody>
-            {weekOccurrences.length === 0 ? (
+            {tableOccurrences.length === 0 ? (
               <tr>
                 <td colSpan={11} className="p-6 text-center text-zinc-500">
-                  No classes scheduled for this week.
+                  {viewMode === "day"
+                    ? "No classes scheduled for this day."
+                    : "No classes scheduled for this week."}
                 </td>
               </tr>
             ) : (
-              weekOccurrences.map((occurrence) => {
+              tableOccurrences.map((occurrence) => {
                 const capacity = occurrence.max_capacity ?? 0;
                 const booked = occurrence.total_booked ?? 0;
                 const fillRate = getFillRate(booked, capacity);
