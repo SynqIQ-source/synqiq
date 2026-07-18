@@ -1,6 +1,9 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
+
+type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
 type HeatmapRow = {
   start_datetime: string | null;
@@ -10,11 +13,7 @@ type HeatmapRow = {
   organization: { timezone: string | null } | null;
 };
 
-async function getHeatmapRows() {
-  // Same RLS caveat as the other dashboard pages -- service-role admin
-  // client, fine for a single-org sandbox only.
-  const supabase = createSupabaseAdminClient();
-
+async function getHeatmapRows(supabase: ScopedSupabaseClient) {
   const { data, error } = await supabase
     .from("class_occurrences")
     .select(
@@ -155,7 +154,12 @@ function textColorForBackground(hex: string) {
 }
 
 export default async function HeatmapPage() {
-  const rows = await getHeatmapRows();
+  // Adam's real session -> RLS-scoped client, so the same-org select
+  // policies on class_occurrences/departments/organizations are the actual
+  // enforcement. No session -> the admin client, same as before.
+  const currentStaff = await getCurrentStaff();
+  const supabase = await getScopedClient(currentStaff);
+  const rows = await getHeatmapRows(supabase);
   const grids = buildDepartmentGrids(rows);
 
   return (

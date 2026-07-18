@@ -1,8 +1,11 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
 import { HistoryWindowSelect } from "./history-window-select";
 import { PeriodNav } from "./period-nav";
+
+type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
 type TableOccurrenceRow = {
   id: string;
@@ -30,10 +33,9 @@ type HistoricalOccurrenceRow = {
 const MONTHS_BACK: Record<string, number> = { "1m": 1, "3m": 3, "6m": 6, "12m": 12 };
 const HISTORY_PAGE_SIZE = 1000;
 
-async function getOrgTimezone() {
+async function getOrgTimezone(supabase: ScopedSupabaseClient) {
   // Single-org sandbox today (see app/api/sync/classes/route.ts) -- one row,
   // upserted by mindbody_site_id. Same simplification as the rest of the app.
-  const supabase = createSupabaseAdminClient();
   const { data } = await supabase
     .from("organizations")
     .select("timezone")
@@ -43,19 +45,11 @@ async function getOrgTimezone() {
   return data?.timezone ?? "utc";
 }
 
-// TODO(blocker before Sprint 3 / multi-tenant dashboard work): both queries
-// below use the service-role admin client, which bypasses Row Level
-// Security entirely. There are currently no RLS policies on
-// class_occurrences (or its joined tables), and the anon-key server client
-// (lib/supabase/server.ts) returns zero rows for everything -- confirmed
-// empirically. Fine for a single-org sandbox, but unsafe the moment a
-// second organization exists: nothing stops these queries from returning
-// every org's data. Needs either RLS policies scoped by organization_id + a
-// real authenticated (non-admin) client, or equivalent app-level tenant
-// scoping, before this goes near a shared alpha.
-async function getOccurrencesForRange(rangeStart: DateTime, rangeEnd: DateTime) {
-  const supabase = createSupabaseAdminClient();
-
+async function getOccurrencesForRange(
+  supabase: ScopedSupabaseClient,
+  rangeStart: DateTime,
+  rangeEnd: DateTime,
+) {
   const { data, error } = await supabase
     .from("class_occurrences")
     .select(
@@ -91,8 +85,11 @@ async function getOccurrencesForRange(rangeStart: DateTime, rangeEnd: DateTime) 
 // plain unbounded .select() silently truncates past that. Only the columns
 // buildHistoricalAverageMap actually needs are selected here (no joins),
 // since this fetch feeds nothing but the averaging calculation.
-async function getHistoricalOccurrences(windowStart: DateTime, windowEnd: DateTime) {
-  const supabase = createSupabaseAdminClient();
+async function getHistoricalOccurrences(
+  supabase: ScopedSupabaseClient,
+  windowStart: DateTime,
+  windowEnd: DateTime,
+) {
   const allRows: HistoricalOccurrenceRow[] = [];
   let offset = 0;
 
@@ -247,7 +244,14 @@ export default async function ClassesPage({
   }>;
 }) {
   const params = await searchParams;
-  const timezone = await getOrgTimezone();
+
+  // Adam's real session -> RLS-scoped client, so the same-org select
+  // policies on class_occurrences/organizations are the actual enforcement.
+  // No session -> the admin client, same as before -- RLS can't authorize a
+  // session-less caller, so this preserves current behavior.
+  const currentStaff = await getCurrentStaff();
+  const supabase = await getScopedClient(currentStaff);
+  const timezone = await getOrgTimezone(supabase);
 
   const viewMode = resolveViewMode(params.viewMode);
   const displayStart = resolveDate(params.date, viewMode, timezone);
@@ -260,8 +264,8 @@ export default async function ClassesPage({
   const historyWindowEnd = DateTime.fromISO(historyEnd, { zone: timezone }).endOf("day");
 
   const [tableOccurrences, historicalOccurrences] = await Promise.all([
-    getOccurrencesForRange(displayStart, displayEnd),
-    getHistoricalOccurrences(historyWindowStart, historyWindowEnd),
+    getOccurrencesForRange(supabase, displayStart, displayEnd),
+    getHistoricalOccurrences(supabase, historyWindowStart, historyWindowEnd),
   ]);
 
   const historicalAverageMap = buildHistoricalAverageMap(historicalOccurrences, timezone);

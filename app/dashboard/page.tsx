@@ -1,5 +1,8 @@
 import { DashboardShell } from "@/components/dashboard-shell";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
+
+type ScopedSupabaseClient = Awaited<ReturnType<typeof getScopedClient>>;
 
 type DateRangeFilter = {
   /** Inclusive lower bound (ISO datetime, UTC) -- omitted means no lower bound. */
@@ -16,13 +19,10 @@ type OverviewRow = {
   staff: { id: string; display_name: string } | null;
 };
 
-async function getOverviewRows(range: DateRangeFilter = {}) {
-  // Same RLS caveat as app/dashboard/classes/page.tsx: this bypasses RLS via
-  // the service-role client. Fine for a single-org sandbox only -- see that
-  // file's TODO for the full explanation. Not repeating it here to avoid
-  // duplicating the same essay in every page; same blocker applies.
-  const supabase = createSupabaseAdminClient();
-
+async function getOverviewRows(
+  supabase: ScopedSupabaseClient,
+  range: DateRangeFilter = {},
+) {
   let query = supabase
     .from("class_occurrences")
     .select(
@@ -103,7 +103,12 @@ function computeInstructorStats(rows: OverviewRow[]): InstructorStat[] {
 }
 
 export default async function DashboardPage() {
-  const rows = await getOverviewRows();
+  // Adam's real session -> RLS-scoped client, so the same-org select
+  // policies on class_occurrences/staff are the actual enforcement. No
+  // session -> the admin client, same as before.
+  const currentStaff = await getCurrentStaff();
+  const supabase = await getScopedClient(currentStaff);
+  const rows = await getOverviewRows(supabase);
 
   const totalClasses = rows.length;
   const averageFillRate = average(rows.map((row) => row.fill_rate ?? 0));
