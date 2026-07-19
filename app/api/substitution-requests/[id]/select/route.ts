@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMindbodyClient } from "@/lib/mindbody/client";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
 import { withRetry } from "@/lib/retry";
 import { asOccurrenceId } from "@/lib/mindbody/types";
 
@@ -16,7 +17,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "staffId is required." }, { status: 400 });
     }
 
-    const supabase = createSupabaseAdminClient();
+    // Admin-only action, no dropdown fallback: unlike every other route in
+    // this migration, a session-less caller is refused outright here rather
+    // than falling back to the admin client. This route previously had zero
+    // caller-role verification at all -- any request, from anyone, could
+    // approve any candidate for any request. That's the gap this closes.
+    const currentStaff = await getCurrentStaff();
+    if (!currentStaff || currentStaff.role !== "admin") {
+      return NextResponse.json(
+        { error: "Only an authenticated admin can approve a substitute." },
+        { status: 403 },
+      );
+    }
+
+    const supabase = await getScopedClient(currentStaff);
 
     const { data: substitutionRequest, error: requestError } = await supabase
       .from("substitution_requests")
