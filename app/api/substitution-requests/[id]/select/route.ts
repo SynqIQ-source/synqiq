@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { data: substitutionRequest, error: requestError } = await supabase
       .from("substitution_requests")
-      .select("id, status, occurrence_id")
+      .select("id, status, occurrence_id, requested_by")
       .eq("id", requestId)
       .single();
 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { data: occurrence, error: occurrenceError } = await supabase
       .from("class_occurrences")
-      .select("mindbody_occurrence_id")
+      .select("mindbody_occurrence_id, organization_id, class_name")
       .eq("id", substitutionRequest.occurrence_id)
       .single();
 
@@ -161,6 +161,44 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           details: dbError instanceof Error ? dbError.message : "Unknown error",
         },
         { status: 500 },
+      );
+    }
+
+    // Non-critical, best-effort: a sub-specific chat board for the
+    // requester + covering instructor. Approval has already fully
+    // succeeded above -- MindBody and our own records are both updated --
+    // so a board-creation failure here must never fail this response or
+    // imply the approval itself is in doubt. Logged loudly rather than
+    // swallowed, since this is the only place that would ever notice a
+    // repeated failure (e.g. a broken RLS policy after a future change).
+    try {
+      const { data: board, error: boardError } = await supabase
+        .from("message_boards")
+        .insert({
+          organization_id: occurrence.organization_id,
+          board_type: "sub_specific",
+          title: `Coverage: ${occurrence.class_name ?? "class"}`,
+          substitution_request_id: requestId,
+        })
+        .select("id")
+        .single();
+
+      if (boardError || !board) {
+        throw new Error(boardError?.message ?? "Failed to create sub-specific board.");
+      }
+
+      const memberStaffIds = [...new Set([substitutionRequest.requested_by, staffId])];
+      const { error: membersError } = await supabase
+        .from("board_members")
+        .insert(memberStaffIds.map((memberStaffId) => ({ board_id: board.id, staff_id: memberStaffId })));
+
+      if (membersError) {
+        throw new Error(membersError.message);
+      }
+    } catch (boardError) {
+      console.error(
+        `[select/route] Failed to create sub-specific message board for substitution_request ${requestId}:`,
+        boardError instanceof Error ? boardError.message : boardError,
       );
     }
 
