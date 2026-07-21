@@ -67,7 +67,7 @@ async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient
   return idMap;
 }
 
-async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string) {
+async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string) {
   // Departments are sourced from MindBody's Program (via /class/classdescriptions),
   // not Category -- CategoryId is null on every class in this data, whereas
   // Program (Membership, Yoga, Boot Camp, ...) is always populated and is what
@@ -103,6 +103,7 @@ async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdmin
       .upsert(
         {
           mindbody_program_id: programId,
+          organization_id: organizationId,
           name: programName,
           active: true,
         },
@@ -232,10 +233,20 @@ export async function GET(request: NextRequest) {
     // Reference data is synced from site-wide MindBody endpoints (not scoped
     // to the classes date window below), so staff/rooms/departments resolve
     // correctly regardless of which day is being synced.
-    await syncLocations(mindbody, supabase, accessToken, org.id, org.timezone);
+    const locationIdByMindbodyId = await syncLocations(mindbody, supabase, accessToken, org.id, org.timezone);
     const roomIdByResourceId = await syncRooms(mindbody, supabase, accessToken);
-    const departmentIdByProgramId = await syncDepartments(mindbody, supabase, accessToken);
+    const departmentIdByProgramId = await syncDepartments(mindbody, supabase, accessToken, org.id);
     const staffIdByMindbodyId = await syncStaff(mindbody, supabase, accessToken, org.id);
+
+    // Neither /site/resources nor any other site-wide endpoint tells us which
+    // location a room belongs to -- the only place that link appears is on a
+    // class occurrence itself (Resource + Location together). Accumulated here
+    // as classes are paged through below and applied once the loop finishes,
+    // rather than one write per class -- see 20260721140000's migration
+    // comment for how this was derived and validated (rooms are cleanly
+    // 1:1 with a location; departments are not, which is why departments took
+    // a direct organization_id column instead).
+    const roomLocationUpdates = new Map<string, string>();
 
     // Paginate through every class in the window -- a single unpaginated
     // call silently truncates to MindBody's default page size (the same bug
@@ -340,6 +351,12 @@ export async function GET(request: NextRequest) {
         } else {
           console.error(error);
         }
+
+        const roomId = cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) : null;
+        const locationId = cls.Location?.Id != null ? locationIdByMindbodyId.get(cls.Location.Id) : null;
+        if (roomId && locationId) {
+          roomLocationUpdates.set(roomId, locationId);
+        }
       }
 
       offset += classes.length;
@@ -350,6 +367,21 @@ export async function GET(request: NextRequest) {
       // Courtesy pacing between MindBody page fetches, not needed between
       // the Supabase upserts above (different service, no shared limit).
       await delay(300);
+    }
+
+    // One update per distinct room seen this run (a handful of rows), not
+    // one per class -- rooms rarely change location, so this just keeps
+    // rooms.location_id self-healing on every future sync instead of relying
+    // on a one-time backfill staying correct forever.
+    for (const [roomId, locationId] of roomLocationUpdates) {
+      const { error: roomLocationError } = await supabase
+        .from("rooms")
+        .update({ location_id: locationId })
+        .eq("id", roomId);
+
+      if (roomLocationError) {
+        console.error(roomLocationError);
+      }
     }
 
     return NextResponse.json({
