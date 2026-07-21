@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     const { data: existingRequest, error: existingRequestError } = await supabase
       .from("substitution_requests")
-      .select("id, status")
+      .select("id, status, requested_by")
       .eq("occurrence_id", occurrenceId)
       .in("status", NON_TERMINAL_STATUSES)
       .maybeSingle();
@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     let supersededRequestId: string | null = null;
+    let substitutionRequest: Record<string, unknown> | null = null;
 
     if (existingRequest) {
       if (existingRequest.status !== "approved") {
@@ -87,45 +88,91 @@ export async function POST(request: NextRequest) {
       // this class after all. Close out the old approval (as 'cancelled',
       // same terminal status the manual /cancel endpoint uses) and clear the
       // occurrence's substitute assignment, then fall through to create a
-      // fresh request below instead of leaving the class permanently stuck
-      // on one approval. Either the covering instructor (from their own
-      // Schedule page, now widened to show classes they're substituting for)
-      // or a manager (from the Substitutions board) can trigger this.
-      const { error: supersedeError } = await supabase
-        .from("substitution_requests")
-        .update({ status: "cancelled", resolved_at: new Date().toISOString() })
-        .eq("id", existingRequest.id);
+      // fresh request below -- instead of leaving the class permanently
+      // stuck on one approval. Either the original requester or the
+      // instructor currently covering the class (from their own Schedule
+      // page) can trigger this; a manager can too, as the original
+      // requester's organization_id-scoped admin policy already covers.
+      if (existingRequest.requested_by === requestedBy) {
+        // Original requester -- substitution_requests_update_own /
+        // insert_own already cover this caller directly, no RPC needed.
+        const { error: supersedeError } = await supabase
+          .from("substitution_requests")
+          .update({ status: "cancelled", resolved_at: new Date().toISOString() })
+          .eq("id", existingRequest.id);
 
-      if (supersedeError) {
-        throw new Error(supersedeError.message);
+        if (supersedeError) {
+          throw new Error(supersedeError.message);
+        }
+
+        const { error: clearSubError } = await supabase
+          .from("class_occurrences")
+          .update({ substitute_staff_id: null })
+          .eq("id", occurrenceId);
+
+        if (clearSubError) {
+          throw new Error(clearSubError.message);
+        }
+
+        supersededRequestId = existingRequest.id;
+      } else {
+        // Not the original requester -- almost always the covering
+        // instructor backing out of their own approved assignment. They
+        // have no direct UPDATE access to substitution_requests (by design:
+        // see 20260720150000's comment on why a raw grant was rejected), so
+        // the cancel-old + clear-substitute + insert-new sequence runs
+        // atomically inside this SECURITY DEFINER function instead, which
+        // itself verifies the caller is the occurrence's current
+        // substitute_staff_id before doing anything.
+        const { data: rpcRows, error: rpcError } = await supabase.rpc(
+          "supersede_substitution_request",
+          { p_occurrence_id: occurrenceId, p_reason: reason ?? null },
+        );
+
+        if (rpcError) {
+          throw new Error(rpcError.message);
+        }
+
+        const rpcResult = rpcRows?.[0];
+
+        if (!rpcResult) {
+          throw new Error("supersede_substitution_request returned no result.");
+        }
+
+        supersededRequestId = rpcResult.superseded_request_id;
+
+        const { data: newRequest, error: newRequestError } = await supabase
+          .from("substitution_requests")
+          .select()
+          .eq("id", rpcResult.new_request_id)
+          .single();
+
+        if (newRequestError || !newRequest) {
+          throw new Error(newRequestError?.message ?? "Failed to load new substitution request.");
+        }
+
+        substitutionRequest = newRequest;
       }
-
-      const { error: clearSubError } = await supabase
-        .from("class_occurrences")
-        .update({ substitute_staff_id: null })
-        .eq("id", occurrenceId);
-
-      if (clearSubError) {
-        throw new Error(clearSubError.message);
-      }
-
-      supersededRequestId = existingRequest.id;
     }
 
-    const { data: substitutionRequest, error: insertError } = await supabase
-      .from("substitution_requests")
-      .insert({
-        occurrence_id: occurrence.id,
-        organization_id: occurrence.organization_id,
-        requested_by: requestedBy,
-        status: "open",
-        reason: reason ?? null,
-      })
-      .select()
-      .single();
+    if (!substitutionRequest) {
+      const { data: inserted, error: insertError } = await supabase
+        .from("substitution_requests")
+        .insert({
+          occurrence_id: occurrence.id,
+          organization_id: occurrence.organization_id,
+          requested_by: requestedBy,
+          status: "open",
+          reason: reason ?? null,
+        })
+        .select()
+        .single();
 
-    if (insertError || !substitutionRequest) {
-      throw new Error(insertError?.message ?? "Failed to create substitution request.");
+      if (insertError || !inserted) {
+        throw new Error(insertError?.message ?? "Failed to create substitution request.");
+      }
+
+      substitutionRequest = inserted;
     }
 
     // Only look up candidates if the occurrence actually resolved to a real
