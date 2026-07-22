@@ -44,7 +44,7 @@ export default async function MessagesPage() {
             Message Boards has no &quot;select your name&quot; fallback -- access to each board is
             enforced by the database itself based on who you&apos;re actually logged in as, not a
             client-supplied name.{" "}
-            <Link href="/login" className="font-medium text-teal-700 hover:underline">
+            <Link href="/login" className="font-medium text-primary hover:underline">
               Sign in
             </Link>{" "}
             to continue.

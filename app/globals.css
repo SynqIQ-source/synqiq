@@ -8,6 +8,30 @@
   --surface: #ffffff;
   --accent: #0f766e;
   --accent-foreground: #ffffff;
+  --font-body: Arial, Helvetica, sans-serif;
+}
+
+/* Per-org branding tokens. bg-primary/text-accent/etc. utilities below all
+   resolve through these five variables, which the root layout overrides per
+   request via an inline style on <body> once an org is known.
+   Defaults here match the app's original hardcoded teal-700/teal-800/teal-50,
+   so an org with no branding set renders identically to before this feature
+   existed.
+
+   IMPORTANT: these are literal hex values, not color-mix() expressions
+   referencing var(--color-primary) -- Tailwind v4's @theme block resolves
+   var() references at BUILD time (flattening them into their default value),
+   not at runtime, so a color-mix() referencing another theme token in here
+   would never actually track a later runtime override. The hover/subtle
+   shades ARE still derived with color-mix() -- just computed in
+   app/layout.tsx as literal per-request override strings on <body>, not
+   inside this block. */
+@theme {
+  --color-primary: #0f766e;
+  --color-primary-hover: #115e59;
+  --color-primary-subtle: #f0fdfa;
+  --color-accent: #0f766e;
+  --color-accent-subtle: #f0fdfa;
 }
 
 * {
@@ -23,7 +47,7 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
 }
 
 a {

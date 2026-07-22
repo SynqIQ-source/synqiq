@@ -26,7 +26,7 @@ type SelectStatus = "idle" | "selecting" | "error";
 type CancelStatus = "idle" | "cancelling" | "error";
 
 const STATUS_STYLES: Record<Interest["status"], string> = {
-  interested: "bg-teal-50 text-teal-700",
+  interested: "bg-accent-subtle text-accent",
   no_response: "bg-amber-50 text-amber-700",
   declined: "bg-zinc-100 text-zinc-600",
 };
@@ -169,7 +169,7 @@ export function CandidatesButton({
       <button
         type="button"
         onClick={openModal}
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-teal-700 hover:bg-zinc-50"
+        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-primary hover:bg-zinc-50"
       >
         View Candidates
       </button>
@@ -237,7 +237,7 @@ export function CandidatesButton({
                               type="button"
                               onClick={() => handleSelect(interest.staffId)}
                               disabled={selectStatus === "selecting"}
-                              className="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+                              className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
                             >
                               {selectStatus === "selecting" &&
                               selectingStaffId === interest.staffId

@@ -269,7 +269,7 @@ export default async function SubRequestsPage({
 
                     <div className="mt-5">
                       {request.status === "approved" ? (
-                        <span className="inline-flex items-center rounded-full bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700">
+                        <span className="inline-flex items-center rounded-full bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
                           Approved — {occurrence?.substituteStaff?.display_name ?? "Unknown"}
                         </span>
                       ) : request.status === "open" ? (

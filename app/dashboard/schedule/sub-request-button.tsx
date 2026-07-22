@@ -72,7 +72,7 @@ export function SubRequestButton({
 
   if (status === "success") {
     return (
-      <span className="inline-flex items-center rounded-md bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700">
+      <span className="inline-flex items-center rounded-md bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
         Request submitted
       </span>
     );
@@ -83,7 +83,7 @@ export function SubRequestButton({
       <button
         type="button"
         onClick={openModal}
-        className="w-full rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800"
+        className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover"
       >
         Create Sub Request
       </button>
@@ -145,7 +145,7 @@ export function SubRequestButton({
                 <button
                   type="submit"
                   disabled={status === "submitting"}
-                  className="rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+                  className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
                 >
                   {status === "submitting" ? "Submitting..." : "Submit Request"}
                 </button>

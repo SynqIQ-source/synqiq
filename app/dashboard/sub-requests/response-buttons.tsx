@@ -54,7 +54,7 @@ export function ResponseButtons({
 
   if (status === "interested") {
     return (
-      <span className="inline-flex items-center rounded-md bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700">
+      <span className="inline-flex items-center rounded-md bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
         You&apos;re interested
       </span>
     );
@@ -75,7 +75,7 @@ export function ResponseButtons({
           type="button"
           onClick={() => respond("interest")}
           disabled={actionState === "submitting"}
-          className="flex-1 rounded-md bg-teal-700 px-3 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-60"
+          className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
         >
           Interested
         </button>

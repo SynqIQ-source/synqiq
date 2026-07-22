@@ -15,6 +15,7 @@ const navigation = [
   { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true },
   { href: "/dashboard/instructors", label: "Instructors", adminOnly: true },
   { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
+  { href: "/dashboard/settings", label: "Settings", adminOnly: true },
 ];
 
 type DashboardShellProps = {
@@ -60,7 +61,7 @@ export async function DashboardShell({
       <div className="md:pl-64">
         <header className="border-b border-zinc-200 bg-white px-6 py-5">
           <div className="mx-auto max-w-6xl">
-            <p className="text-sm font-medium text-teal-700">Dashboard</p>
+            <p className="text-sm font-medium text-primary">Dashboard</p>
             <h1 className="mt-1 text-2xl font-semibold text-zinc-950">
               {title}
             </h1>

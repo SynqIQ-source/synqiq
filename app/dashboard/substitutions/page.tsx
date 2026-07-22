@@ -158,7 +158,7 @@ export default async function SubstitutionsPage({
                     </td>
                     <td className="p-3">
                       {request.status === "approved" ? (
-                        <span className="inline-flex items-center rounded-full bg-teal-50 px-2 py-1 text-xs font-medium text-teal-700">
+                        <span className="inline-flex items-center rounded-full bg-accent-subtle px-2 py-1 text-xs font-medium text-accent">
                           Approved — {request.occurrence?.substituteStaff?.display_name ?? "Unknown"}
                         </span>
                       ) : (
