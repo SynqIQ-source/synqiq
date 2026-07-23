@@ -14,6 +14,38 @@ export type RespondResult =
   | { ok: true; interest: Interest; alreadyResponded: boolean }
   | { ok: false; httpStatus: number; error: string; existingStatus?: SubstitutionResponseStatus };
 
+// Shared by the normal check-then-act path and the concurrent-duplicate
+// recovery path below -- same existing row, same two possible outcomes
+// (identical repeat response is idempotent; a differing one is rejected)
+// regardless of how that existing row was discovered.
+function resultForExistingInterest(
+  requestId: string,
+  staffId: string,
+  status: SubstitutionResponseStatus,
+  existing: { id: string; status: string; responded_at: string },
+): RespondResult {
+  if (existing.status === status) {
+    return {
+      ok: true,
+      alreadyResponded: true,
+      interest: {
+        id: existing.id,
+        requestId,
+        staffId,
+        status: existing.status as SubstitutionResponseStatus,
+        respondedAt: existing.responded_at,
+      },
+    };
+  }
+
+  return {
+    ok: false,
+    httpStatus: 409,
+    error: `This staff member already responded '${existing.status}' and cannot change it to '${status}'.`,
+    existingStatus: existing.status as SubstitutionResponseStatus,
+  };
+}
+
 /**
  * Shared logic for both /interest and /decline: validates the request is
  * open, the staff member isn't the occurrence's own assigned instructor,
@@ -116,26 +148,7 @@ export async function respondToSubstitutionRequest(
   }
 
   if (existing) {
-    if (existing.status === status) {
-      return {
-        ok: true,
-        alreadyResponded: true,
-        interest: {
-          id: existing.id,
-          requestId,
-          staffId,
-          status: existing.status as SubstitutionResponseStatus,
-          respondedAt: existing.responded_at,
-        },
-      };
-    }
-
-    return {
-      ok: false,
-      httpStatus: 409,
-      error: `This staff member already responded '${existing.status}' and cannot change it to '${status}'.`,
-      existingStatus: existing.status as SubstitutionResponseStatus,
-    };
+    return resultForExistingInterest(requestId, staffId, status, existing);
   }
 
   const { data: inserted, error: insertError } = await supabase
@@ -144,12 +157,40 @@ export async function respondToSubstitutionRequest(
     .select("id, request_id, staff_id, status, responded_at")
     .single();
 
-  if (insertError || !inserted) {
-    return {
-      ok: false,
-      httpStatus: 500,
-      error: insertError?.message ?? "Failed to record response.",
-    };
+  if (insertError) {
+    // Postgres unique_violation on (request_id, staff_id) -- a genuinely
+    // concurrent duplicate response slipped past the "existing row?" check
+    // above, which is a plain read, not a lock: both requests can see "no
+    // existing row" before either commits its insert. The UNIQUE constraint
+    // is what actually prevents the duplicate row (confirmed: no data
+    // corruption results either way) -- this just re-reads the
+    // now-committed row and returns the same clean response the sequential
+    // (non-racing) path above already returns, instead of surfacing a raw
+    // constraint-violation message as a 500.
+    if (insertError.code === "23505") {
+      const { data: existingAfterRace, error: refetchError } = await supabase
+        .from("substitution_interests")
+        .select("id, status, responded_at")
+        .eq("request_id", requestId)
+        .eq("staff_id", staffId)
+        .maybeSingle();
+
+      if (existingAfterRace) {
+        return resultForExistingInterest(requestId, staffId, status, existingAfterRace);
+      }
+
+      return {
+        ok: false,
+        httpStatus: 500,
+        error: refetchError?.message ?? "Duplicate response detected, but the existing row could not be re-read.",
+      };
+    }
+
+    return { ok: false, httpStatus: 500, error: insertError.message };
+  }
+
+  if (!inserted) {
+    return { ok: false, httpStatus: 500, error: "Failed to record response." };
   }
 
   return {

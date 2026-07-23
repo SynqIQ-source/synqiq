@@ -36,6 +36,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Fast-path only -- see select/route.ts's identical comment. The real
+    // guard is the WHERE status = 'open' condition on the update below,
+    // which is what actually stops this from silently "succeeding" after a
+    // concurrent select has already claimed (or fully approved) the same
+    // request -- confirmed empirically, see conversation history.
     if (substitutionRequest.status !== "open") {
       return NextResponse.json(
         { error: `This request is no longer open (status: ${substitutionRequest.status}) -- cannot cancel.` },
@@ -60,13 +65,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const { error: updateError } = await supabase
+    const { data: cancelledRows, error: updateError } = await supabase
       .from("substitution_requests")
       .update({ status: "cancelled", resolved_at: new Date().toISOString() })
-      .eq("id", requestId);
+      .eq("id", requestId)
+      .eq("status", "open")
+      .select("id");
 
     if (updateError) {
       throw new Error(updateError.message);
+    }
+
+    if (!cancelledRows || cancelledRows.length === 0) {
+      // A concurrent select claimed (moved to pending_selection) or fully
+      // approved this request between the fast-path check above and this
+      // write -- this is the case that check can't catch by itself.
+      return NextResponse.json(
+        { error: "This request was just resolved by someone else -- refresh and try again." },
+        { status: 409 },
+      );
     }
 
     return NextResponse.json({

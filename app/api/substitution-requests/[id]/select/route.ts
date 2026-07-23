@@ -45,6 +45,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Fast-path only -- a plain read, not a lock, so it can't by itself
+    // prevent two concurrent selections (or a select racing a cancel) from
+    // both passing this check before either has written anything. It just
+    // avoids wasted work in the common (non-racing) case; the actual
+    // concurrency guard is the claim step below, right before the MindBody
+    // call. Confirmed empirically: without that guard, two concurrent
+    // selects for different candidates both report success, and whichever
+    // DB write commits last silently wins with no error to the loser --
+    // see conversation history.
     if (substitutionRequest.status !== "open") {
       return NextResponse.json(
         { error: `This request is no longer open (status: ${substitutionRequest.status}).` },
@@ -103,10 +112,39 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Call MindBody FIRST. Our own DB is only ever updated after this
-    // succeeds -- if it fails, nothing below runs, and substitution_requests
-    // stays exactly 'open' so the manager can retry the same or a different
-    // candidate with no cleanup needed.
+    // The actual concurrency guard: atomically claim this request before
+    // touching MindBody at all. A plain UPDATE with a WHERE status = 'open'
+    // condition is fully atomic w.r.t. other concurrent writers to the same
+    // row -- Postgres serializes concurrent UPDATEs to one row, so a second
+    // writer's WHERE clause re-evaluates against whatever the first writer
+    // already committed. If this affects 0 rows, someone else (another
+    // select, or a cancel) already resolved this request -- return before
+    // ever calling MindBody, rather than after, so a losing request never
+    // fires a real external write. pending_selection is an existing,
+    // previously-unused value in the status CHECK constraint -- reused here
+    // as exactly the "someone is in the process of resolving this" state.
+    const { data: claimedRows, error: claimError } = await supabase
+      .from("substitution_requests")
+      .update({ status: "pending_selection" })
+      .eq("id", requestId)
+      .eq("status", "open")
+      .select("id");
+
+    if (claimError) {
+      throw new Error(claimError.message);
+    }
+
+    if (!claimedRows || claimedRows.length === 0) {
+      return NextResponse.json(
+        { error: "This request was just resolved by someone else -- refresh and try again." },
+        { status: 409 },
+      );
+    }
+
+    // Call MindBody FIRST. Our own DB is only ever finalized after this
+    // succeeds -- if it fails, revert the claim back to 'open' so the
+    // request isn't stuck in limbo, and the manager can retry the same or a
+    // different candidate with no other cleanup needed.
     const mindbody = createMindbodyClient();
     const { AccessToken: accessToken } = await mindbody.authenticate();
 
@@ -117,6 +155,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         accessToken,
       );
     } catch (mindbodyError) {
+      await supabase
+        .from("substitution_requests")
+        .update({ status: "open" })
+        .eq("id", requestId)
+        .eq("status", "pending_selection");
+
       return NextResponse.json(
         {
           error: "MindBody rejected the substitution -- no changes were made to our records.",
@@ -133,13 +177,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // like nothing happened.
     try {
       await withRetry(async () => {
-        const { error: updateRequestError } = await supabase
+        const { data: finalizedRows, error: updateRequestError } = await supabase
           .from("substitution_requests")
           .update({ status: "approved", resolved_at: new Date().toISOString() })
-          .eq("id", requestId);
+          .eq("id", requestId)
+          .eq("status", "pending_selection")
+          .select("id");
 
         if (updateRequestError) {
           throw new Error(updateRequestError.message);
+        }
+
+        if (!finalizedRows || finalizedRows.length === 0) {
+          // Should be unreachable -- nothing else can move a row out of
+          // pending_selection once this request claimed it. Surfaced as a
+          // retriable error rather than silently swallowed, same as any
+          // other unexpected write failure in this block.
+          throw new Error(
+            "Expected this request to still be pending_selection after the claim, but it wasn't.",
+          );
         }
 
         const { error: updateOccurrenceError } = await supabase

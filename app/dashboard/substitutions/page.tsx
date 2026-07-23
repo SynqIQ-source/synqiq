@@ -10,7 +10,7 @@ import { RequestNewSubButton } from "./request-new-sub-button";
 
 type SubstitutionRequestRow = {
   id: string;
-  status: "open" | "approved";
+  status: "open" | "pending_selection" | "approved";
   reason: string | null;
   created_at: string;
   requestedByStaff: { display_name: string } | null;
@@ -27,7 +27,10 @@ type SubstitutionRequestRow = {
 
 async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient) {
   // The full active pipeline a manager needs to see: 'open' (needs
-  // candidates reviewed) and 'approved' (a substitute is arranged) --
+  // candidates reviewed), 'pending_selection' (another manager's selection
+  // is claimed and mid-flight -- the brief window between /select's
+  // atomic claim and it finalizing to 'approved' once MindBody confirms;
+  // see conversation history), and 'approved' (a substitute is arranged) --
   // scoped to classes that haven't happened yet. !inner on the occurrence
   // embed is required for the start_datetime filter below to actually
   // restrict which substitution_requests rows come back, not just which
@@ -52,7 +55,7 @@ async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient) {
       )
       `,
     )
-    .in("status", ["open", "approved"])
+    .in("status", ["open", "pending_selection", "approved"])
     .gt("occurrence.start_datetime", DateTime.utc().toISO())
     .order("created_at", { ascending: true })
     .returns<SubstitutionRequestRow[]>();
@@ -161,6 +164,10 @@ export default async function SubstitutionsPage({
                         <span className="inline-flex items-center rounded-full bg-accent-subtle px-2 py-1 text-xs font-medium text-accent">
                           Approved — {request.occurrence?.substituteStaff?.display_name ?? "Unknown"}
                         </span>
+                      ) : request.status === "pending_selection" ? (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
+                          Pending selection
+                        </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
                           Open
@@ -176,6 +183,13 @@ export default async function SubstitutionsPage({
                           roomName={roomName}
                           requestedBy={callerStaffId}
                         />
+                      ) : request.status === "pending_selection" ? (
+                        // No action to offer -- someone else's selection is
+                        // already mid-flight (claimed, waiting on MindBody).
+                        // /select's own atomic claim is what actually
+                        // prevents a second selection here; this is just
+                        // not showing a button that would immediately 409.
+                        <span className="text-xs text-zinc-500">Resolving…</span>
                       ) : (
                         <CandidatesButton
                           requestId={request.id}
