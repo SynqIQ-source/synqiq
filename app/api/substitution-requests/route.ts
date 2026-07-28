@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
+import { sendPushToStaff } from "@/lib/push/send";
 
 // Non-terminal statuses -- an occurrence can't have two open/pending
 // requests at once (guards against double-submission). 'approved' is
@@ -218,6 +219,28 @@ export async function POST(request: NextRequest) {
           displayName: staff.display_name,
           email: staff.email,
         }));
+    }
+
+    // Non-critical, best-effort: notify only the instructors this same
+    // eligibility query above already qualified -- never the whole staff
+    // roster. A push failure here must never fail request creation, which
+    // has already fully succeeded by this point.
+    if (qualifiedInstructors.length > 0) {
+      try {
+        await sendPushToStaff(
+          qualifiedInstructors.map((instructor) => instructor.id),
+          {
+            title: "Open substitution request",
+            body: `${occurrence.class_name ?? "A class"} needs coverage.`,
+            url: "/dashboard/sub-requests",
+          },
+        );
+      } catch (pushError) {
+        console.error(
+          `[substitution-requests] Failed to send push for request ${substitutionRequest?.id}:`,
+          pushError instanceof Error ? pushError.message : pushError,
+        );
+      }
     }
 
     return NextResponse.json({

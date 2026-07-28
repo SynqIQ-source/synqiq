@@ -4,6 +4,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { withRetry } from "@/lib/retry";
 import { asOccurrenceId } from "@/lib/mindbody/types";
+import { sendPushToStaff } from "@/lib/push/send";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -255,6 +256,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       console.error(
         `[select/route] Failed to create sub-specific message board for substitution_request ${requestId}:`,
         boardError instanceof Error ? boardError.message : boardError,
+      );
+    }
+
+    // Non-critical, best-effort, same reasoning as the board creation above:
+    // approval has already fully succeeded, a push failure here must never
+    // change this response.
+    try {
+      await sendPushToStaff([staffId], {
+        title: "You're confirmed to cover a class",
+        body: `${occurrence.class_name ?? "A class"} -- you're now the instructor of record.`,
+        url: "/dashboard/schedule",
+      });
+    } catch (pushError) {
+      console.error(
+        `[select/route] Failed to send push for substitution_request ${requestId}:`,
+        pushError instanceof Error ? pushError.message : pushError,
       );
     }
 

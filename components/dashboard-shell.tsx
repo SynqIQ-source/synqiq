@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { MobileNav } from "@/components/mobile-nav";
 
 // adminOnly is a nav-visibility simplification, not an access-control
 // boundary -- none of these pages check role themselves, so hiding a link
@@ -65,6 +66,12 @@ export async function DashboardShell({
       <div className="md:pl-64">
         <header className="border-b border-zinc-200 bg-white px-6 py-5">
           <div className="mx-auto max-w-6xl">
+            <div className="mb-4 flex items-center justify-between md:hidden">
+              <Link href="/" className="text-xl font-semibold text-zinc-950">
+                Synq
+              </Link>
+              <MobileNav items={visibleNavigation} />
+            </div>
             <p className="text-sm font-medium text-primary">Dashboard</p>
             <h1 className="mt-1 text-2xl font-semibold text-zinc-950">
               {title}

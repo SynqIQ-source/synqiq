@@ -252,6 +252,15 @@ export function MessageBoardsClient({
     if (data) {
       setMessages((prev) => [...prev, data]);
       setDraft("");
+
+      // Fire-and-forget: the message itself is already saved above (RLS is
+      // the real boundary for that write) -- a failure here just means no
+      // push notification goes out, never surfaced to the sender.
+      fetch("/api/push/notify-board-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: data.id }),
+      }).catch(() => {});
     }
   }
 
