@@ -16,6 +16,7 @@ const navigation = [
   { href: "/dashboard/instructors", label: "Instructors", adminOnly: true },
   { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
   { href: "/dashboard/settings", label: "Settings", adminOnly: true },
+  { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
 ];
 
 type DashboardShellProps = {
