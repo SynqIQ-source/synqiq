@@ -1,28 +1,41 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { getCurrentStaff } from "@/lib/current-staff";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getOrgBranding } from "@/lib/org-branding";
 import { FONT_VARIABLE_CLASS_NAMES, FONT_CSS_VAR_BY_NAME, isAllowedFont } from "@/lib/fonts";
+
+const DEFAULT_THEME_COLOR = "#0f766e";
 
 export const metadata: Metadata = {
   title: "Synq",
   description: "Studio operations dashboard for classes, instructors, and substitutions.",
+  manifest: "/manifest.webmanifest",
+  // iOS ignores the manifest's icons list for home-screen install -- needs
+  // its own apple-touch-icon link. appleWebApp enables the fuller
+  // standalone-like chrome (no Safari UI) when actually added to the home
+  // screen; iOS also requires that install step before Web Push works at
+  // all (Safari-tab push is not supported on iOS).
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Synq",
+  },
 };
 
-// Admin client, not the RLS-scoped one: this is a read-only lookup of
-// exactly one row by id (the caller's own org, already resolved from a real
-// session above), same trust level as every other pre-RLS-rollout read in
-// this codebase -- not an escalation, and avoids standing up a cookie-bound
-// client on every single page render just to read three columns.
-async function getOrgBranding(organizationId: string) {
-  const supabase = createSupabaseAdminClient();
-  const { data } = await supabase
-    .from("organizations")
-    .select("primary_color, accent_color, font_family")
-    .eq("id", organizationId)
-    .maybeSingle();
+// themeColor lives under viewport, not metadata, as of Next 14+ -- kept
+// dynamic (not a static export) so an org's custom primary_color actually
+// shows up in the installed PWA's title bar/status bar, same reasoning as
+// the body-style branding below.
+export async function generateViewport(): Promise<Viewport> {
+  const currentStaff = await getCurrentStaff();
+  const branding = currentStaff ? await getOrgBranding(currentStaff.organizationId) : null;
 
-  return data;
+  return {
+    themeColor: branding?.primary_color ?? DEFAULT_THEME_COLOR,
+  };
 }
 
 export default async function RootLayout({

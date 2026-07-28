@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentStaff } from "@/lib/current-staff";
+import { ServiceWorkerRegister } from "@/components/service-worker-register";
 
 // adminOnly is a nav-visibility simplification, not an access-control
 // boundary -- none of these pages check role themselves, so hiding a link
@@ -12,6 +13,7 @@ const navigation = [
   { href: "/dashboard/schedule", label: "My Schedule", adminOnly: false },
   { href: "/dashboard/sub-requests", label: "Sub Requests", adminOnly: false },
   { href: "/dashboard/messages", label: "Message Boards", adminOnly: false },
+  { href: "/dashboard/notifications", label: "Notifications", adminOnly: false },
   { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true },
   { href: "/dashboard/instructors", label: "Instructors", adminOnly: true },
   { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
@@ -43,6 +45,7 @@ export async function DashboardShell({
 
   return (
     <div className="min-h-screen bg-zinc-50">
+      <ServiceWorkerRegister />
       <aside className="fixed inset-y-0 left-0 hidden w-64 border-r border-zinc-200 bg-white px-5 py-6 md:block">
         <Link href="/" className="text-xl font-semibold text-zinc-950">
           Synq
