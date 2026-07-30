@@ -7,19 +7,16 @@ type RouteParams = { params: Promise<{ id: string }> };
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: requestId } = await params;
-    const body = await request.json();
 
-    // A real session's identity always wins over whatever the client sent.
-    // No session yet still trusts the body, same as before.
+    // A real session is required, full stop -- this used to trust a
+    // client-supplied callerStaffId when no session existed.
     const currentStaff = await getCurrentStaff();
-    const callerStaffId: string | undefined = currentStaff?.id ?? body?.callerStaffId;
 
-    if (!callerStaffId) {
-      return NextResponse.json(
-        { error: "callerStaffId is required." },
-        { status: 400 },
-      );
+    if (!currentStaff) {
+      return NextResponse.json({ error: "Sign in required." }, { status: 401 });
     }
+
+    const callerStaffId = currentStaff.id;
 
     const supabase = await getScopedClient(currentStaff);
 

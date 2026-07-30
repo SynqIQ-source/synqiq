@@ -19,27 +19,27 @@ type QualifiedInstructor = {
 
 export async function POST(request: NextRequest) {
   try {
+    // A real session is required, full stop -- the dropdown-mode fallback
+    // that used to trust a client-supplied requestedBy here is retired.
+    // MindBody's /usertoken/issue was investigated as a way to delegate
+    // identity instead, but its User.Id is a session-scoped artifact of the
+    // calling API credential, not a stable Staff.Id (confirmed: two calls
+    // with the identical site-owner credential returned different User.Id
+    // values, neither of which exists anywhere in the real staff roster).
+    const currentStaff = await getCurrentStaff();
+
+    if (!currentStaff) {
+      return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+    }
+
+    const requestedBy = currentStaff.id;
+
     const body = await request.json();
     const occurrenceId: string | undefined = body?.occurrenceId;
     const reason: string | undefined = body?.reason;
 
-    // A real session's identity always wins over whatever the client sent --
-    // the whole point of moving this route off the admin client is to stop
-    // trusting a client-supplied requestedBy. No session yet (the ~137 staff
-    // without a login) still trusts the body, same as before -- MindBody's
-    // /usertoken/issue was investigated as a way to delegate identity for
-    // them too, but its User.Id is a session-scoped artifact of the calling
-    // API credential, not a stable Staff.Id (confirmed: two calls with the
-    // identical site-owner credential returned different User.Id values,
-    // neither of which exists anywhere in the real 137-row staff roster).
-    const currentStaff = await getCurrentStaff();
-    const requestedBy: string | undefined = currentStaff?.id ?? body?.requestedBy;
-
-    if (!occurrenceId || !requestedBy) {
-      return NextResponse.json(
-        { error: "occurrenceId and requestedBy are required." },
-        { status: 400 },
-      );
+    if (!occurrenceId) {
+      return NextResponse.json({ error: "occurrenceId is required." }, { status: 400 });
     }
 
     const supabase = await getScopedClient(currentStaff);

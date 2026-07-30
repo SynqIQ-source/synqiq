@@ -5,19 +5,18 @@ import { respondToSubstitutionRequest } from "@/lib/substitutions/respond";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-export async function POST(request: NextRequest, { params }: RouteParams) {
+export async function POST(_request: NextRequest, { params }: RouteParams) {
   const { id: requestId } = await params;
-  const body = await request.json();
 
-  // A real session's identity always wins over whatever the client sent --
-  // no session yet (the ~137 staff without a login) still trusts the body,
-  // same as before.
+  // A real session is required, full stop -- this used to trust a
+  // client-supplied staffId when no session existed.
   const currentStaff = await getCurrentStaff();
-  const staffId: string | undefined = currentStaff?.id ?? body?.staffId;
 
-  if (!staffId) {
-    return NextResponse.json({ error: "staffId is required." }, { status: 400 });
+  if (!currentStaff) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
+
+  const staffId = currentStaff.id;
 
   const supabase = await getScopedClient(currentStaff);
   const result = await respondToSubstitutionRequest(supabase, requestId, staffId, "declined");
