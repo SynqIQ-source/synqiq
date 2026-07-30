@@ -1,12 +1,14 @@
 import { DateTime } from "luxon";
 import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { StaffSelect } from "@/components/staff-select";
-import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
+import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
+import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
-import { getActiveStaff } from "@/lib/staff";
 import { CandidatesButton } from "./candidates-button";
 import { RequestNewSubButton } from "./request-new-sub-button";
+
+const TITLE = "Substitutions";
+const DESCRIPTION = "Open and upcoming coverage requests.";
 
 type SubstitutionRequestRow = {
   id: string;
@@ -77,43 +79,30 @@ function formatStartTime(startDatetime: string | null, timezone: string | null) 
     .toFormat("EEE, MMM d 'at' h:mm a ZZZZ");
 }
 
-export default async function SubstitutionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ staffId?: string }>;
-}) {
-  const params = await searchParams;
+export default async function SubstitutionsPage() {
+  // middleware.ts already guarantees a real Supabase Auth session for
+  // anything under /dashboard/* -- currentStaff can still be null here in
+  // one narrow case (a valid session with no linked staff row), handled
+  // below, not the old dropdown-mode fallback.
   const currentStaff = await getCurrentStaff();
-  const callerStaffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
-  // Adam's real session -> RLS-scoped client, so the
-  // substitution_requests_select_same_org policy is the actual
-  // enforcement. Everyone else (dropdown, no session yet) -> the admin
-  // client, same as before -- RLS has no way to authorize a session-less
-  // caller, so this preserves current behavior rather than locking them out.
+  if (!currentStaff) {
+    return (
+      <DashboardShell title={TITLE} description={DESCRIPTION}>
+        <StaffNotProvisioned />
+      </DashboardShell>
+    );
+  }
+
   const supabase = await getScopedClient(currentStaff);
-
-  const staffOptions = await getActiveStaff();
   const requests = await getActiveSubstitutionRequests(supabase);
 
   return (
-    <DashboardShell
-      title="Substitutions"
-      description="Open and upcoming coverage requests."
-    >
-      {currentStaff ? (
-        <CurrentUserBanner
-          displayName={currentStaff.displayName}
-          role={currentStaff.role}
-        />
-      ) : (
-        <StaffSelect staffOptions={staffOptions} staffId={callerStaffId} />
-      )}
+    <DashboardShell title={TITLE} description={DESCRIPTION}>
+      <CurrentUserBanner displayName={currentStaff.displayName} role={currentStaff.role} />
 
       <p className="mt-2 text-xs text-zinc-500">
-        Select your name to cancel or re-request coverage -- both actions
-        currently check that you&apos;re the original requester (no admin
-        override exists yet without real auth/roles).
+        Cancelling or re-requesting coverage checks that you&apos;re the original requester.
       </p>
 
       {requests.length === 0 ? (
@@ -181,7 +170,6 @@ export default async function SubstitutionsPage({
                           className={className}
                           startFormatted={startFormatted}
                           roomName={roomName}
-                          requestedBy={callerStaffId}
                         />
                       ) : request.status === "pending_selection" ? (
                         // No action to offer -- someone else's selection is
@@ -197,7 +185,6 @@ export default async function SubstitutionsPage({
                           startFormatted={startFormatted}
                           roomName={roomName}
                           requestedByName={requestedByName}
-                          callerStaffId={callerStaffId}
                         />
                       )}
                     </td>

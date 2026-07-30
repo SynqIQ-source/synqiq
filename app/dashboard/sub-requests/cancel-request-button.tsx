@@ -5,15 +5,11 @@ import { useRouter } from "next/navigation";
 
 type CancelRequestButtonProps = {
   requestId: string;
-  callerStaffId: string;
 };
 
 type Status = "idle" | "cancelling" | "error";
 
-export function CancelRequestButton({
-  requestId,
-  callerStaffId,
-}: CancelRequestButtonProps) {
+export function CancelRequestButton({ requestId }: CancelRequestButtonProps) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -25,8 +21,6 @@ export function CancelRequestButton({
     try {
       const response = await fetch(`/api/substitution-requests/${requestId}/cancel`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callerStaffId }),
       });
       const data = await response.json();
 

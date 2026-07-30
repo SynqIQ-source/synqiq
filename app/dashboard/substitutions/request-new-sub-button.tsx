@@ -8,7 +8,6 @@ type RequestNewSubButtonProps = {
   className: string;
   startFormatted: string;
   roomName: string;
-  requestedBy: string | null;
 };
 
 type SubmitStatus = "idle" | "submitting" | "error";
@@ -18,7 +17,6 @@ export function RequestNewSubButton({
   className,
   startFormatted,
   roomName,
-  requestedBy,
 }: RequestNewSubButtonProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
@@ -38,13 +36,6 @@ export function RequestNewSubButton({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!requestedBy) {
-      setStatus("error");
-      setErrorMessage("Select your name above first.");
-      return;
-    }
-
     setStatus("submitting");
     setErrorMessage(null);
 
@@ -54,7 +45,6 @@ export function RequestNewSubButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           occurrenceId,
-          requestedBy,
           reason: reason.trim() || undefined,
         }),
       });

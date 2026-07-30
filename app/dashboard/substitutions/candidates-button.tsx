@@ -18,7 +18,6 @@ type CandidatesButtonProps = {
   startFormatted: string;
   roomName: string;
   requestedByName: string;
-  callerStaffId: string | null;
 };
 
 type FetchStatus = "idle" | "loading" | "loaded" | "error";
@@ -43,7 +42,6 @@ export function CandidatesButton({
   startFormatted,
   roomName,
   requestedByName,
-  callerStaffId,
 }: CandidatesButtonProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
@@ -131,20 +129,12 @@ export function CandidatesButton({
   }
 
   async function handleCancel() {
-    if (!callerStaffId) {
-      setCancelStatus("error");
-      setCancelError("Select your name above first.");
-      return;
-    }
-
     setCancelStatus("cancelling");
     setCancelError(null);
 
     try {
       const response = await fetch(`/api/substitution-requests/${requestId}/cancel`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callerStaffId }),
       });
       const data = await response.json();
 

@@ -1,13 +1,15 @@
 import { DateTime } from "luxon";
 import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { StaffSelect } from "@/components/staff-select";
-import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
+import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
+import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { formatClassTime } from "@/lib/format-class-time";
-import { getActiveStaff } from "@/lib/staff";
 import { CancelRequestButton } from "./cancel-request-button";
 import { ResponseButtons, type ResponseStatus } from "./response-buttons";
+
+const TITLE = "Sub Requests";
+const DESCRIPTION = "Your own coverage requests, and open requests you're qualified to cover.";
 
 type MyRequestRow = {
   id: string;
@@ -181,131 +183,108 @@ function formatDateLabel(startDatetime: string | null, timezone: string | null) 
     .toFormat("EEE, MMM d");
 }
 
-export default async function SubRequestsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ staffId?: string }>;
-}) {
-  const params = await searchParams;
+export default async function SubRequestsPage() {
+  // middleware.ts already guarantees a real Supabase Auth session for
+  // anything under /dashboard/* -- currentStaff can still be null here in
+  // one narrow case (a valid session with no linked staff row), handled
+  // below, not the old dropdown-mode fallback.
   const currentStaff = await getCurrentStaff();
-  const staffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
-  // Adam's real session -> RLS-scoped client, so the same-org select
-  // policies on substitution_requests/instructor_class_eligibility/
-  // substitution_interests are the actual enforcement. Everyone else
-  // (dropdown, no session yet) -> the admin client, same as before.
+  if (!currentStaff) {
+    return (
+      <DashboardShell title={TITLE} description={DESCRIPTION}>
+        <StaffNotProvisioned />
+      </DashboardShell>
+    );
+  }
+
+  const staffId = currentStaff.id;
   const supabase = await getScopedClient(currentStaff);
 
-  const staffOptions = await getActiveStaff();
-  const rows = staffId ? await getOpenRequestsQualifiedFor(supabase, staffId) : [];
-  const myRequests = staffId ? await getMyRequests(supabase, staffId) : [];
+  const rows = await getOpenRequestsQualifiedFor(supabase, staffId);
+  const myRequests = await getMyRequests(supabase, staffId);
 
   return (
-    <DashboardShell
-      title="Sub Requests"
-      description="Your own coverage requests, and open requests you're qualified to cover."
-    >
-      {currentStaff ? (
-        <CurrentUserBanner
-          displayName={currentStaff.displayName}
-          role={currentStaff.role}
-        />
-      ) : (
-        <StaffSelect staffOptions={staffOptions} staffId={staffId} />
-      )}
+    <DashboardShell title={TITLE} description={DESCRIPTION}>
+      <CurrentUserBanner displayName={currentStaff.displayName} role={currentStaff.role} />
 
-      {staffId ? (
-        <div className="mt-6">
-          <h2 className="text-base font-semibold text-zinc-950">
-            My Requests
-          </h2>
-          {myRequests.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-600">
-              You have no open substitution requests.
-            </p>
-          ) : (
-            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {myRequests.map((request) => {
-                const occurrence = request.occurrence;
-                const className = occurrence?.class_name ?? "Unknown class";
-                const dateLabel = formatDateLabel(
-                  occurrence?.start_datetime ?? null,
-                  occurrence?.organization?.timezone ?? null,
-                );
-                const timeRange = formatClassTime(
-                  occurrence?.start_datetime ?? null,
-                  occurrence?.end_datetime ?? null,
-                  occurrence?.organization?.timezone ?? null,
-                );
-                const timeFormatted = dateLabel
-                  ? `${dateLabel}, ${timeRange}`
-                  : timeRange;
-                const roomName = occurrence?.room?.name ?? "Not assigned";
+      <div className="mt-6">
+        <h2 className="text-base font-semibold text-zinc-950">
+          My Requests
+        </h2>
+        {myRequests.length === 0 ? (
+          <p className="mt-2 text-sm text-zinc-600">
+            You have no open substitution requests.
+          </p>
+        ) : (
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {myRequests.map((request) => {
+              const occurrence = request.occurrence;
+              const className = occurrence?.class_name ?? "Unknown class";
+              const dateLabel = formatDateLabel(
+                occurrence?.start_datetime ?? null,
+                occurrence?.organization?.timezone ?? null,
+              );
+              const timeRange = formatClassTime(
+                occurrence?.start_datetime ?? null,
+                occurrence?.end_datetime ?? null,
+                occurrence?.organization?.timezone ?? null,
+              );
+              const timeFormatted = dateLabel
+                ? `${dateLabel}, ${timeRange}`
+                : timeRange;
+              const roomName = occurrence?.room?.name ?? "Not assigned";
 
-                return (
-                  <div
-                    key={request.id}
-                    className="flex flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5"
-                  >
-                    <div>
-                      <h3 className="text-base font-semibold text-zinc-950">
-                        {className}
-                      </h3>
-                      <dl className="mt-3 space-y-1 text-sm text-zinc-600">
-                        <div className="flex justify-between gap-4">
-                          <dt className="text-zinc-500">Time</dt>
-                          <dd className="text-right text-zinc-950">
-                            {timeFormatted}
-                          </dd>
-                        </div>
-                        <div className="flex justify-between gap-4">
-                          <dt className="text-zinc-500">Room</dt>
-                          <dd className="text-right text-zinc-950">
-                            {roomName}
-                          </dd>
-                        </div>
-                      </dl>
-                    </div>
-
-                    <div className="mt-5">
-                      {request.status === "approved" ? (
-                        <span className="inline-flex items-center rounded-full bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
-                          Approved — {occurrence?.substituteStaff?.display_name ?? "Unknown"}
-                        </span>
-                      ) : request.status === "open" ? (
-                        <CancelRequestButton
-                          requestId={request.id}
-                          callerStaffId={staffId}
-                        />
-                      ) : (
-                        <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
-                          Pending selection
-                        </span>
-                      )}
-                    </div>
+              return (
+                <div
+                  key={request.id}
+                  className="flex flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5"
+                >
+                  <div>
+                    <h3 className="text-base font-semibold text-zinc-950">
+                      {className}
+                    </h3>
+                    <dl className="mt-3 space-y-1 text-sm text-zinc-600">
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-zinc-500">Time</dt>
+                        <dd className="text-right text-zinc-950">
+                          {timeFormatted}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-zinc-500">Room</dt>
+                        <dd className="text-right text-zinc-950">
+                          {roomName}
+                        </dd>
+                      </div>
+                    </dl>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : null}
+
+                  <div className="mt-5">
+                    {request.status === "approved" ? (
+                      <span className="inline-flex items-center rounded-full bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
+                        Approved — {occurrence?.substituteStaff?.display_name ?? "Unknown"}
+                      </span>
+                    ) : request.status === "open" ? (
+                      <CancelRequestButton requestId={request.id} />
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
+                        Pending selection
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <div className="mt-8">
         <h2 className="text-base font-semibold text-zinc-950">
           Requests You Can Cover
         </h2>
-        {!staffId ? (
-          <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-6">
-            <h3 className="text-base font-semibold text-zinc-950">
-              Select your name
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-zinc-600">
-              Choose your name above to see open requests you&apos;re
-              qualified to cover.
-            </p>
-          </section>
-        ) : rows.length === 0 ? (
+        {rows.length === 0 ? (
           <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-6">
             <h3 className="text-base font-semibold text-zinc-950">
               Nothing to cover right now
@@ -367,11 +346,7 @@ export default async function SubRequestsPage({
                   </div>
 
                   <div className="mt-5">
-                    <ResponseButtons
-                      requestId={request.id}
-                      staffId={staffId}
-                      initialStatus={myStatus}
-                    />
+                    <ResponseButtons requestId={request.id} initialStatus={myStatus} />
                   </div>
                 </div>
               );

@@ -1,13 +1,16 @@
 import { DateTime } from "luxon";
 import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { StaffSelect } from "@/components/staff-select";
-import { getCurrentStaff, resolveViewedStaffId } from "@/lib/current-staff";
+import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
+import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { formatClassTime } from "@/lib/format-class-time";
-import { getActiveStaff } from "@/lib/staff";
 import { DateNav } from "./date-nav";
 import { SubRequestButton } from "./sub-request-button";
+
+const TITLE = "My Schedule";
+const DESCRIPTION =
+  "Your own class schedule, day by day -- request a substitute directly from a class card.";
 
 type ScheduleOccurrenceRow = {
   id: string;
@@ -76,61 +79,42 @@ async function getScheduleForStaffOnDate(
 export default async function SchedulePage({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string; staffId?: string }>;
+  searchParams: Promise<{ date?: string }>;
 }) {
   const params = await searchParams;
 
-  // A real session always wins over the "select your name" stand-in --
-  // once someone has a login, they no longer pick themselves from a
-  // dropdown. Staff without a login yet still use the dropdown exactly as
-  // before.
+  // middleware.ts already guarantees a real Supabase Auth session for
+  // anything under /dashboard/* -- currentStaff can still be null here in
+  // one narrow case (a valid session with no linked staff row), handled
+  // below, not the old dropdown-mode fallback.
   const currentStaff = await getCurrentStaff();
-  const staffId = await resolveViewedStaffId(currentStaff, params.staffId ?? null);
 
-  // Adam's real session -> RLS-scoped client, so the org/select policies are
-  // the actual enforcement. Everyone else (dropdown, no session yet) -> the
-  // admin client, same as before -- RLS has no way to authorize a
-  // session-less caller, so this preserves current behavior.
+  if (!currentStaff) {
+    return (
+      <DashboardShell title={TITLE} description={DESCRIPTION}>
+        <StaffNotProvisioned />
+      </DashboardShell>
+    );
+  }
+
+  const staffId = currentStaff.id;
   const supabase = await getScopedClient(currentStaff);
   const timezone = await getOrgTimezone(supabase);
 
   const date =
     params.date ?? DateTime.now().setZone(timezone).toISODate() ?? "";
 
-  const staffOptions = await getActiveStaff();
-  const occurrences = staffId
-    ? await getScheduleForStaffOnDate(supabase, staffId, date, timezone)
-    : [];
+  const occurrences = await getScheduleForStaffOnDate(supabase, staffId, date, timezone);
 
   return (
-    <DashboardShell
-      title="My Schedule"
-      description="Your own class schedule, day by day -- request a substitute directly from a class card."
-    >
+    <DashboardShell title={TITLE} description={DESCRIPTION}>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        {currentStaff ? (
-          <CurrentUserBanner
-            displayName={currentStaff.displayName}
-            role={currentStaff.role}
-          />
-        ) : (
-          <StaffSelect staffOptions={staffOptions} staffId={staffId} />
-        )}
+        <CurrentUserBanner displayName={currentStaff.displayName} role={currentStaff.role} />
         <DateNav date={date} />
       </div>
 
       <div className="mt-6">
-        {!staffId ? (
-          <section className="rounded-lg border border-zinc-200 bg-white p-6">
-            <h2 className="text-base font-semibold text-zinc-950">
-              Select your name
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-600">
-              Choose your name above to view your classes for the selected
-              date.
-            </p>
-          </section>
-        ) : occurrences.length === 0 ? (
+        {occurrences.length === 0 ? (
           <section className="rounded-lg border border-zinc-200 bg-white p-6">
             <h2 className="text-base font-semibold text-zinc-950">
               No classes scheduled
@@ -192,7 +176,6 @@ export default async function SchedulePage({
                       timeFormatted={timeFormatted}
                       roomName={roomName}
                       staffDisplayName={staffDisplayName}
-                      requestedBy={staffId}
                     />
                   </div>
                 </div>

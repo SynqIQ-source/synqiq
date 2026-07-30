@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { getActiveStaff } from "@/lib/staff";
@@ -38,18 +38,7 @@ export default async function MessagesPage() {
         title="Message Boards"
         description="Announcements, department chats, and coverage chats."
       >
-        <section className="rounded-lg border border-zinc-200 bg-white p-6">
-          <h2 className="text-base font-semibold text-zinc-950">Sign in required</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">
-            Message Boards has no &quot;select your name&quot; fallback -- access to each board is
-            enforced by the database itself based on who you&apos;re actually logged in as, not a
-            client-supplied name.{" "}
-            <Link href="/login" className="font-medium text-primary hover:underline">
-              Sign in
-            </Link>{" "}
-            to continue.
-          </p>
-        </section>
+        <StaffNotProvisioned />
       </DashboardShell>
     );
   }

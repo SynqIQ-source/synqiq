@@ -6,17 +6,12 @@ export type ResponseStatus = "interested" | "declined" | null;
 
 type ResponseButtonsProps = {
   requestId: string;
-  staffId: string;
   initialStatus: ResponseStatus;
 };
 
 type ActionState = "idle" | "submitting" | "error";
 
-export function ResponseButtons({
-  requestId,
-  staffId,
-  initialStatus,
-}: ResponseButtonsProps) {
+export function ResponseButtons({ requestId, initialStatus }: ResponseButtonsProps) {
   const [status, setStatus] = useState<ResponseStatus>(initialStatus);
   const [actionState, setActionState] = useState<ActionState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -28,11 +23,7 @@ export function ResponseButtons({
     try {
       const response = await fetch(
         `/api/substitution-requests/${requestId}/${action}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ staffId }),
-        },
+        { method: "POST" },
       );
       const data = await response.json();
 

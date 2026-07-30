@@ -8,7 +8,6 @@ type SubRequestButtonProps = {
   timeFormatted: string;
   roomName: string;
   staffDisplayName: string;
-  requestedBy: string;
 };
 
 type SubmitStatus = "idle" | "submitting" | "success" | "error";
@@ -19,7 +18,6 @@ export function SubRequestButton({
   timeFormatted,
   roomName,
   staffDisplayName,
-  requestedBy,
 }: SubRequestButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -47,7 +45,6 @@ export function SubRequestButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           occurrenceId,
-          requestedBy,
           reason: reason.trim() || undefined,
         }),
       });
