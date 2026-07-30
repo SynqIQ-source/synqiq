@@ -1,23 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getScopedClient } from "@/lib/supabase/scoped";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-// Instructor-facing self-check: returns only whether/how the given staff
-// member has responded ('interested' | 'declined' | null for no response
-// yet) -- nothing about any other candidate. Full candidate visibility
-// belongs to the manager-facing GET /api/substitution-requests/:id/interest,
-// not here.
-export async function GET(request: NextRequest, { params }: RouteParams) {
+// Instructor-facing self-check: returns only whether/how the *calling*
+// staff member has responded ('interested' | 'declined' | null for no
+// response yet) -- nothing about any other candidate. Full candidate
+// visibility belongs to the manager-facing GET
+// /api/substitution-requests/:id/interest, not here.
+//
+// A real session is required, full stop -- this used to accept a
+// client-supplied ?staffId= with no session check at all, letting anyone
+// who knew a request id + staff id read that staff member's private
+// response. staffId is now always derived from the session, never trusted
+// from the request.
+export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
-    const { id: requestId } = await params;
-    const staffId = request.nextUrl.searchParams.get("staffId");
+    const currentStaff = await getCurrentStaff();
 
-    if (!staffId) {
-      return NextResponse.json({ error: "staffId is required." }, { status: 400 });
+    if (!currentStaff) {
+      return NextResponse.json({ error: "Sign in required." }, { status: 401 });
     }
 
-    const supabase = createSupabaseAdminClient();
+    const { id: requestId } = await params;
+    const supabase = await getScopedClient(currentStaff);
 
     const { data: substitutionRequest, error: requestError } = await supabase
       .from("substitution_requests")
@@ -36,7 +43,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .from("substitution_interests")
       .select("status, responded_at")
       .eq("request_id", requestId)
-      .eq("staff_id", staffId)
+      .eq("staff_id", currentStaff.id)
       .maybeSingle();
 
     if (interestError) {
