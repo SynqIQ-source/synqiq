@@ -35,8 +35,28 @@ export async function middleware(request: NextRequest) {
 
   // Calling getUser() (not getSession()) is what actually triggers the
   // token refresh against Supabase Auth -- getSession() alone just reads
-  // the existing cookie without validating/refreshing it.
-  await supabase.auth.getUser();
+  // the existing cookie without validating/refreshing it. Reused below for
+  // the /dashboard/* gate too, rather than calling it a second time.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // The dropdown-mode "select your name" fallback is retired -- every
+  // staff member now needs a real account. No session reaching anything
+  // under /dashboard/* redirects to /login before any page code runs, so
+  // this is enforced once here instead of duplicated (and easy to forget)
+  // per page. Scoped to /dashboard specifically -- /, /login, and /api/*
+  // are unaffected; API routes enforce their own session requirement.
+  if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
+    const redirectResponse = NextResponse.redirect(new URL("/login", request.url));
+    // Carry over any cookie mutation setAll already applied to `response`
+    // (e.g. clearing an expired session cookie) -- a fresh NextResponse.redirect()
+    // wouldn't otherwise include it.
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie);
+    });
+    return redirectResponse;
+  }
 
   return response;
 }
