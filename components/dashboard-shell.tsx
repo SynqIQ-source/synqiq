@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
-import { MobileNav } from "@/components/mobile-nav";
+import { BottomNav } from "@/components/bottom-nav";
 
 // adminOnly is a nav-visibility simplification, not an access-control
 // boundary -- none of these pages check role themselves, so hiding a link
@@ -20,6 +20,18 @@ const navigation = [
   { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
   { href: "/dashboard/settings", label: "Settings", adminOnly: true },
   { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
+];
+
+// Fixed, identical across roles -- solves the mobile bottom-bar width
+// problem uniformly (every role gets the same 4-tab-plus-More bar) instead
+// of admin getting a wider bar than instructors. Everything else lands in
+// the "More" popover, filtered by the same adminOnly rule as the desktop
+// sidebar -- nothing becomes unreachable on mobile, just not primary.
+const PRIMARY_MOBILE_HREFS = [
+  "/dashboard/classes",
+  "/dashboard/schedule",
+  "/dashboard/sub-requests",
+  "/dashboard/messages",
 ];
 
 type DashboardShellProps = {
@@ -43,6 +55,12 @@ export async function DashboardShell({
   const currentStaff = await getCurrentStaff();
   const isAdmin = currentStaff?.role === "admin";
   const visibleNavigation = navigation.filter((item) => !item.adminOnly || isAdmin);
+  const primaryMobileItems = visibleNavigation.filter((item) =>
+    PRIMARY_MOBILE_HREFS.includes(item.href),
+  );
+  const moreMobileItems = visibleNavigation.filter(
+    (item) => !PRIMARY_MOBILE_HREFS.includes(item.href),
+  );
 
   return (
     <div className="min-h-screen bg-zinc-50">
@@ -66,11 +84,10 @@ export async function DashboardShell({
       <div className="md:pl-64">
         <header className="border-b border-zinc-200 bg-white px-6 py-5">
           <div className="mx-auto max-w-6xl">
-            <div className="mb-4 flex items-center justify-between md:hidden">
+            <div className="mb-4 md:hidden">
               <Link href="/" className="text-xl font-semibold text-zinc-950">
                 Synq
               </Link>
-              <MobileNav items={visibleNavigation} />
             </div>
             <p className="text-sm font-medium text-primary">Dashboard</p>
             <h1 className="mt-1 text-2xl font-semibold text-zinc-950">
@@ -81,8 +98,9 @@ export async function DashboardShell({
             </p>
           </div>
         </header>
-        <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
+        <main className="mx-auto max-w-6xl px-6 pt-8 pb-24 md:pb-8">{children}</main>
       </div>
+      <BottomNav primaryItems={primaryMobileItems} moreItems={moreMobileItems} />
     </div>
   );
 }
