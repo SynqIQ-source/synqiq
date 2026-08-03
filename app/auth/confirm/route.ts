@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 // Landing point for Supabase Auth email links -- currently only password
 // recovery uses this, but it's written to key off `type` the way Supabase's
@@ -17,23 +18,24 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 // {{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery -- a
 // Supabase-dashboard-only change, not something this route controls.
 export async function GET(request: NextRequest) {
+  const origin = resolveRequestOrigin(request);
   const tokenHash = request.nextUrl.searchParams.get("token_hash");
   const type = request.nextUrl.searchParams.get("type") as EmailOtpType | null;
 
   if (!tokenHash || !type) {
-    return NextResponse.redirect(new URL("/login?error=reset-link-invalid", request.url));
+    return NextResponse.redirect(new URL("/login?error=reset-link-invalid", origin));
   }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
 
   if (error) {
-    return NextResponse.redirect(new URL("/login?error=reset-link-invalid", request.url));
+    return NextResponse.redirect(new URL("/login?error=reset-link-invalid", origin));
   }
 
   if (type === "recovery") {
-    return NextResponse.redirect(new URL("/reset-password", request.url));
+    return NextResponse.redirect(new URL("/reset-password", origin));
   }
 
-  return NextResponse.redirect(new URL("/dashboard", request.url));
+  return NextResponse.redirect(new URL("/dashboard", origin));
 }

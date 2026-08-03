@@ -1,6 +1,7 @@
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getEnv } from "@/lib/env";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 // Standard Supabase SSR pattern: refreshes the session cookie on every
 // request so Server Components always see an up-to-date session instead of
@@ -48,7 +49,7 @@ export async function middleware(request: NextRequest) {
   // per page. Scoped to /dashboard specifically -- /, /login, and /api/*
   // are unaffected; API routes enforce their own session requirement.
   if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
-    const redirectResponse = NextResponse.redirect(new URL("/login", request.url));
+    const redirectResponse = NextResponse.redirect(new URL("/login", resolveRequestOrigin(request)));
     // Carry over any cookie mutation setAll already applied to `response`
     // (e.g. clearing an expired session cookie) -- a fresh NextResponse.redirect()
     // wouldn't otherwise include it.
