@@ -34,23 +34,34 @@
   --color-accent-subtle: #f0fdfa;
 }
 
-* {
-  box-sizing: border-box;
-}
+/* @layer base, not unlayered -- Tailwind v4 (via @import "tailwindcss" above)
+   wraps its own utilities in @layer utilities. Per the CSS Cascade Layers
+   spec, unlayered rules always beat ANY layered rule regardless of
+   specificity, so an unlayered `a { color: inherit }` here was silently
+   overriding every Tailwind text-color utility applied to a <Link>/<a>
+   anywhere in the app (confirmed empirically: text-primary/text-white all
+   computed back to plain --foreground on real links, not their intended
+   color) -- @layer base puts these back in the same layer Tailwind's own
+   base styles use, so utilities correctly win again. */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-html {
-  min-height: 100%;
-}
+  html {
+    min-height: 100%;
+  }
 
-body {
-  min-height: 100%;
-  margin: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-body);
-}
+  body {
+    min-height: 100%;
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body);
+  }
 
-a {
-  color: inherit;
-  text-decoration: none;
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }

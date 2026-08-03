@@ -75,7 +75,7 @@ export function BottomNav({
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 flex h-16 items-stretch border-t border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 flex h-16 items-stretch bg-primary pb-[env(safe-area-inset-bottom)] md:hidden"
       aria-label="Primary"
     >
       {primaryItems.map((item) => {
@@ -86,10 +86,10 @@ export function BottomNav({
             href={item.href}
             onClick={() => setMoreOpen(false)}
             className={`relative flex flex-1 flex-col items-center justify-center gap-1 text-xs font-medium ${
-              active ? "text-primary" : "text-zinc-500"
+              active ? "text-white" : "text-white/70"
             }`}
           >
-            {active && <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />}
+            {active && <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-white" />}
             <TabIcon href={item.href} className="h-5 w-5" />
             <span>{PRIMARY_LABEL_OVERRIDES[item.href] ?? item.label}</span>
           </Link>
@@ -104,11 +104,11 @@ export function BottomNav({
             aria-label={moreOpen ? "Close more menu" : "Open more menu"}
             aria-expanded={moreOpen}
             className={`relative flex flex-1 flex-col items-center justify-center gap-1 text-xs font-medium ${
-              moreOpen || moreIsActive ? "text-primary" : "text-zinc-500"
+              moreOpen || moreIsActive ? "text-white" : "text-white/70"
             }`}
           >
             {(moreOpen || moreIsActive) && (
-              <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />
+              <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-white" />
             )}
             <MoreHorizontal className="h-5 w-5" />
             <span>More</span>
