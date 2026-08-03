@@ -17,6 +17,7 @@ const navigation = [
   { href: "/dashboard/notifications", label: "Notifications", adminOnly: false },
   { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true },
   { href: "/dashboard/instructors", label: "Instructors", adminOnly: true },
+  { href: "/dashboard/trainer-health", label: "Trainer Health", adminOnly: true },
   { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
   { href: "/dashboard/settings", label: "Settings", adminOnly: true },
   { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },

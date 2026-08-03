@@ -117,6 +117,48 @@ export class MindbodyClient {
     });
   }
 
+  async getStaffAppointments(
+    accessToken?: string,
+    filters?: {
+      startDate?: string;
+      endDate?: string;
+      offset?: number;
+      limit?: number;
+    },
+  ) {
+    return this.request("/appointment/staffappointments", {
+      method: "GET",
+      accessToken,
+      searchParams: {
+        StartDate: filters?.startDate,
+        EndDate: filters?.endDate,
+        Offset: filters?.offset,
+        Limit: filters?.limit,
+      },
+    });
+  }
+
+  async getSales(
+    accessToken?: string,
+    filters?: {
+      startSaleDateTime?: string;
+      endSaleDateTime?: string;
+      offset?: number;
+      limit?: number;
+    },
+  ) {
+    return this.request("/sale/sales", {
+      method: "GET",
+      accessToken,
+      searchParams: {
+        StartSaleDateTime: filters?.startSaleDateTime,
+        EndSaleDateTime: filters?.endSaleDateTime,
+        Offset: filters?.offset,
+        Limit: filters?.limit,
+      },
+    });
+  }
+
   async getClassVisits(occurrenceId: MindbodyOccurrenceId, accessToken?: string) {
     return this.request("/class/classvisits", {
       method: "GET",

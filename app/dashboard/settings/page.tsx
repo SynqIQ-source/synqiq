@@ -3,6 +3,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { BrandingForm } from "./branding-form";
+import { TrainerHealthSettingsForm } from "./trainer-health-settings-form";
 
 export default async function SettingsPage() {
   const currentStaff = await getCurrentStaff();
@@ -20,7 +21,7 @@ export default async function SettingsPage() {
   const supabase = await getScopedClient(currentStaff);
   const { data: organization, error } = await supabase
     .from("organizations")
-    .select("id, name, primary_color, accent_color, font_family, logo_url")
+    .select("id, name, primary_color, accent_color, font_family, logo_url, expected_revenue_per_session")
     .eq("id", currentStaff.organizationId)
     .single();
 
@@ -34,6 +35,9 @@ export default async function SettingsPage() {
       description="Customize your studio's branding across the dashboard."
     >
       <BrandingForm organization={organization} />
+      <TrainerHealthSettingsForm
+        expectedRevenuePerSession={organization.expected_revenue_per_session}
+      />
     </DashboardShell>
   );
 }

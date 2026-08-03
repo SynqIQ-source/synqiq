@@ -1,0 +1,120 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createMindbodyClient } from "@/lib/mindbody/client";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { delay, withRetry } from "@/lib/retry";
+import type { MindbodySale } from "@/types/mindbody";
+
+type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
+
+// Same lookup-only pattern as the appointments sync route: staff is synced
+// by /api/sync/classes, not here.
+async function getStaffIdByMindbodyId(supabase: SupabaseAdminClient, organizationId: string) {
+  const { data, error } = await supabase
+    .from("staff")
+    .select("id, mindbody_staff_id")
+    .eq("organization_id", organizationId);
+
+  if (error) {
+    throw new Error(`Failed to load staff: ${error.message}`);
+  }
+
+  return new Map((data ?? []).map((row) => [row.mindbody_staff_id as number, row.id as string]));
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const startSaleDateTime = searchParams.get("startSaleDateTime") ?? undefined;
+    const endSaleDateTime = searchParams.get("endSaleDateTime") ?? undefined;
+
+    const mindbody = createMindbodyClient();
+    const supabase = createSupabaseAdminClient();
+
+    const { AccessToken: accessToken } = await mindbody.authenticate();
+
+    const siteResult = await mindbody.getSite(accessToken);
+    const site = siteResult.Sites?.[0];
+
+    if (!site) {
+      throw new Error("MindBody /site/sites returned no site.");
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .upsert(
+        {
+          mindbody_site_id: site.Id,
+          timezone: site.TimeZone,
+          name: site.Name,
+        },
+        { onConflict: "mindbody_site_id" },
+      )
+      .select()
+      .single();
+
+    if (orgError || !org) {
+      throw new Error(orgError?.message ?? "Failed to upsert organization.");
+    }
+
+    const staffIdByMindbodyId = await getStaffIdByMindbodyId(supabase, org.id);
+
+    let imported = 0;
+    let total = 0;
+    let offset = 0;
+    const pageLimit = 200;
+
+    for (;;) {
+      const page = await withRetry(() =>
+        mindbody.getSales(accessToken, { startSaleDateTime, endSaleDateTime, offset, limit: pageLimit }),
+      );
+      const sales = (page.Sales ?? []) as MindbodySale[];
+      total = page.PaginationResponse?.TotalResults ?? sales.length;
+
+      for (const sale of sales) {
+        // Unlike appointment/class StartDateTime, SaleDateTime already
+        // carries a "Z" (real UTC) -- confirmed empirically against the
+        // sandbox -- so it's parsed directly, no org-timezone conversion.
+        const totalAmount = (sale.PurchasedItems ?? []).reduce(
+          (sum, item) => sum + (item.TotalAmount ?? 0),
+          0,
+        );
+
+        const { error } = await supabase.from("sales").upsert(
+          {
+            mindbody_sale_id: sale.Id,
+            organization_id: org.id,
+            sales_rep_staff_id:
+              sale.SalesRepId != null ? staffIdByMindbodyId.get(sale.SalesRepId) ?? null : null,
+            client_id: sale.ClientId,
+            sale_datetime: sale.SaleDateTime,
+            total_amount: totalAmount,
+          },
+          { onConflict: "mindbody_sale_id" },
+        );
+
+        if (!error) {
+          imported++;
+        } else {
+          console.error(error);
+        }
+      }
+
+      offset += sales.length;
+      if (sales.length === 0 || offset >= total) {
+        break;
+      }
+
+      await delay(300);
+    }
+
+    return NextResponse.json({ success: true, imported, total });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 },
+    );
+  }
+}
