@@ -272,7 +272,16 @@ export async function GET(request: NextRequest) {
         }),
       );
       const classes = page.Classes ?? [];
-      totalClasses = page.PaginationResponse?.TotalResults ?? classes.length;
+      // Only trust TotalResults from a page that actually returned rows --
+      // confirmed empirically against /sale/sales (same pagination shape as
+      // this endpoint): the true terminal empty page reports
+      // TotalResults: 0 even though every prior page agreed on a higher
+      // (and it turns out overstated) figure. Skipping the empty page's
+      // TotalResults keeps totalClasses at the last real value instead of
+      // being clobbered to 0 right as the loop is about to exit anyway.
+      if (classes.length > 0) {
+        totalClasses = page.PaginationResponse?.TotalResults ?? totalClasses;
+      }
 
       for (const cls of classes) {
         const maxCapacity = cls.MaxCapacity ?? 0;

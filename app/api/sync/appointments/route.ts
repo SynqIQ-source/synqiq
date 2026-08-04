@@ -86,7 +86,16 @@ export async function GET(request: NextRequest) {
         mindbody.getStaffAppointments(accessToken, { startDate, endDate, offset, limit: pageLimit }),
       );
       const appointments = (page.Appointments ?? []) as MindbodyAppointment[];
-      total = page.PaginationResponse?.TotalResults ?? appointments.length;
+      // Only trust TotalResults from a page that actually returned rows --
+      // confirmed empirically against the sandbox's /sale/sales endpoint
+      // (same pagination shape as this one): the true terminal empty page
+      // reports TotalResults: 0 even when every prior page agreed on a
+      // higher (and it turns out overstated) figure. Skipping the empty
+      // page's TotalResults keeps `total` at the last real value instead of
+      // being clobbered to 0 right as the loop is about to exit anyway.
+      if (appointments.length > 0) {
+        total = page.PaginationResponse?.TotalResults ?? total;
+      }
 
       for (const appointment of appointments) {
         // Same naive-local-time shape as class occurrences' StartDateTime --

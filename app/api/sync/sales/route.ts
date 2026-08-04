@@ -68,7 +68,16 @@ export async function GET(request: NextRequest) {
         mindbody.getSales(accessToken, { startSaleDateTime, endSaleDateTime, offset, limit: pageLimit }),
       );
       const sales = (page.Sales ?? []) as MindbodySale[];
-      total = page.PaginationResponse?.TotalResults ?? sales.length;
+      // Only trust TotalResults from a page that actually returned rows --
+      // confirmed empirically against the sandbox: /sale/sales' true
+      // terminal empty page reports TotalResults: 0 even though every prior
+      // page agreed on a higher (and it turns out overstated -- 468 vs. an
+      // actual 459) figure. Skipping the empty page's TotalResults keeps
+      // `total` at the last real value instead of being clobbered to 0
+      // right as the loop is about to exit anyway.
+      if (sales.length > 0) {
+        total = page.PaginationResponse?.TotalResults ?? total;
+      }
 
       for (const sale of sales) {
         // Unlike appointment/class StartDateTime, SaleDateTime already
