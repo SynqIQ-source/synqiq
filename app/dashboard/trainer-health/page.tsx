@@ -124,6 +124,7 @@ type TrainerHealth = {
   displayName: string;
   months: MonthStat[];
   flagged: boolean;
+  latestRatio: number | null;
 };
 
 function buildTrainerHealth(
@@ -174,11 +175,39 @@ function buildTrainerHealth(
         }
       }
 
-      return { staffId: member.id, displayName: member.display_name, months, flagged };
+      // Most recent month with an actual ratio (i.e. sessions > 0), not
+      // just the last bucket -- a trainer who serviced nothing this month
+      // but was healthy last month shouldn't rank as if they had no data
+      // at all.
+      let latestRatio: number | null = null;
+      for (let i = months.length - 1; i >= 0; i--) {
+        if (months[i].ratio !== null) {
+          latestRatio = months[i].ratio;
+          break;
+        }
+      }
+
+      return { staffId: member.id, displayName: member.display_name, months, flagged, latestRatio };
     })
     .filter((row) => row.months.some((month) => month.sessions > 0))
     .sort((a, b) => {
+      // Leaderboard, worst-first -- this is an early-warning tool, so
+      // whoever needs attention should be the first thing an admin sees,
+      // not something they have to scan alphabetically for. Flagged
+      // trainers (2+ consecutive months under benchmark) are pinned to the
+      // very top regardless of their latest single-month number, since the
+      // flag itself is the more urgent signal than one month's ratio.
       if (a.flagged !== b.flagged) return a.flagged ? -1 : 1;
+
+      // No-recent-data trainers sort after everyone with a real number,
+      // within their flagged/unflagged group.
+      if (a.latestRatio === null && b.latestRatio === null) {
+        return a.displayName.localeCompare(b.displayName);
+      }
+      if (a.latestRatio === null) return 1;
+      if (b.latestRatio === null) return -1;
+
+      if (a.latestRatio !== b.latestRatio) return a.latestRatio - b.latestRatio;
       return a.displayName.localeCompare(b.displayName);
     });
 }
@@ -263,10 +292,12 @@ export default async function TrainerHealthPage() {
                           : "--"}
                       </td>
                       <td
-                        className={`p-3 text-right ${
-                          month.ratio !== null && month.ratio < HEALTH_THRESHOLD
-                            ? "font-medium text-red-600"
-                            : ""
+                        className={`p-3 text-right font-medium ${
+                          month.ratio === null
+                            ? "font-normal text-zinc-400"
+                            : month.ratio < HEALTH_THRESHOLD
+                              ? "text-red-600"
+                              : "text-green-700"
                         }`}
                       >
                         {month.ratio !== null ? `${(month.ratio * 100).toFixed(0)}%` : "N/A"}
@@ -287,7 +318,8 @@ export default async function TrainerHealthPage() {
         <span className="font-medium text-zinc-600">Ratio</span> is Sales ÷ (Sessions ×
         expected revenue per session, set in Settings) and reads N/A for a month with zero sessions
         rather than a misleading 0%. Trainers with no activity in the last {MONTHS_SHOWN} months are
-        omitted.
+        omitted. Ranked worst-first by most recent month&apos;s ratio, with flagged trainers pinned
+        to the top.
       </p>
     </DashboardShell>
   );
