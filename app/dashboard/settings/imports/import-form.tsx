@@ -28,7 +28,7 @@ type SubmitState =
 const REPORT_TYPES = [
   { value: "ratings_reviews", label: "Ratings & Reviews", enabled: true },
   { value: "revenue", label: "Revenue", enabled: true },
-  { value: "payroll", label: "Payroll", enabled: false },
+  { value: "payroll", label: "Payroll", enabled: true },
 ];
 
 export function ImportForm() {
