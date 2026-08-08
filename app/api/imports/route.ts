@@ -5,16 +5,16 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 import { parseAndValidate } from "@/lib/imports/pipeline";
 import { RATINGS_REVIEWS_DEFINITION } from "@/lib/imports/definitions/ratings-reviews";
 import { REVENUE_DEFINITION } from "@/lib/imports/definitions/revenue";
+import { PAYROLL_DEFINITION } from "@/lib/imports/definitions/payroll";
 import type { ImportDefinition } from "@/lib/imports/types";
 
-// payroll stays a schema-only stub until its column shapes are verified
-// the same way reviews' and revenue's were (see conversation history).
 // Keyed by reportType so adding the next one is adding an entry here, not
 // new route logic.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each definition has its own Row/ExtraCtx generics, intentionally erased at this registry boundary
 const DEFINITIONS: Record<string, ImportDefinition<any, any>> = {
   ratings_reviews: RATINGS_REVIEWS_DEFINITION,
   revenue: REVENUE_DEFINITION,
+  payroll: PAYROLL_DEFINITION,
 };
 
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls", ".csv"];
