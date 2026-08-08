@@ -12,7 +12,16 @@ export type ColumnDef = {
   // exports rename columns often enough that a single fixed string is too
   // brittle.
   sourceHeaders: string[];
+  // Cell-level: an empty value in this column fails the row. Also drives
+  // header-level enforcement UNLESS requireHeader overrides it below.
   required: boolean;
+  // Header-level only, independent of `required` above -- for a column
+  // whose header should exist but whose per-row value may legitimately be
+  // blank (e.g. revenue's Staff column: a blank/unmatched name resolves to
+  // a null FK rather than failing the row, but the file should still be
+  // expected to have a Staff column at all). Defaults to `required` when
+  // omitted, so every existing column definition is unaffected.
+  requireHeader?: boolean;
   type: ColumnType;
 };
 
@@ -44,5 +53,17 @@ export type ImportDefinition<Row extends Record<string, unknown>, ExtraCtx> = {
   columns: ColumnDef[];
   loadContext: (ctx: ImportContext) => Promise<ExtraCtx>;
   resolveRow: (values: TypedRowValues, ctx: ImportContext, extra: ExtraCtx) => ResolveRowResult<Row>;
-  computeRowHash: (row: Row, ctx: ImportContext) => string;
+  // Takes the row's typed-but-pre-resolution values too, not just the
+  // resolved Row -- lets a definition hash a raw source value (e.g.
+  // revenue's Rev. per Visit) that a derived Row field may null out
+  // without needing to smuggle that raw value into the Row shape, which
+  // must exactly match the destination table's insertable columns.
+  computeRowHash: (row: Row, ctx: ImportContext, values: TypedRowValues) => string;
+  // Non-blocking, informational summary computed from the full set of
+  // successfully-resolved rows, before insert -- e.g. revenue's excluded
+  // (uncapped) and zero-revenue (capped) row counts. Never used to fail
+  // an import; surfaced in the API response and persisted to
+  // report_imports.warnings_summary. Omitted (undefined) means no
+  // warnings computation for this report type.
+  computeWarnings?: (rows: Row[]) => Record<string, unknown> | null;
 };

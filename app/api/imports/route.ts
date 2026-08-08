@@ -4,15 +4,17 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { parseAndValidate } from "@/lib/imports/pipeline";
 import { RATINGS_REVIEWS_DEFINITION } from "@/lib/imports/definitions/ratings-reviews";
+import { REVENUE_DEFINITION } from "@/lib/imports/definitions/revenue";
 import type { ImportDefinition } from "@/lib/imports/types";
 
-// Only ratings_reviews has a real definition wired up -- revenue/payroll
-// stay schema-only stubs until their column shapes are verified the same
-// way reviews' was (see conversation history). Keyed by reportType so
-// adding the next one is adding an entry here, not new route logic.
+// payroll stays a schema-only stub until its column shapes are verified
+// the same way reviews' and revenue's were (see conversation history).
+// Keyed by reportType so adding the next one is adding an entry here, not
+// new route logic.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each definition has its own Row/ExtraCtx generics, intentionally erased at this registry boundary
 const DEFINITIONS: Record<string, ImportDefinition<any, any>> = {
   ratings_reviews: RATINGS_REVIEWS_DEFINITION,
+  revenue: REVENUE_DEFINITION,
 };
 
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls", ".csv"];
@@ -72,6 +74,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Non-blocking, informational -- computed from the full row set before
+    // anything is written. Neither an excluded (uncapped) row nor a
+    // zero-revenue (capped) row is a validation failure, so this never
+    // changes whether the import proceeds.
+    const warnings = definition.computeWarnings?.(result.rows) ?? null;
+
     // Nothing is written until validation has fully passed -- a rejected
     // file leaves no trace (no storage object, no audit row), matching the
     // all-or-nothing contract literally.
@@ -97,6 +105,7 @@ export async function POST(request: NextRequest) {
       inserted_count: 0,
       duplicate_count: 0,
       status: "success",
+      warnings_summary: warnings,
     });
 
     if (batchInsertError) {
@@ -134,7 +143,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        summary: { rowCount: result.rows.length, insertedCount, duplicateCount },
+        summary: { rowCount: result.rows.length, insertedCount, duplicateCount, warnings },
       });
     } catch (error) {
       await supabase

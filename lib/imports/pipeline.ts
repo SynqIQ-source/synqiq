@@ -101,7 +101,7 @@ export async function parseAndValidate<Row extends Record<string, unknown>, Extr
     const headerKey = findHeaderKey(sheet.headers, column.sourceHeaders);
     if (headerKey) {
       headerKeyByField.set(column.field, headerKey);
-    } else if (column.required) {
+    } else if (column.requireHeader ?? column.required) {
       missingRequiredColumns.push(column.label);
     }
   }
@@ -150,7 +150,7 @@ export async function parseAndValidate<Row extends Record<string, unknown>, Extr
       return;
     }
 
-    const rowHash = definition.computeRowHash(resolved.row, ctx);
+    const rowHash = definition.computeRowHash(resolved.row, ctx, values);
     resolvedRows.push({ ...resolved.row, rowHash });
   });
 
