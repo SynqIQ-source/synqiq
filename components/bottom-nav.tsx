@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Repeat2,
   Settings,
+  ShieldAlert,
   TrendingUp,
   Upload,
   Users,
@@ -35,6 +36,7 @@ const ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/substitutions": ClipboardList,
   "/dashboard/settings": Settings,
   "/dashboard/settings/imports": Upload,
+  "/dashboard/comp-audit": ShieldAlert,
 };
 
 // Shorter labels than the desktop sidebar's -- these sit under a small

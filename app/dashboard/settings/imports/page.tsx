@@ -1,8 +1,14 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { ImportForm } from "./import-form";
+
+type WarningsSummary = {
+  excludedUncappedCount?: number;
+  zeroRevenueCappedCount?: number;
+} | null;
 
 type ImportBatch = {
   id: string;
@@ -13,6 +19,7 @@ type ImportBatch = {
   duplicate_count: number;
   status: string;
   created_at: string;
+  warnings_summary: WarningsSummary;
   staff: { display_name: string } | { display_name: string }[] | null;
 };
 
@@ -35,7 +42,7 @@ export default async function ImportsPage() {
   const { data: batches, error } = await supabase
     .from("report_imports")
     .select(
-      "id, report_type, filename, row_count, inserted_count, duplicate_count, status, created_at, staff:uploaded_by_staff_id(display_name)",
+      "id, report_type, filename, row_count, inserted_count, duplicate_count, status, created_at, warnings_summary, staff:uploaded_by_staff_id(display_name)",
     )
     .order("created_at", { ascending: false })
     .limit(20)
@@ -67,38 +74,60 @@ export default async function ImportsPage() {
                   <th className="p-3 text-right">Inserted</th>
                   <th className="p-3 text-right">Duplicates</th>
                   <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Warnings</th>
                 </tr>
               </thead>
               <tbody>
                 {(batches ?? []).length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-6 text-center text-sm text-zinc-500">
+                    <td colSpan={9} className="p-6 text-center text-sm text-zinc-500">
                       No imports yet.
                     </td>
                   </tr>
                 ) : (
-                  (batches ?? []).map((batch) => (
-                    <tr key={batch.id} className="border-b">
-                      <td className="p-3 text-zinc-600">{new Date(batch.created_at).toLocaleString()}</td>
-                      <td className="p-3 text-zinc-950">{batch.report_type}</td>
-                      <td className="p-3 text-zinc-600">{batch.filename}</td>
-                      <td className="p-3 text-zinc-600">{uploaderName(batch.staff)}</td>
-                      <td className="p-3 text-right">{batch.row_count}</td>
-                      <td className="p-3 text-right">{batch.inserted_count}</td>
-                      <td className="p-3 text-right">{batch.duplicate_count}</td>
-                      <td className="p-3">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            batch.status === "success"
-                              ? "bg-emerald-50 text-emerald-700"
-                              : "bg-red-50 text-red-700"
-                          }`}
-                        >
-                          {batch.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))
+                  (batches ?? []).map((batch) => {
+                    const zeroRevenueCappedCount = batch.warnings_summary?.zeroRevenueCappedCount ?? 0;
+                    const excludedUncappedCount = batch.warnings_summary?.excludedUncappedCount ?? 0;
+
+                    return (
+                      <tr key={batch.id} className="border-b">
+                        <td className="p-3 text-zinc-600">{new Date(batch.created_at).toLocaleString()}</td>
+                        <td className="p-3 text-zinc-950">{batch.report_type}</td>
+                        <td className="p-3 text-zinc-600">{batch.filename}</td>
+                        <td className="p-3 text-zinc-600">{uploaderName(batch.staff)}</td>
+                        <td className="p-3 text-right">{batch.row_count}</td>
+                        <td className="p-3 text-right">{batch.inserted_count}</td>
+                        <td className="p-3 text-right">{batch.duplicate_count}</td>
+                        <td className="p-3">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              batch.status === "success"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-red-50 text-red-700"
+                            }`}
+                          >
+                            {batch.status}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          {zeroRevenueCappedCount > 0 ? (
+                            <Link
+                              href="/dashboard/comp-audit"
+                              className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 underline"
+                            >
+                              {zeroRevenueCappedCount} $0 comp{zeroRevenueCappedCount === 1 ? "" : "s"}
+                            </Link>
+                          ) : excludedUncappedCount > 0 ? (
+                            <span className="text-xs text-zinc-500">
+                              {excludedUncappedCount} excluded (uncapped)
+                            </span>
+                          ) : (
+                            <span className="text-xs text-zinc-400">--</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

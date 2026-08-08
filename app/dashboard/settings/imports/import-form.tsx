@@ -1,19 +1,33 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 type RowError = { row: number; column?: string; message: string };
 
+type RevenueWarnings = {
+  excludedUncappedCount: number;
+  zeroRevenueCappedCount: number;
+};
+
 type SubmitState =
   | { status: "idle" }
   | { status: "uploading" }
-  | { status: "success"; summary: { rowCount: number; insertedCount: number; duplicateCount: number } }
+  | {
+      status: "success";
+      summary: {
+        rowCount: number;
+        insertedCount: number;
+        duplicateCount: number;
+        warnings: RevenueWarnings | null;
+      };
+    }
   | { status: "error"; error: string; rowErrors?: RowError[] };
 
 const REPORT_TYPES = [
   { value: "ratings_reviews", label: "Ratings & Reviews", enabled: true },
-  { value: "revenue", label: "Revenue", enabled: false },
+  { value: "revenue", label: "Revenue", enabled: true },
   { value: "payroll", label: "Payroll", enabled: false },
 ];
 
@@ -113,10 +127,34 @@ export function ImportForm() {
       </button>
 
       {state.status === "success" && (
-        <p className="text-sm text-emerald-700">
-          Imported {state.summary.insertedCount} of {state.summary.rowCount} row(s)
-          {state.summary.duplicateCount > 0 ? ` (${state.summary.duplicateCount} already imported, skipped)` : ""}.
-        </p>
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-emerald-700">
+            Imported {state.summary.insertedCount} of {state.summary.rowCount} row(s)
+            {state.summary.duplicateCount > 0
+              ? ` (${state.summary.duplicateCount} already imported, skipped)`
+              : ""}
+            .
+          </p>
+
+          {state.summary.warnings && state.summary.warnings.excludedUncappedCount > 0 && (
+            <p className="text-sm text-zinc-600">
+              {state.summary.warnings.excludedUncappedCount} row(s) were on an uncapped/unlimited
+              plan and excluded from revenue attribution -- Rev. per Visit isn&apos;t a stable
+              per-visit fact for those.
+            </p>
+          )}
+
+          {state.summary.warnings && state.summary.warnings.zeroRevenueCappedCount > 0 && (
+            <p className="text-sm font-medium text-amber-700">
+              {state.summary.warnings.zeroRevenueCappedCount} row(s) show $0 revenue on a package
+              that should carry real value -- often an unapproved comp or trade. Review them on the{" "}
+              <Link href="/dashboard/comp-audit" className="underline">
+                Comp Audit
+              </Link>{" "}
+              page.
+            </p>
+          )}
+        </div>
       )}
 
       {state.status === "error" && (

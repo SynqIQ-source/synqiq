@@ -21,6 +21,7 @@ const navigation = [
   { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
   { href: "/dashboard/settings", label: "Settings", adminOnly: true },
   { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
+  { href: "/dashboard/comp-audit", label: "Comp Audit", adminOnly: true },
 ];
 
 // Fixed, identical across roles -- solves the mobile bottom-bar width
