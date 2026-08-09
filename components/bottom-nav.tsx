@@ -9,6 +9,7 @@ import {
   Calendar,
   ClipboardList,
   Flame,
+  KeyRound,
   LayoutDashboard,
   MessageSquare,
   MoreHorizontal,
@@ -36,6 +37,7 @@ const ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/substitutions": ClipboardList,
   "/dashboard/settings": Settings,
   "/dashboard/settings/imports": Upload,
+  "/dashboard/settings/staff": KeyRound,
   "/dashboard/comp-audit": ShieldAlert,
 };
 
