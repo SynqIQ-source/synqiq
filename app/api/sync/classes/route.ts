@@ -3,12 +3,13 @@ import { DateTime } from "luxon";
 import { MindbodyClient, createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
+import { getEnv } from "@/lib/env";
 import type { MindbodyStaffMember } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
-async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string, timezone: string) {
-  const result = await mindbody.getLocations(accessToken);
+async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminClient, organizationId: string, timezone: string) {
+  const result = await mindbody.getLocations();
   const locations = result.Locations ?? [];
   const idMap = new Map<number, string>();
 
@@ -38,8 +39,8 @@ async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminCl
   return idMap;
 }
 
-async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string) {
-  const result = await mindbody.getResources(accessToken);
+async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient) {
+  const result = await mindbody.getResources();
   const resources = result.Resources ?? [];
   const idMap = new Map<number, string>();
 
@@ -67,7 +68,7 @@ async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient
   return idMap;
 }
 
-async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string) {
+async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdminClient, organizationId: string) {
   // Departments are sourced from MindBody's Program (via /class/classdescriptions),
   // not Category -- CategoryId is null on every class in this data, whereas
   // Program (Membership, Yoga, Boot Camp, ...) is always populated and is what
@@ -79,7 +80,7 @@ async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdmin
   const limit = 200;
 
   for (;;) {
-    const page = await mindbody.getClassDescriptions(accessToken, { offset, limit });
+    const page = await mindbody.getClassDescriptions(undefined, { offset, limit });
     const descriptions = page.ClassDescriptions ?? [];
 
     for (const description of descriptions) {
@@ -122,7 +123,7 @@ async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdmin
   return idMap;
 }
 
-async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient, accessToken: string, organizationId: string) {
+async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient, organizationId: string) {
   // getStaff with no pagination params silently returns MindBody's default
   // page size, not the full roster -- confirmed empirically: two real
   // instructors (ids 100000237, 100000285) were missing from an unpaginated
@@ -133,7 +134,7 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
   const limit = 200;
 
   for (;;) {
-    const page = await mindbody.getStaff(accessToken, { offset, limit });
+    const page = await mindbody.getStaff(undefined, { offset, limit });
     const pageMembers = (page.StaffMembers ?? []) as MindbodyStaffMember[];
     allMembers.push(...pageMembers);
 
@@ -200,17 +201,32 @@ export async function GET(request: NextRequest) {
     const mindbody = createMindbodyClient();
     const supabase = createSupabaseAdminClient();
 
-    const { AccessToken: accessToken } = await mindbody.authenticate();
-
+    // No usertoken/issue staff login here -- Api-Key + SiteId alone is the
+    // activated-key production model (owner grants access via an
+    // activation link/code, no credential storage needed). Confirmed
+    // empirically: a staff login's Authorization token scopes every
+    // subsequent call to THAT STAFF MEMBER's own home site, silently
+    // ignoring the SiteId header -- that's what was causing every sync to
+    // resolve to the sandbox site regardless of a correctly-configured
+    // MINDBODY_SITE_ID. See conversation history.
+    //
     // MindBody exposes one IANA timezone per site (GET /site/sites), not per
     // Location. Resolve it once per sync run and use it to interpret every
     // class's naive local StartDateTime -- guessing a fixed timezone here
     // would silently corrupt data for any studio not in that timezone.
-    const siteResult = await mindbody.getSite(accessToken);
-    const site = siteResult.Sites?.[0];
+    //
+    // /site/sites returns every site this Api-Key has activated access to,
+    // not just one -- confirmed empirically (it returned both the sandbox
+    // demo site AND the real production site for this key). Must match by
+    // the configured MINDBODY_SITE_ID, not blindly take the first result.
+    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
+    const siteResult = await mindbody.getSite();
+    const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
-      throw new Error("MindBody /site/sites returned no site.");
+      throw new Error(
+        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+      );
     }
 
     const { data: org, error: orgError } = await supabase
@@ -233,10 +249,10 @@ export async function GET(request: NextRequest) {
     // Reference data is synced from site-wide MindBody endpoints (not scoped
     // to the classes date window below), so staff/rooms/departments resolve
     // correctly regardless of which day is being synced.
-    const locationIdByMindbodyId = await syncLocations(mindbody, supabase, accessToken, org.id, org.timezone);
-    const roomIdByResourceId = await syncRooms(mindbody, supabase, accessToken);
-    const departmentIdByProgramId = await syncDepartments(mindbody, supabase, accessToken, org.id);
-    const staffIdByMindbodyId = await syncStaff(mindbody, supabase, accessToken, org.id);
+    const locationIdByMindbodyId = await syncLocations(mindbody, supabase, org.id, org.timezone);
+    const roomIdByResourceId = await syncRooms(mindbody, supabase);
+    const departmentIdByProgramId = await syncDepartments(mindbody, supabase, org.id);
+    const staffIdByMindbodyId = await syncStaff(mindbody, supabase, org.id);
 
     // Neither /site/resources nor any other site-wide endpoint tells us which
     // location a room belongs to -- the only place that link appears is on a
@@ -263,7 +279,7 @@ export async function GET(request: NextRequest) {
 
     for (;;) {
       const page = await withRetry(() =>
-        mindbody.getClasses(accessToken, {
+        mindbody.getClasses(undefined, {
           startDateTime,
           endDateTime,
           locationId,

@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
+import { getEnv } from "@/lib/env";
 import type { MindbodyAppointment } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -47,13 +48,19 @@ export async function GET(request: NextRequest) {
     const mindbody = createMindbodyClient();
     const supabase = createSupabaseAdminClient();
 
-    const { AccessToken: accessToken } = await mindbody.authenticate();
-
-    const siteResult = await mindbody.getSite(accessToken);
-    const site = siteResult.Sites?.[0];
+    // No usertoken/issue staff login -- see classes/route.ts for why: a
+    // staff login's Authorization token scopes every call to that staff
+    // member's own home site regardless of the SiteId header, which is
+    // what caused every sync to resolve to the sandbox site. Api-Key +
+    // SiteId alone is the correct activated-key model.
+    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
+    const siteResult = await mindbody.getSite();
+    const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
-      throw new Error("MindBody /site/sites returned no site.");
+      throw new Error(
+        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+      );
     }
 
     const { data: org, error: orgError } = await supabase
@@ -83,7 +90,7 @@ export async function GET(request: NextRequest) {
 
     for (;;) {
       const page = await withRetry(() =>
-        mindbody.getStaffAppointments(accessToken, { startDate, endDate, offset, limit: pageLimit }),
+        mindbody.getStaffAppointments(undefined, { startDate, endDate, offset, limit: pageLimit }),
       );
       const appointments = (page.Appointments ?? []) as MindbodyAppointment[];
       // Only trust TotalResults from a page that actually returned rows --
