@@ -201,14 +201,15 @@ export async function GET(request: NextRequest) {
     const mindbody = createMindbodyClient();
     const supabase = createSupabaseAdminClient();
 
-    // No usertoken/issue staff login here -- Api-Key + SiteId alone is the
-    // activated-key production model (owner grants access via an
-    // activation link/code, no credential storage needed). Confirmed
-    // empirically: a staff login's Authorization token scopes every
-    // subsequent call to THAT STAFF MEMBER's own home site, silently
-    // ignoring the SiteId header -- that's what was causing every sync to
-    // resolve to the sandbox site regardless of a correctly-configured
-    // MINDBODY_SITE_ID. See conversation history.
+    // Site resolution stays Authorization-free -- Api-Key + SiteId alone is
+    // the activated-key production model, and this is the one call that
+    // must never depend on a staff token's own scoping. Confirmed
+    // empirically (see conversation history): with the current, fully
+    // activated credentials, /site/sites returns the same unfiltered set of
+    // every site this Api-Key can access whether or not a staff token is
+    // included -- but keeping this call token-free entirely means site
+    // identity can never regress to depending on which staff member's
+    // token happens to be in hand.
     //
     // MindBody exposes one IANA timezone per site (GET /site/sites), not per
     // Location. Resolve it once per sync run and use it to interpret every
@@ -264,6 +265,31 @@ export async function GET(request: NextRequest) {
     // a direct organization_id column instead).
     const roomLocationUpdates = new Map<string, string>();
 
+    // Class capacity/booking fields (MaxCapacity, TotalBooked, TotalSignedIn)
+    // are masked by design on a plain Api-Key + SiteId request -- confirmed
+    // by MindBody support, a site-level setting, not a bug. Seeing real
+    // values requires a staff User Token in the Authorization header
+    // alongside Api-Key + SiteId. Fetched here, used ONLY for the
+    // getClasses call below -- never for getSite/site resolution above,
+    // which is the actual safeguard against a repeat of the earlier bug
+    // (see that comment). Confirmed empirically before wiring this in: with
+    // MINDBODY_USERNAME/PASSWORD now genuinely Preserve-homed credentials
+    // (subscriberId 561843 in the token's own JWT payload, not sandbox),
+    // including this token does not change which site's data comes back.
+    //
+    // Soft-fail, not fatal: if the staff login itself fails (expired
+    // password, revoked account, transient MindBody hiccup), the sync
+    // should still import real class/schedule data with capacity fields
+    // simply staying null/0, rather than the whole sync failing outright
+    // over an enhancement that isn't required for the sync's core purpose.
+    let capacityAccessToken: string | undefined;
+    try {
+      const capacityAuth = await mindbody.authenticate();
+      capacityAccessToken = capacityAuth.AccessToken;
+    } catch (authError) {
+      console.error("Failed to fetch a capacity-visibility user token -- continuing without it:", authError);
+    }
+
     // Paginate through every class in the window -- a single unpaginated
     // call silently truncates to MindBody's default page size (the same bug
     // fixed for /staff/staff: it looks like "it worked" while quietly
@@ -279,7 +305,7 @@ export async function GET(request: NextRequest) {
 
     for (;;) {
       const page = await withRetry(() =>
-        mindbody.getClasses(undefined, {
+        mindbody.getClasses(capacityAccessToken, {
           startDateTime,
           endDateTime,
           locationId,
