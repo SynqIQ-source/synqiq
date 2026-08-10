@@ -48,11 +48,9 @@ export async function GET(request: NextRequest) {
     const mindbody = createMindbodyClient();
     const supabase = createSupabaseAdminClient();
 
-    // No usertoken/issue staff login -- see classes/route.ts for why: a
-    // staff login's Authorization token scopes every call to that staff
-    // member's own home site regardless of the SiteId header, which is
-    // what caused every sync to resolve to the sandbox site. Api-Key +
-    // SiteId alone is the correct activated-key model.
+    // Site resolution stays Authorization-free -- see classes/route.ts for
+    // the full reasoning. This is the one call that must never depend on a
+    // staff token's own scoping.
     const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
     const siteResult = await mindbody.getSite();
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
@@ -83,6 +81,20 @@ export async function GET(request: NextRequest) {
     const staffIdByMindbodyId = await getStaffIdByMindbodyId(supabase, org.id);
     const locationIdByMindbodyId = await getLocationIdByMindbodyId(supabase, org.id);
 
+    // Appointment/client data is treated as non-public on a plain Api-Key +
+    // SiteId request, same as class capacity -- confirmed empirically: 0
+    // results without a staff User Token, 3,252 real appointments with one
+    // included (real staff, real client ids, real completed sessions). Used
+    // ONLY for this call, never for getSite above -- same safeguard as
+    // classes/route.ts. Soft-fails rather than failing the whole sync.
+    let appointmentsAccessToken: string | undefined;
+    try {
+      const appointmentsAuth = await mindbody.authenticate();
+      appointmentsAccessToken = appointmentsAuth.AccessToken;
+    } catch (authError) {
+      console.error("Failed to fetch an appointments-visibility user token -- continuing without it:", authError);
+    }
+
     let imported = 0;
     let total = 0;
     let offset = 0;
@@ -90,7 +102,7 @@ export async function GET(request: NextRequest) {
 
     for (;;) {
       const page = await withRetry(() =>
-        mindbody.getStaffAppointments(undefined, { startDate, endDate, offset, limit: pageLimit }),
+        mindbody.getStaffAppointments(appointmentsAccessToken, { startDate, endDate, offset, limit: pageLimit }),
       );
       const appointments = (page.Appointments ?? []) as MindbodyAppointment[];
       // Only trust TotalResults from a page that actually returned rows --
