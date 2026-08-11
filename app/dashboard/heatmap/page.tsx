@@ -4,6 +4,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { RoomSelect } from "./room-select";
 import { RangeSelect } from "./range-select";
+import { WeekNav } from "./week-nav";
 
 type Room = { id: string; name: string };
 
@@ -165,6 +166,7 @@ export default async function HeatmapPage({
     comparisonWindow?: string;
     comparisonStart?: string;
     comparisonEnd?: string;
+    week?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -194,7 +196,24 @@ export default async function HeatmapPage({
   const selectedRoom = rooms.find((room) => room.id === selectedRoomId)!;
 
   const now = DateTime.now().setZone(timezone);
-  const weekStart = now.minus({ days: now.weekday - 1 }).startOf("day");
+  const currentWeekStart = now.minus({ days: now.weekday - 1 }).startOf("day");
+
+  // Snapped to Monday regardless of what's in the URL, so a hand-edited or
+  // stale ?week= value can't land the page on a mid-week boundary.
+  let weekStart = currentWeekStart;
+  if (params.week) {
+    const parsedWeek = DateTime.fromISO(params.week, { zone: timezone });
+    if (parsedWeek.isValid) {
+      weekStart = parsedWeek.startOf("day").minus({ days: parsedWeek.weekday - 1 });
+    }
+  }
+  // Future weeks haven't occurred yet -- every fill-rate query below already
+  // excludes not-yet-occurred classes, so a week beyond the current one would
+  // just render empty. Clamped here rather than relying on WeekNav's
+  // disabled "Next week" button alone, since ?week= is directly editable.
+  if (weekStart > currentWeekStart) {
+    weekStart = currentWeekStart;
+  }
 
   const { comparisonWindow, comparisonStart, comparisonEnd } = resolveComparisonWindow(params, weekStart);
   const comparisonRangeStart = DateTime.fromISO(comparisonStart, { zone: timezone }).startOf("day");
@@ -211,6 +230,12 @@ export default async function HeatmapPage({
   const allKeys = new Set<string>([...thisWeekCells.keys(), ...comparisonCells.keys()]);
   const times = Array.from(new Set(Array.from(allKeys).map((key) => key.split("|")[1]))).sort();
 
+  const weekEnd = weekStart.plus({ days: 6 });
+  const weekLabel =
+    weekStart.hasSame(weekEnd, "month") && weekStart.hasSame(weekEnd, "year")
+      ? `${weekStart.toFormat("LLL d")}–${weekEnd.toFormat("d, yyyy")}`
+      : `${weekStart.toFormat("LLL d")} – ${weekEnd.toFormat("LLL d, yyyy")}`;
+
   return (
     <DashboardShell
       title="Heat Map"
@@ -225,8 +250,18 @@ export default async function HeatmapPage({
         />
       </div>
 
+      <div className="mt-4">
+        <WeekNav
+          weekStartIso={weekStart.toISODate() ?? ""}
+          prevWeekStartIso={weekStart.minus({ days: 7 }).toISODate() ?? ""}
+          nextWeekStartIso={weekStart.plus({ days: 7 }).toISODate() ?? ""}
+          currentWeekStartIso={currentWeekStart.toISODate() ?? ""}
+          weekLabel={weekLabel}
+        />
+      </div>
+
       <div className="mb-2 mt-6 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-        <span>This week&rsquo;s fill rate:</span>
+        <span>{weekStart.hasSame(currentWeekStart, "day") ? "This week's" : `Week of ${weekLabel}`} fill rate:</span>
         <span className="inline-flex items-center gap-1">
           <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: TRAFFIC_RED }} />
           Under 25%
@@ -247,7 +282,8 @@ export default async function HeatmapPage({
 
       {times.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No classes have occurred in {selectedRoom.name} in this week or the comparison window.
+          No classes have occurred in {selectedRoom.name} in the week of {weekLabel} or the
+          comparison window.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
