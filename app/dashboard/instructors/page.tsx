@@ -3,6 +3,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { RangeSelect } from "./range-select";
+import { InstructorTable } from "./instructor-table";
 
 type StaffRow = { id: string; display_name: string };
 type SubstitutionRequestRow = {
@@ -120,7 +121,7 @@ type MetricsSummary = {
   fillRatePct: number | null;
 };
 
-type InstructorStat = { staffId: string; displayName: string } & MetricsSummary;
+export type InstructorStat = { staffId: string; displayName: string } & MetricsSummary;
 
 function buildInstructorStats(
   staff: StaffRow[],
@@ -295,40 +296,7 @@ export default async function InstructorsPage({
       <section className="mt-10">
         <h2 className="text-base font-semibold text-zinc-950">By Instructor</h2>
 
-        <div className="mt-3 overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="p-3 text-left">Instructor</th>
-                <th className="p-3 text-right">Classes Scheduled</th>
-                <th className="p-3 text-right">Avg Fill Rate</th>
-                <th className="p-3 text-right">Released for Coverage</th>
-                <th className="p-3 text-right">Picked Up as Sub</th>
-              </tr>
-            </thead>
-            <tbody>
-              {instructorStats.length === 0 ? (
-                <tr>
-                  <td className="p-3 text-zinc-500" colSpan={5}>
-                    No instructor activity in this window.
-                  </td>
-                </tr>
-              ) : (
-                instructorStats.map((row) => (
-                  <tr key={row.staffId} className="border-b">
-                    <td className="p-3 font-medium">{row.displayName}</td>
-                    <td className="p-3 text-right">{row.scheduled}</td>
-                    <td className="p-3 text-right">
-                      {row.fillRatePct !== null ? `${row.fillRatePct.toFixed(1)}%` : "N/A"}
-                    </td>
-                    <td className="p-3 text-right">{row.released}</td>
-                    <td className="p-3 text-right">{row.pickedUp}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <InstructorTable rows={instructorStats} />
 
         <p className="mt-3 max-w-3xl text-xs leading-5 text-zinc-500">
           <span className="font-medium text-zinc-600">Classes Scheduled</span> and{" "}

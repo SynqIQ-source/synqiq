@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
             end_datetime: endDatetime,
             duration_minutes: appointment.Duration,
           },
-          { onConflict: "mindbody_appointment_id" },
+          { onConflict: "organization_id,mindbody_appointment_id" },
         );
 
         if (!error) {

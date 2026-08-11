@@ -24,7 +24,7 @@ async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminCl
           timezone,
           active: location.HasClasses ?? true,
         },
-        { onConflict: "mindbody_location_id" },
+        { onConflict: "organization_id,mindbody_location_id" },
       )
       .select("id")
       .single();
@@ -39,7 +39,7 @@ async function syncLocations(mindbody: MindbodyClient, supabase: SupabaseAdminCl
   return idMap;
 }
 
-async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient) {
+async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient, organizationId: string) {
   const result = await mindbody.getResources();
   const resources = result.Resources ?? [];
   const idMap = new Map<number, string>();
@@ -50,10 +50,11 @@ async function syncRooms(mindbody: MindbodyClient, supabase: SupabaseAdminClient
       .upsert(
         {
           mindbody_resource_id: resource.Id,
+          organization_id: organizationId,
           name: resource.Name,
           active: true,
         },
-        { onConflict: "mindbody_resource_id" },
+        { onConflict: "organization_id,mindbody_resource_id" },
       )
       .select("id")
       .single();
@@ -108,7 +109,7 @@ async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdmin
           name: programName,
           active: true,
         },
-        { onConflict: "mindbody_program_id" },
+        { onConflict: "organization_id,mindbody_program_id" },
       )
       .select("id")
       .single();
@@ -175,7 +176,7 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
           hire_date: member.EmploymentStart,
           separation_date: member.EmploymentEnd,
         },
-        { onConflict: "mindbody_staff_id" },
+        { onConflict: "organization_id,mindbody_staff_id" },
       )
       .select("id")
       .single();
@@ -251,7 +252,7 @@ export async function GET(request: NextRequest) {
     // to the classes date window below), so staff/rooms/departments resolve
     // correctly regardless of which day is being synced.
     const locationIdByMindbodyId = await syncLocations(mindbody, supabase, org.id, org.timezone);
-    const roomIdByResourceId = await syncRooms(mindbody, supabase);
+    const roomIdByResourceId = await syncRooms(mindbody, supabase, org.id);
     const departmentIdByProgramId = await syncDepartments(mindbody, supabase, org.id);
     const staffIdByMindbodyId = await syncStaff(mindbody, supabase, org.id);
 
@@ -393,7 +394,7 @@ export async function GET(request: NextRequest) {
               substitute_staff_id: null,
             },
             {
-              onConflict: "mindbody_occurrence_id",
+              onConflict: "organization_id,mindbody_occurrence_id",
             },
           );
 

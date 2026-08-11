@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
             sale_datetime: sale.SaleDateTime,
             total_amount: totalAmount,
           },
-          { onConflict: "mindbody_sale_id" },
+          { onConflict: "organization_id,mindbody_sale_id" },
         );
 
         if (!error) {
