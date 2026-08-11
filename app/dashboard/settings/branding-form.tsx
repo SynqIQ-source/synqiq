@@ -9,6 +9,7 @@ type Organization = {
   name: string;
   primary_color: string;
   accent_color: string;
+  secondary_color: string;
   font_family: string;
   logo_url: string | null;
 };
@@ -19,6 +20,7 @@ export function BrandingForm({ organization }: { organization: Organization }) {
   const router = useRouter();
   const [primaryColor, setPrimaryColor] = useState(organization.primary_color);
   const [accentColor, setAccentColor] = useState(organization.accent_color);
+  const [secondaryColor, setSecondaryColor] = useState(organization.secondary_color);
   const [fontFamily, setFontFamily] = useState(organization.font_family);
   const [logoUrl, setLogoUrl] = useState(organization.logo_url);
   const [colorStatus, setColorStatus] = useState<SaveStatus>("idle");
@@ -36,7 +38,7 @@ export function BrandingForm({ organization }: { organization: Organization }) {
       const response = await fetch("/api/organizations/branding", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ primaryColor, accentColor, fontFamily }),
+        body: JSON.stringify({ primaryColor, accentColor, secondaryColor, fontFamily }),
       });
       const result = await response.json();
 
@@ -128,6 +130,25 @@ export function BrandingForm({ organization }: { organization: Organization }) {
                 type="text"
                 value={accentColor}
                 onChange={(event) => setAccentColor(event.target.value)}
+                pattern="^#[0-9a-fA-F]{6}$"
+                className="w-28 rounded-md border border-zinc-200 px-2 py-1 text-sm"
+              />
+            </div>
+          </label>
+
+          <label className="flex flex-col gap-2 text-sm font-medium text-zinc-700">
+            Secondary color
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={secondaryColor}
+                onChange={(event) => setSecondaryColor(event.target.value)}
+                className="h-9 w-9 cursor-pointer rounded border border-zinc-200"
+              />
+              <input
+                type="text"
+                value={secondaryColor}
+                onChange={(event) => setSecondaryColor(event.target.value)}
                 pattern="^#[0-9a-fA-F]{6}$"
                 className="w-28 rounded-md border border-zinc-200 px-2 py-1 text-sm"
               />

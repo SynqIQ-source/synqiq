@@ -5,6 +5,7 @@ export type OrgBranding = {
   name: string | null;
   primary_color: string;
   accent_color: string;
+  secondary_color: string;
   font_family: string;
   logo_url: string | null;
 };
@@ -25,7 +26,7 @@ export const getOrgBranding = cache(async function getOrgBranding(
   const supabase = createSupabaseAdminClient();
   const { data } = await supabase
     .from("organizations")
-    .select("name, primary_color, accent_color, font_family, logo_url")
+    .select("name, primary_color, accent_color, secondary_color, font_family, logo_url")
     .eq("id", organizationId)
     .maybeSingle();
 

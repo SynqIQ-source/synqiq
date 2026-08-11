@@ -23,6 +23,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const primaryColor: string | undefined = body?.primaryColor;
     const accentColor: string | undefined = body?.accentColor;
+    const secondaryColor: string | undefined = body?.secondaryColor;
     const fontFamily: string | undefined = body?.fontFamily;
 
     if (primaryColor !== undefined && !HEX_COLOR_PATTERN.test(primaryColor)) {
@@ -39,6 +40,13 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    if (secondaryColor !== undefined && !HEX_COLOR_PATTERN.test(secondaryColor)) {
+      return NextResponse.json(
+        { error: "secondaryColor must be a 6-digit hex color, e.g. #0f766e." },
+        { status: 400 },
+      );
+    }
+
     if (fontFamily !== undefined && !isAllowedFont(fontFamily)) {
       return NextResponse.json(
         { error: "fontFamily must be one of the allowed fonts." },
@@ -49,6 +57,7 @@ export async function PATCH(request: NextRequest) {
     const updates: Record<string, string> = {};
     if (primaryColor !== undefined) updates.primary_color = primaryColor;
     if (accentColor !== undefined) updates.accent_color = accentColor;
+    if (secondaryColor !== undefined) updates.secondary_color = secondaryColor;
     if (fontFamily !== undefined) updates.font_family = fontFamily;
 
     if (Object.keys(updates).length === 0) {
@@ -61,7 +70,7 @@ export async function PATCH(request: NextRequest) {
       .from("organizations")
       .update(updates)
       .eq("id", currentStaff.organizationId)
-      .select("primary_color, accent_color, font_family")
+      .select("primary_color, accent_color, secondary_color, font_family")
       .single();
 
     if (error || !data) {

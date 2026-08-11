@@ -32,6 +32,9 @@
   --color-primary-subtle: #f0fdfa;
   --color-accent: #0f766e;
   --color-accent-subtle: #f0fdfa;
+  --color-secondary: #0f766e;
+  --color-secondary-hover: #115e59;
+  --color-secondary-subtle: #f0fdfa;
 }
 
 /* @layer base, not unlayered -- Tailwind v4 (via @import "tailwindcss" above)

@@ -74,7 +74,7 @@ export function RequestNewSubButton({
       <button
         type="button"
         onClick={openModal}
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-primary hover:bg-zinc-50"
+        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-secondary hover:bg-zinc-50"
       >
         Request New Sub
       </button>

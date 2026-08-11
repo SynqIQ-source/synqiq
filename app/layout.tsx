@@ -64,6 +64,11 @@ export default async function RootLayout({
     bodyStyle["--color-accent"] = branding.accent_color;
     bodyStyle["--color-accent-subtle"] =
       `color-mix(in srgb, ${branding.accent_color} 12%, white)`;
+    bodyStyle["--color-secondary"] = branding.secondary_color;
+    bodyStyle["--color-secondary-hover"] =
+      `color-mix(in srgb, ${branding.secondary_color} 85%, black)`;
+    bodyStyle["--color-secondary-subtle"] =
+      `color-mix(in srgb, ${branding.secondary_color} 12%, white)`;
     if (isAllowedFont(branding.font_family)) {
       bodyStyle["--font-body"] = FONT_CSS_VAR_BY_NAME[branding.font_family];
     }

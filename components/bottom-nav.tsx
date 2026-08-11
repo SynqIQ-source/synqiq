@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { isActiveNavHref } from "@/lib/nav-active";
 import {
   BookOpen,
   Bell,
@@ -51,17 +52,6 @@ const PRIMARY_LABEL_OVERRIDES: Record<string, string> = {
   "/dashboard/messages": "Messages",
 };
 
-function isActive(pathname: string, href: string) {
-  // Exact match for "/dashboard" itself (Overview) -- otherwise every
-  // other /dashboard/* page would also match its prefix. Prefix match for
-  // everything else so a nested route (e.g. a future /dashboard/classes/[id])
-  // still highlights the right tab.
-  if (href === "/dashboard") {
-    return pathname === "/dashboard";
-  }
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
 function TabIcon({ href, className }: { href: string; className: string }) {
   const Icon = ICONS_BY_HREF[href];
   return Icon ? <Icon className={className} /> : null;
@@ -77,7 +67,7 @@ export function BottomNav({
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const moreIsActive = moreItems.some((item) => isActive(pathname, item.href));
+  const moreIsActive = moreItems.some((item) => isActiveNavHref(pathname, item.href));
 
   return (
     <nav
@@ -85,7 +75,7 @@ export function BottomNav({
       aria-label="Primary"
     >
       {primaryItems.map((item) => {
-        const active = isActive(pathname, item.href);
+        const active = isActiveNavHref(pathname, item.href);
         return (
           <Link
             key={item.href}
@@ -123,7 +113,7 @@ export function BottomNav({
           {moreOpen && (
             <ul className="absolute bottom-full right-0 mb-2 w-56 rounded-md border border-zinc-200 bg-white p-2 shadow-lg">
               {moreItems.map((item) => {
-                const active = isActive(pathname, item.href);
+                const active = isActiveNavHref(pathname, item.href);
                 return (
                   <li key={item.href}>
                     <Link

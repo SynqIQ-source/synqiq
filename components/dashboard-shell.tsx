@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { BottomNav } from "@/components/bottom-nav";
+import { SidebarNav } from "@/components/sidebar-nav";
 
 // adminOnly is a nav-visibility simplification, not an access-control
 // boundary -- none of these pages check role themselves, so hiding a link
@@ -72,17 +73,7 @@ export async function DashboardShell({
         <Link href="/" className="text-xl font-semibold text-zinc-950">
           Synq
         </Link>
-        <nav className="mt-8 flex flex-col gap-1">
-          {visibleNavigation.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded-md px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        <SidebarNav items={visibleNavigation} />
       </aside>
       <div className="md:pl-64">
         <header className="border-b border-zinc-200 bg-white px-6 py-5">

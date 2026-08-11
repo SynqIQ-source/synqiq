@@ -21,7 +21,7 @@ export default async function SettingsPage() {
   const supabase = await getScopedClient(currentStaff);
   const { data: organization, error } = await supabase
     .from("organizations")
-    .select("id, name, primary_color, accent_color, font_family, logo_url, expected_revenue_per_session")
+    .select("id, name, primary_color, accent_color, secondary_color, font_family, logo_url, expected_revenue_per_session")
     .eq("id", currentStaff.organizationId)
     .single();
 
