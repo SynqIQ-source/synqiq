@@ -286,34 +286,42 @@ export default async function HeatmapPage({
           comparison window.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
+        // inline-block + max-w-full, not a plain block div: a block element
+        // stretches to its parent's full width regardless of how much real
+        // content is inside it, which was making every room's grid render at
+        // the same oversized footprint -- a sparse room (e.g. Cycling, few
+        // distinct start times) got the same box as a packed one, just with
+        // emptier-looking cells. inline-block lets the border hug the actual
+        // table; max-w-full plus overflow-x-auto still caps it at the
+        // available width and scrolls internally on narrow viewports.
+        <div className="inline-block max-w-full overflow-x-auto rounded-lg border">
           <table className="text-sm">
             <thead>
               <tr>
                 <th className="sticky left-0 bg-white p-2 text-left text-xs font-medium text-zinc-500">
-                  Day
+                  Time
                 </th>
-                {times.map((time) => (
-                  <th key={time} className="p-2 text-center text-xs font-medium text-zinc-500">
-                    {formatTimeLabel(time)}
+                {DAY_LABELS.map((dayLabel) => (
+                  <th key={dayLabel} className="p-2 text-center text-xs font-medium text-zinc-500">
+                    {dayLabel}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {DAY_LABELS.map((dayLabel, dayIndex) => (
-                <tr key={dayLabel}>
+              {times.map((time) => (
+                <tr key={time}>
                   <td className="sticky left-0 bg-white p-2 text-xs font-medium text-zinc-500">
-                    {dayLabel}
+                    {formatTimeLabel(time)}
                   </td>
-                  {times.map((time) => {
+                  {DAY_LABELS.map((dayLabel, dayIndex) => {
                     const key = cellKey(dayIndex, time);
                     const thisWeek = thisWeekCells.get(key);
                     const comparison = comparisonCells.get(key);
 
                     if (!thisWeek && !comparison) {
                       return (
-                        <td key={time} className="p-2 text-center text-xs text-zinc-400" style={{ backgroundColor: NO_DATA_COLOR }}>
+                        <td key={dayLabel} className="p-2 text-center text-xs text-zinc-400" style={{ backgroundColor: NO_DATA_COLOR }}>
                           &ndash;
                         </td>
                       );
@@ -328,7 +336,7 @@ export default async function HeatmapPage({
                       // this-week status signal with nothing to report yet.
                       return (
                         <td
-                          key={time}
+                          key={dayLabel}
                           className="p-2 text-center text-xs text-zinc-400"
                           style={{ backgroundColor: NO_DATA_COLOR }}
                           title={`${selectedRoom.name} · ${dayLabel} ${formatTimeLabel(time)} · no class this week · ${comparisonAvg?.toFixed(0)}% avg over comparison window (n=${comparison?.count})`}
@@ -348,7 +356,7 @@ export default async function HeatmapPage({
 
                     return (
                       <td
-                        key={time}
+                        key={dayLabel}
                         className="p-1.5 text-center"
                         style={{ backgroundColor: background, color: foreground }}
                         title={`${selectedRoom.name} · ${dayLabel} ${formatTimeLabel(time)} · this week ${thisWeekAvg.toFixed(0)}% (n=${thisWeek.count})${comparisonAvg !== null ? ` · comparison window avg ${comparisonAvg.toFixed(0)}% (n=${comparison?.count})` : ""}`}
