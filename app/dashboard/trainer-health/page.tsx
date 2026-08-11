@@ -1,9 +1,9 @@
-import { Fragment } from "react";
 import { redirect } from "next/navigation";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
+import { TrainerHealthTable } from "./trainer-health-table";
 
 const MONTHS_SHOWN = 6;
 const PAGE_SIZE = 1000;
@@ -99,7 +99,7 @@ async function getSales(supabase: ScopedSupabaseClient, windowStartIso: string):
   return allRows;
 }
 
-type MonthBucket = { key: string; label: string; start: DateTime; end: DateTime };
+export type MonthBucket = { key: string; label: string; start: DateTime; end: DateTime };
 
 function buildMonthBuckets(timezone: string): MonthBucket[] {
   const currentMonth = DateTime.now().setZone(timezone).startOf("month");
@@ -118,37 +118,61 @@ function buildMonthBuckets(timezone: string): MonthBucket[] {
   return buckets;
 }
 
-type MonthStat = { sessions: number; salesTotal: number; ratio: number | null };
-type TrainerHealth = {
+export type MonthStat = { sessions: number; salesTotal: number; ratio: number | null };
+export type TrainerHealth = {
   staffId: string;
   displayName: string;
   months: MonthStat[];
+  ytd: MonthStat;
   flagged: boolean;
   latestRatio: number | null;
 };
+
+function ratioOf(sessions: number, salesTotal: number, expectedRevenuePerSession: number): number | null {
+  // Real N/A, not a fabricated 0%, when nobody serviced a session that
+  // period -- there's nothing to benchmark, same convention as the
+  // Instructors/Overview pages' zero-denominator handling.
+  return sessions > 0 ? salesTotal / (sessions * expectedRevenuePerSession) : null;
+}
 
 function buildTrainerHealth(
   staff: StaffRow[],
   appointments: AppointmentRow[],
   sales: SaleRow[],
   buckets: MonthBucket[],
+  yearStart: DateTime,
   expectedRevenuePerSession: number,
 ): TrainerHealth[] {
   const sessionsByStaffMonth = new Map<string, number>();
   const salesByStaffMonth = new Map<string, number>();
+  const ytdSessionsByStaff = new Map<string, number>();
+  const ytdSalesByStaff = new Map<string, number>();
 
   for (const appointment of appointments) {
     if (!appointment.staff_id) continue;
-    const monthKey = DateTime.fromISO(appointment.start_datetime).toFormat("yyyy-MM");
+    const startedAt = DateTime.fromISO(appointment.start_datetime);
+    const monthKey = startedAt.toFormat("yyyy-MM");
     const key = `${appointment.staff_id}:${monthKey}`;
     sessionsByStaffMonth.set(key, (sessionsByStaffMonth.get(key) ?? 0) + 1);
+
+    if (startedAt >= yearStart) {
+      ytdSessionsByStaff.set(appointment.staff_id, (ytdSessionsByStaff.get(appointment.staff_id) ?? 0) + 1);
+    }
   }
 
   for (const sale of sales) {
     if (!sale.sales_rep_staff_id) continue;
-    const monthKey = DateTime.fromISO(sale.sale_datetime).toFormat("yyyy-MM");
+    const soldAt = DateTime.fromISO(sale.sale_datetime);
+    const monthKey = soldAt.toFormat("yyyy-MM");
     const key = `${sale.sales_rep_staff_id}:${monthKey}`;
     salesByStaffMonth.set(key, (salesByStaffMonth.get(key) ?? 0) + (sale.total_amount ?? 0));
+
+    if (soldAt >= yearStart) {
+      ytdSalesByStaff.set(
+        sale.sales_rep_staff_id,
+        (ytdSalesByStaff.get(sale.sales_rep_staff_id) ?? 0) + (sale.total_amount ?? 0),
+      );
+    }
   }
 
   return staff
@@ -157,12 +181,16 @@ function buildTrainerHealth(
         const key = `${member.id}:${bucket.key}`;
         const sessions = sessionsByStaffMonth.get(key) ?? 0;
         const salesTotal = salesByStaffMonth.get(key) ?? 0;
-        // Real N/A, not a fabricated 0%, when nobody serviced a session
-        // that month -- there's nothing to benchmark, same convention as
-        // the Instructors/Overview pages' zero-denominator handling.
-        const ratio = sessions > 0 ? salesTotal / (sessions * expectedRevenuePerSession) : null;
-        return { sessions, salesTotal, ratio };
+        return { sessions, salesTotal, ratio: ratioOf(sessions, salesTotal, expectedRevenuePerSession) };
       });
+
+      const ytdSessions = ytdSessionsByStaff.get(member.id) ?? 0;
+      const ytdSalesTotal = ytdSalesByStaff.get(member.id) ?? 0;
+      const ytd = {
+        sessions: ytdSessions,
+        salesTotal: ytdSalesTotal,
+        ratio: ratioOf(ytdSessions, ytdSalesTotal, expectedRevenuePerSession),
+      };
 
       let streak = 0;
       let flagged = false;
@@ -187,7 +215,7 @@ function buildTrainerHealth(
         }
       }
 
-      return { staffId: member.id, displayName: member.display_name, months, flagged, latestRatio };
+      return { staffId: member.id, displayName: member.display_name, months, ytd, flagged, latestRatio };
     })
     .filter((row) => row.months.some((month) => month.sessions > 0))
     .sort((a, b) => {
@@ -212,6 +240,35 @@ function buildTrainerHealth(
     });
 }
 
+// "All Trainers" summary row -- true aggregate (sum sessions / sum sales),
+// not a mean of each trainer's own ratio, same reasoning as every other
+// aggregate on this app (Overview, Instructors): a blended studio-wide
+// number, not one that a single outlier trainer skews. Computed from the
+// same per-trainer rows already built above so it only ever reflects
+// trainers with visible activity, matching what's actually shown in the
+// table beneath it.
+function buildStudioSummary(
+  trainerHealth: TrainerHealth[],
+  buckets: MonthBucket[],
+  expectedRevenuePerSession: number,
+): { months: MonthStat[]; ytd: MonthStat } {
+  const months = buckets.map((_, index) => {
+    const sessions = trainerHealth.reduce((sum, row) => sum + row.months[index].sessions, 0);
+    const salesTotal = trainerHealth.reduce((sum, row) => sum + row.months[index].salesTotal, 0);
+    return { sessions, salesTotal, ratio: ratioOf(sessions, salesTotal, expectedRevenuePerSession) };
+  });
+
+  const ytdSessions = trainerHealth.reduce((sum, row) => sum + row.ytd.sessions, 0);
+  const ytdSalesTotal = trainerHealth.reduce((sum, row) => sum + row.ytd.salesTotal, 0);
+  const ytd = {
+    sessions: ytdSessions,
+    salesTotal: ytdSalesTotal,
+    ratio: ratioOf(ytdSessions, ytdSalesTotal, expectedRevenuePerSession),
+  };
+
+  return { months, ytd };
+}
+
 export default async function TrainerHealthPage() {
   const currentStaff = await getCurrentStaff();
 
@@ -222,7 +279,13 @@ export default async function TrainerHealthPage() {
   const supabase = await getScopedClient(currentStaff);
   const org = await getOrg(supabase, currentStaff.organizationId);
   const buckets = buildMonthBuckets(org.timezone);
-  const windowStartIso = buckets[0].start.toUTC().toISO() ?? "";
+  const yearStart = DateTime.now().setZone(org.timezone).startOf("year");
+  // The 6-month bucket window and the YTD window don't always agree on which
+  // is earlier (YTD is shorter in Jan/Feb, longer by December) -- fetch back
+  // to whichever starts first so both computations have complete data from a
+  // single query.
+  const windowStart = yearStart < buckets[0].start ? yearStart : buckets[0].start;
+  const windowStartIso = windowStart.toUTC().toISO() ?? "";
 
   const [staff, appointments, sales] = await Promise.all([
     getInstructors(supabase),
@@ -235,91 +298,38 @@ export default async function TrainerHealthPage() {
     appointments,
     sales,
     buckets,
+    yearStart,
     org.expected_revenue_per_session,
   );
+  const studioSummary = buildStudioSummary(trainerHealth, buckets, org.expected_revenue_per_session);
 
   return (
     <DashboardShell
       title="Trainer Health"
       description={`Sessions serviced and sales credited per trainer, per month, benchmarked against $${org.expected_revenue_per_session.toFixed(2)}/session. Flags a trainer whose credited sales fall below ${(HEALTH_THRESHOLD * 100).toFixed(0)}% of that benchmark for ${CONSECUTIVE_MONTHS_TO_FLAG}+ consecutive months.`}
     >
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="p-3 text-left">Trainer</th>
-              {buckets.map((bucket) => (
-                <th key={bucket.key} className="p-3 text-right" colSpan={3}>
-                  {bucket.label}
-                </th>
-              ))}
-            </tr>
-            <tr className="border-b text-xs text-zinc-500">
-              <th className="p-3 text-left"></th>
-              {buckets.map((bucket) => (
-                <Fragment key={bucket.key}>
-                  <th className="p-3 text-right font-normal">Sessions</th>
-                  <th className="p-3 text-right font-normal">Sales</th>
-                  <th className="p-3 text-right font-normal">Ratio</th>
-                </Fragment>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {trainerHealth.length === 0 ? (
-              <tr>
-                <td className="p-3 text-zinc-500" colSpan={1 + buckets.length * 3}>
-                  No trainer activity in the last {MONTHS_SHOWN} months.
-                </td>
-              </tr>
-            ) : (
-              trainerHealth.map((row) => (
-                <tr key={row.staffId} className="border-b">
-                  <td className="p-3 font-medium">
-                    {row.displayName}
-                    {row.flagged && (
-                      <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                        Under benchmark
-                      </span>
-                    )}
-                  </td>
-                  {row.months.map((month, index) => (
-                    <Fragment key={buckets[index].key}>
-                      <td className="p-3 text-right">{month.sessions}</td>
-                      <td className="p-3 text-right">
-                        {month.salesTotal > 0
-                          ? `$${month.salesTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-                          : "--"}
-                      </td>
-                      <td
-                        className={`p-3 text-right font-medium ${
-                          month.ratio === null
-                            ? "font-normal text-zinc-400"
-                            : month.ratio < HEALTH_THRESHOLD
-                              ? "text-red-600"
-                              : "text-green-700"
-                        }`}
-                      >
-                        {month.ratio !== null ? `${(month.ratio * 100).toFixed(0)}%` : "N/A"}
-                      </td>
-                    </Fragment>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <TrainerHealthTable
+        // Luxon DateTime instances (bucket.start/end) aren't plain
+        // serializable objects, so only the display-safe fields cross the
+        // server/client boundary -- the client table never needs the actual
+        // DateTime, just the label/key already computed here.
+        buckets={buckets.map((bucket) => ({ key: bucket.key, label: bucket.label }))}
+        trainerHealth={trainerHealth}
+        studioSummary={studioSummary}
+        healthThreshold={HEALTH_THRESHOLD}
+        monthsShown={MONTHS_SHOWN}
+      />
 
       <p className="mt-3 max-w-3xl text-xs leading-5 text-zinc-500">
         <span className="font-medium text-zinc-600">Sessions</span> counts appointments with status
         Completed. <span className="font-medium text-zinc-600">Sales</span> is the total credited to
         that trainer as sales rep (MindBody&apos;s SalesRepId), regardless of what was sold.{" "}
         <span className="font-medium text-zinc-600">Ratio</span> is Sales ÷ (Sessions ×
-        expected revenue per session, set in Settings) and reads N/A for a month with zero sessions
-        rather than a misleading 0%. Trainers with no activity in the last {MONTHS_SHOWN} months are
-        omitted. Ranked worst-first by most recent month&apos;s ratio, with flagged trainers pinned
-        to the top.
+        expected revenue per session, set in Settings) and reads N/A for a period with zero sessions
+        rather than a misleading 0%. <span className="font-medium text-zinc-600">Year to Date</span>{" "}
+        spans Jan 1 of the current year through today, independent of the {MONTHS_SHOWN}-month window
+        shown per-month. Trainers with no activity in the last {MONTHS_SHOWN} months are omitted.
+        Ranked worst-first by most recent month&apos;s ratio, with flagged trainers pinned to the top.
       </p>
     </DashboardShell>
   );
