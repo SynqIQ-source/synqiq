@@ -1,6 +1,8 @@
+import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
+import { OverviewRangeSelect } from "./overview-range-select";
 
 type OverviewRow = {
   id: string;
@@ -13,17 +15,27 @@ type OverviewRow = {
 type Department = { id: string; name: string };
 
 const PAGE_SIZE = 1000;
+const RANGE_PRESET_DAYS: Record<string, number> = { "30": 30, "60": 60, "90": 90 };
+
+async function getOrgTimezone(supabase: ScopedSupabaseClient) {
+  const { data } = await supabase.from("organizations").select("timezone").limit(1).maybeSingle();
+  return data?.timezone ?? "utc";
+}
 
 // This project's PostgREST max-rows is 1000 (confirmed empirically, same
 // caveat as the Classes page's historical fetch) -- a plain unbounded
 // .select() silently truncates past that. There are more occurred classes
 // than that today, so this has to paginate.
-async function getOverviewRows(supabase: ScopedSupabaseClient) {
+async function getOverviewRows(
+  supabase: ScopedSupabaseClient,
+  rangeStart: DateTime | null,
+  rangeEnd: DateTime | null,
+) {
   const allRows: OverviewRow[] = [];
   let offset = 0;
 
   for (;;) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("class_occurrences")
       .select("id, department_id, max_capacity, total_signed_in, total_booked")
       // The pre-redesign rows never captured an occurrence id -- exclude
@@ -34,9 +46,16 @@ async function getOverviewRows(supabase: ScopedSupabaseClient) {
       // synced-class count next to attendance figures computed from a
       // different scope would be confusing, not just inconsistent.
       .not("mindbody_occurrence_id", "is", null)
-      .lte("start_datetime", new Date().toISOString())
-      .range(offset, offset + PAGE_SIZE - 1)
-      .returns<OverviewRow[]>();
+      .lte("start_datetime", new Date().toISOString());
+
+    if (rangeStart) {
+      query = query.gte("start_datetime", rangeStart.toUTC().toISO() ?? "");
+    }
+    if (rangeEnd) {
+      query = query.lte("start_datetime", rangeEnd.toUTC().toISO() ?? "");
+    }
+
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1).returns<OverviewRow[]>();
 
     if (error) {
       throw new Error(`Failed to load overview metrics: ${error.message}`);
@@ -52,6 +71,36 @@ async function getOverviewRows(supabase: ScopedSupabaseClient) {
   }
 
   return allRows;
+}
+
+type ResolvedRange = { range: string; rangeStart: string; rangeEnd: string };
+
+// Mirrors app/dashboard/instructors/page.tsx's resolveRange, plus a "ytd"
+// preset -- see overview-range-select.tsx for why Overview has one and
+// Instructors doesn't. Default stays "all" so an existing bookmark/link with
+// no range param keeps showing the same all-synced-history view as before
+// this selector existed.
+function resolveRange(
+  params: { range?: string; rangeStart?: string; rangeEnd?: string },
+  timezone: string,
+): ResolvedRange {
+  if (params.range === "custom" && params.rangeStart && params.rangeEnd) {
+    return { range: "custom", rangeStart: params.rangeStart, rangeEnd: params.rangeEnd };
+  }
+
+  if (params.range === "ytd") {
+    const now = DateTime.now().setZone(timezone);
+    const start = now.startOf("year");
+    return { range: "ytd", rangeStart: start.toISODate() ?? "", rangeEnd: now.toISODate() ?? "" };
+  }
+
+  if (params.range && RANGE_PRESET_DAYS[params.range]) {
+    const now = DateTime.now().setZone(timezone);
+    const start = now.minus({ days: RANGE_PRESET_DAYS[params.range] });
+    return { range: params.range, rangeStart: start.toISODate() ?? "", rangeEnd: now.toISODate() ?? "" };
+  }
+
+  return { range: "all", rangeStart: "", rangeEnd: "" };
 }
 
 async function getDepartments(supabase: ScopedSupabaseClient): Promise<Department[]> {
@@ -131,15 +180,26 @@ function buildDepartmentRows(rows: OverviewRow[], departments: Department[]): De
     .sort((a, b) => b.summary.totalClasses - a.summary.totalClasses);
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string; rangeStart?: string; rangeEnd?: string }>;
+}) {
+  const params = await searchParams;
+
   // Adam's real session -> RLS-scoped client, so the same-org select
   // policies on class_occurrences/departments are the actual enforcement.
   // No session -> the admin client, same as before.
   const currentStaff = await getCurrentStaff();
   const supabase = await getScopedClient(currentStaff);
+  const timezone = await getOrgTimezone(supabase);
+
+  const { range, rangeStart, rangeEnd } = resolveRange(params, timezone);
+  const rangeStartDT = range === "all" ? null : DateTime.fromISO(rangeStart, { zone: timezone }).startOf("day");
+  const rangeEndDT = range === "all" ? null : DateTime.fromISO(rangeEnd, { zone: timezone }).endOf("day");
 
   const [rows, departments] = await Promise.all([
-    getOverviewRows(supabase),
+    getOverviewRows(supabase, rangeStartDT, rangeEndDT),
     getDepartments(supabase),
   ]);
 
@@ -151,7 +211,9 @@ export default async function DashboardPage() {
       title="Overview"
       description="Studio health at a glance, based on synced Mindbody class data."
     >
-      <section>
+      <OverviewRangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />
+
+      <section className="mt-6">
         <h2 className="text-base font-semibold text-zinc-950">Studio-wide</h2>
         <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Total Classes" value={orgSummary.totalClasses.toString()} />
@@ -174,7 +236,10 @@ export default async function DashboardPage() {
         <div className="flex items-baseline justify-between gap-4">
           <h2 className="text-base font-semibold text-zinc-950">By Department</h2>
           <p className="text-sm text-zinc-500">
-            Sorted by total classes · this period = all synced history to date
+            Sorted by total classes · this period ={" "}
+            {range === "all"
+              ? "all synced history to date"
+              : `${rangeStart} to ${rangeEnd}`}
           </p>
         </div>
 
