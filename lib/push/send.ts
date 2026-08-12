@@ -1,11 +1,25 @@
 import webpush, { WebPushError } from "web-push";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!,
-);
+// Configured lazily inside sendPushToStaff, not at module load -- this file
+// is imported (transitively) by /api/push/notify-board-message, and Next
+// evaluates route modules during its build-time "Collecting page data" step.
+// A top-level setVapidDetails() call ran then too, so a missing or
+// malformed VAPID env var failed the entire production build rather than
+// just this one route at request time. Guarded by a flag rather than
+// re-validating on every call, since validation happens inside the
+// web-push package itself and is cheap but not free.
+let vapidConfigured = false;
+
+function ensureVapidConfigured() {
+  if (vapidConfigured) return;
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT!,
+    process.env.VAPID_PUBLIC_KEY!,
+    process.env.VAPID_PRIVATE_KEY!,
+  );
+  vapidConfigured = true;
+}
 
 export type PushPayload = {
   title: string;
@@ -28,6 +42,7 @@ export async function sendPushToStaff(staffIds: string[], payload: PushPayload):
     return;
   }
 
+  ensureVapidConfigured();
   const supabase = createSupabaseAdminClient();
   const { data: subscriptions, error } = await supabase
     .from("push_subscriptions")
