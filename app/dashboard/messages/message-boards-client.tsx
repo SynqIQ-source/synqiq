@@ -286,7 +286,7 @@ export function MessageBoardsClient({
                     onClick={() => setSelectedBoardId(board.id)}
                     className={`rounded-md px-3 py-2 text-left text-sm font-medium ${
                       board.id === selectedBoardId
-                        ? "bg-zinc-900 text-white"
+                        ? "bg-secondary-subtle text-secondary"
                         : "text-zinc-700 hover:bg-zinc-100"
                     }`}
                   >

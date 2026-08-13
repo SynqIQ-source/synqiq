@@ -105,7 +105,7 @@ export function PeriodNav({ viewMode, date, today }: PeriodNavProps) {
             onClick={switchToDay}
             aria-pressed={viewMode === "day"}
             className={`rounded px-2 py-1 text-sm font-medium ${
-              viewMode === "day" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
+              viewMode === "day" ? "bg-secondary-subtle text-secondary" : "text-zinc-700 hover:bg-zinc-100"
             }`}
           >
             Day
@@ -115,7 +115,7 @@ export function PeriodNav({ viewMode, date, today }: PeriodNavProps) {
             onClick={switchToWeek}
             aria-pressed={viewMode === "week"}
             className={`rounded px-2 py-1 text-sm font-medium ${
-              viewMode === "week" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-100"
+              viewMode === "week" ? "bg-secondary-subtle text-secondary" : "text-zinc-700 hover:bg-zinc-100"
             }`}
           >
             Week
