@@ -6,7 +6,8 @@ type EnvKey =
   | "MINDBODY_API_KEY"
   | "MINDBODY_SITE_ID"
   | "MINDBODY_USERNAME"
-  | "MINDBODY_PASSWORD";
+  | "MINDBODY_PASSWORD"
+  | "CRON_SECRET";
 
 export function getEnv(key: EnvKey): string {
   const value = process.env[key];

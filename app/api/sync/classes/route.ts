@@ -193,14 +193,75 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
 
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const startDateTime = searchParams.get("startDateTime") ?? undefined;
-    const endDateTime = searchParams.get("endDateTime") ?? undefined;
-    const locationIdParam = searchParams.get("locationId");
-    const locationId = locationIdParam ? Number(locationIdParam) : undefined;
+    // This route writes to the DB and calls the MindBody API on every hit,
+    // and is now wired to Vercel Cron (see vercel.json) rather than only
+    // ever being triggered by hand -- leaving it unauthenticated would make
+    // it a public trigger for both. Vercel attaches this same bearer token
+    // automatically on cron-invoked requests once CRON_SECRET is set in the
+    // project's env vars; manual/local calls must pass it explicitly the
+    // same way.
+    const authHeader = request.headers.get("authorization");
+    if (authHeader !== `Bearer ${getEnv("CRON_SECRET")}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    const searchParams = request.nextUrl.searchParams;
     const mindbody = createMindbodyClient();
     const supabase = createSupabaseAdminClient();
+    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
+
+    // The nightly cron hits this route with no query params at all -- that's
+    // what distinguishes an automatic run from someone deliberately
+    // requesting a specific window.
+    const isCronDefaultRun = !searchParams.has("startDateTime") && !searchParams.has("endDateTime");
+
+    if (isCronDefaultRun) {
+      // Vercel Cron only supports fixed UTC schedules, but this should only
+      // actually run once, at 11:59pm in the organization's own local time --
+      // and America/Chicago (this org's timezone) crosses the CDT/CST
+      // boundary twice a year, which would silently drift the effective
+      // local time by an hour if the schedule were just one fixed UTC cron
+      // entry. Fix: vercel.json schedules TWO firings, 04:59 and 05:59 UTC
+      // (23:59 local under CDT and under CST respectively), and this gate
+      // lets exactly one of them through per night -- whichever lands in the
+      // current DST state -- and no-ops the other rather than double-syncing.
+      const { data: orgRow } = await supabase
+        .from("organizations")
+        .select("timezone")
+        .eq("mindbody_site_id", configuredSiteId)
+        .maybeSingle();
+
+      if (orgRow?.timezone) {
+        const localNow = DateTime.utc().setZone(orgRow.timezone);
+        const isScheduledWindow =
+          (localNow.hour === 23 && localNow.minute >= 55) || (localNow.hour === 0 && localNow.minute <= 4);
+
+        if (!isScheduledWindow) {
+          return NextResponse.json({
+            success: true,
+            skipped: true,
+            reason: `Not the scheduled local sync time (local time is ${localNow.toFormat("HH:mm")} in ${orgRow.timezone}).`,
+          });
+        }
+      }
+      // No org row yet (first-ever run) -- proceed unconditionally rather
+      // than blocking bootstrap on a gate that has nothing to check against.
+    }
+
+    // The nightly cron hits this route with no query params at all -- default
+    // to a 2-day lookback so TotalSignedIn (which MindBody fills in
+    // progressively as check-ins happen, unlike TotalBooked) is re-pulled
+    // for anything that occurred since the last run, with one extra day of
+    // slack in case a prior night's run failed silently.
+    const startDateTime =
+      searchParams.get("startDateTime") ?? DateTime.utc().minus({ days: 2 }).toISO();
+    const endDateTime = searchParams.get("endDateTime") ?? DateTime.utc().toISO();
+    const locationIdParam = searchParams.get("locationId");
+    const locationId = locationIdParam ? Number(locationIdParam) : undefined;
+    // Captured once per run, not per row -- every occurrence written by this
+    // sync shares one timestamp, so it answers "when did the run that wrote
+    // this happen" rather than drifting across the seconds a large sync takes.
+    const syncedAt = DateTime.utc().toISO();
 
     // Site resolution stays Authorization-free -- Api-Key + SiteId alone is
     // the activated-key production model, and this is the one call that
@@ -221,7 +282,6 @@ export async function GET(request: NextRequest) {
     // not just one -- confirmed empirically (it returned both the sandbox
     // demo site AND the real production site for this key). Must match by
     // the configured MINDBODY_SITE_ID, not blindly take the first result.
-    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
     const siteResult = await mindbody.getSite();
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
@@ -384,6 +444,7 @@ export async function GET(request: NextRequest) {
 
               fill_rate: fillRate,
               attendance_rate: attendanceRate,
+              sync_timestamp: syncedAt,
 
               staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
               department_id:
