@@ -143,13 +143,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Call MindBody FIRST. Our own DB is only ever finalized after this
-    // succeeds -- if it fails, revert the claim back to 'open' so the
-    // request isn't stuck in limbo, and the manager can retry the same or a
-    // different candidate with no other cleanup needed.
+    // succeeds -- if any part of it fails, revert the claim back to 'open'
+    // so the request isn't stuck in limbo, and the manager can retry the
+    // same or a different candidate with no other cleanup needed. Both the
+    // token fetch and the actual substitution call are inside this one
+    // try/catch -- authenticate() used to sit outside it, so a failure
+    // there (confirmed in production: a corrupted MINDBODY_API_KEY env var)
+    // threw past the revert entirely and left the row stuck at
+    // 'pending_selection' forever, with no retry path in the UI.
     const mindbody = createMindbodyClient();
-    const { AccessToken: accessToken } = await mindbody.authenticate();
 
     try {
+      const { AccessToken: accessToken } = await mindbody.authenticate();
       await mindbody.substituteClassTeacher(
         asOccurrenceId(occurrence.mindbody_occurrence_id),
         chosenStaff.mindbody_staff_id,
