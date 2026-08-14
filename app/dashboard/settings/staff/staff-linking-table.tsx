@@ -16,15 +16,65 @@ type RowState = {
   email: string;
   status: "idle" | "sending" | "success" | "error";
   message?: string;
+  role: string;
+  roleStatus: "idle" | "saving" | "error";
+  roleError?: string;
 };
 
 export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
   const [rowState, setRowState] = useState<Record<string, RowState>>(() =>
-    Object.fromEntries(staff.map((row) => [row.id, { email: row.email ?? "", status: "idle" as const }])),
+    Object.fromEntries(
+      staff.map((row) => [
+        row.id,
+        { email: row.email ?? "", status: "idle" as const, role: row.role, roleStatus: "idle" as const },
+      ]),
+    ),
   );
 
   function updateEmail(staffId: string, email: string) {
     setRowState((prev) => ({ ...prev, [staffId]: { ...prev[staffId], email } }));
+  }
+
+  async function updateRole(staffId: string, role: string) {
+    const previousRole = rowState[staffId]?.role;
+    setRowState((prev) => ({
+      ...prev,
+      [staffId]: { ...prev[staffId], role, roleStatus: "saving", roleError: undefined },
+    }));
+
+    try {
+      const response = await fetch(`/api/staff/${staffId}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        setRowState((prev) => ({
+          ...prev,
+          [staffId]: {
+            ...prev[staffId],
+            role: previousRole ?? prev[staffId].role,
+            roleStatus: "error",
+            roleError: result?.error ?? "Failed to update role.",
+          },
+        }));
+        return;
+      }
+
+      setRowState((prev) => ({ ...prev, [staffId]: { ...prev[staffId], roleStatus: "idle" } }));
+    } catch (error) {
+      setRowState((prev) => ({
+        ...prev,
+        [staffId]: {
+          ...prev[staffId],
+          role: previousRole ?? prev[staffId].role,
+          roleStatus: "error",
+          roleError: error instanceof Error ? error.message : "Failed to update role.",
+        },
+      }));
+    }
   }
 
   async function sendInvite(row: StaffLinkingRow, confirmRelink: boolean) {
@@ -94,13 +144,31 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             </tr>
           ) : (
             staff.map((row) => {
-              const state = rowState[row.id] ?? { email: row.email ?? "", status: "idle" as const };
+              const state = rowState[row.id] ?? {
+                email: row.email ?? "",
+                status: "idle" as const,
+                role: row.role,
+                roleStatus: "idle" as const,
+              };
               const isLinked = Boolean(row.auth_user_id);
 
               return (
                 <tr key={row.id} className="border-b align-top">
                   <td className="p-3 font-medium text-zinc-950">{row.display_name}</td>
-                  <td className="p-3 text-zinc-600">{row.role}</td>
+                  <td className="p-3">
+                    <select
+                      value={state.role}
+                      onChange={(event) => updateRole(row.id, event.target.value)}
+                      disabled={state.roleStatus === "saving"}
+                      className="rounded-md border border-zinc-200 px-2 py-1.5 text-sm capitalize"
+                    >
+                      <option value="instructor">Instructor</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    {state.roleStatus === "error" && (
+                      <p className="mt-1.5 text-xs text-red-600">{state.roleError}</p>
+                    )}
+                  </td>
                   <td className="p-3">
                     {row.mindbody_staff_id != null ? (
                       <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">

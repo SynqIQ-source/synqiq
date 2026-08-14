@@ -23,6 +23,7 @@ const navigation = [
   { href: "/dashboard/settings", label: "Settings", adminOnly: true },
   { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
   { href: "/dashboard/settings/staff", label: "Staff Logins", adminOnly: true },
+  { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true },
   { href: "/dashboard/comp-audit", label: "Comp Audit", adminOnly: true },
 ];
 
