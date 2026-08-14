@@ -216,31 +216,48 @@ export async function GET(request: NextRequest) {
     const isCronDefaultRun = !searchParams.has("startDateTime") && !searchParams.has("endDateTime");
 
     if (isCronDefaultRun) {
-      // Vercel Cron only supports fixed UTC schedules, but this should only
-      // actually run once, at 11:59pm in the organization's own local time --
-      // and America/Chicago (this org's timezone) crosses the CDT/CST
-      // boundary twice a year, which would silently drift the effective
-      // local time by an hour if the schedule were just one fixed UTC cron
-      // entry. Fix: vercel.json schedules TWO firings, 04:59 and 05:59 UTC
-      // (23:59 local under CDT and under CST respectively), and this gate
-      // lets exactly one of them through per night -- whichever lands in the
-      // current DST state -- and no-ops the other rather than double-syncing.
+      // Originally gated on a narrow local-time window (23:55-00:04) to let
+      // exactly one of vercel.json's two DST-safe firings (04:59/05:59 UTC)
+      // through per night. That assumed Vercel invokes crons at the exact
+      // scheduled minute -- false on Hobby, which documents up to a 1-hour
+      // flexible window per firing. Confirmed empirically: no sync_timestamp
+      // was written at all the night this was caught, meaning both firings'
+      // actual (jittered) invocation times missed the 9-minute window every
+      // single night, not just occasionally.
+      //
+      // Gate on calendar date instead -- immune to jitter of any size within
+      // the day, and still prevents double-syncing: whichever firing (or a
+      // manual "Run") lands first each local day performs the sync; the
+      // other sees today's date already covered and no-ops. A bonus over the
+      // old design: if the first firing fails before writing anything,
+      // sync_timestamp stays on yesterday's date, so the second firing later
+      // that day retries instead of silently staying skipped for 24h.
       const { data: orgRow } = await supabase
         .from("organizations")
-        .select("timezone")
+        .select("id, timezone")
         .eq("mindbody_site_id", configuredSiteId)
         .maybeSingle();
 
       if (orgRow?.timezone) {
-        const localNow = DateTime.utc().setZone(orgRow.timezone);
-        const isScheduledWindow =
-          (localNow.hour === 23 && localNow.minute >= 55) || (localNow.hour === 0 && localNow.minute <= 4);
+        const localToday = DateTime.utc().setZone(orgRow.timezone).toISODate();
 
-        if (!isScheduledWindow) {
+        const { data: lastSync } = await supabase
+          .from("class_occurrences")
+          .select("sync_timestamp")
+          .eq("organization_id", orgRow.id)
+          .order("sync_timestamp", { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle();
+
+        const lastSyncLocalDate = lastSync?.sync_timestamp
+          ? DateTime.fromISO(lastSync.sync_timestamp, { zone: "utc" }).setZone(orgRow.timezone).toISODate()
+          : null;
+
+        if (lastSyncLocalDate === localToday) {
           return NextResponse.json({
             success: true,
             skipped: true,
-            reason: `Not the scheduled local sync time (local time is ${localNow.toFormat("HH:mm")} in ${orgRow.timezone}).`,
+            reason: `Already synced today (local date ${localToday} in ${orgRow.timezone}).`,
           });
         }
       }
