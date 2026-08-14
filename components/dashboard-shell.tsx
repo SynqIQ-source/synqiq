@@ -77,18 +77,18 @@ export async function DashboardShell({
         <SidebarNav items={visibleNavigation} />
       </aside>
       <div className="md:pl-64">
-        <header className="border-b border-zinc-200 bg-white px-6 py-5">
+        <header className="bg-secondary px-6 py-5">
           <div className="mx-auto max-w-6xl">
             <div className="mb-4 md:hidden">
-              <Link href="/" className="text-xl font-semibold text-zinc-950">
+              <Link href="/" className="text-xl font-semibold text-white">
                 Synq
               </Link>
             </div>
-            <p className="text-sm font-medium text-primary">Dashboard</p>
-            <h1 className="mt-1 text-2xl font-semibold text-zinc-950">
+            <p className="text-sm font-medium text-white/80">Dashboard</p>
+            <h1 className="mt-1 text-2xl font-semibold text-white">
               {title}
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
               {description}
             </p>
           </div>
