@@ -3,6 +3,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { BottomNav } from "@/components/bottom-nav";
 import { SidebarNav } from "@/components/sidebar-nav";
+import { AccountMenu } from "@/components/account-menu";
 
 // adminOnly is a nav-visibility simplification, not an access-control
 // boundary -- none of these pages check role themselves, so hiding a link
@@ -78,19 +79,29 @@ export async function DashboardShell({
       </aside>
       <div className="md:pl-64">
         <header className="bg-secondary px-6 py-5">
-          <div className="mx-auto max-w-6xl">
-            <div className="mb-4 md:hidden">
-              <Link href="/" className="text-xl font-semibold text-white">
-                Synq
-              </Link>
+          <div className="mx-auto flex max-w-6xl items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="mb-4 md:hidden">
+                <Link href="/" className="text-xl font-semibold text-white">
+                  Synq
+                </Link>
+              </div>
+              <p className="text-sm font-medium text-white/80">Dashboard</p>
+              <h1 className="mt-1 text-2xl font-semibold text-white">
+                {title}
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
+                {description}
+              </p>
             </div>
-            <p className="text-sm font-medium text-white/80">Dashboard</p>
-            <h1 className="mt-1 text-2xl font-semibold text-white">
-              {title}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
-              {description}
-            </p>
+            {currentStaff ? (
+              <AccountMenu
+                displayName={currentStaff.displayName}
+                role={currentStaff.role}
+                title={currentStaff.title}
+                photoUrl={currentStaff.photoUrl}
+              />
+            ) : null}
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-6 pt-8 pb-24 md:pb-8">{children}</main>

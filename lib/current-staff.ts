@@ -6,6 +6,8 @@ export type CurrentStaff = {
   displayName: string;
   role: "admin" | "instructor";
   organizationId: string;
+  title: string | null;
+  photoUrl: string | null;
 };
 
 export async function getCurrentStaff(): Promise<CurrentStaff | null> {
@@ -28,7 +30,7 @@ export async function getCurrentStaff(): Promise<CurrentStaff | null> {
   const adminSupabase = createSupabaseAdminClient();
   const { data: staff } = await adminSupabase
     .from("staff")
-    .select("id, display_name, role, organization_id")
+    .select("id, display_name, role, organization_id, title, photo_url")
     .eq("auth_user_id", user.id)
     .maybeSingle();
 
@@ -41,5 +43,7 @@ export async function getCurrentStaff(): Promise<CurrentStaff | null> {
     displayName: staff.display_name,
     role: staff.role as "admin" | "instructor",
     organizationId: staff.organization_id,
+    title: staff.title,
+    photoUrl: staff.photo_url,
   };
 }
