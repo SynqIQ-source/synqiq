@@ -70,7 +70,7 @@ export async function DashboardShell({
   return (
     <div className="min-h-screen bg-primary-subtle">
       <ServiceWorkerRegister />
-      <aside className="fixed inset-y-0 left-0 hidden w-64 bg-secondary px-5 py-6 md:block">
+      <aside className="fixed inset-y-0 left-0 hidden w-64 bg-primary px-5 py-6 md:block">
         <Link href="/" className="text-xl font-semibold text-white">
           Synq
         </Link>

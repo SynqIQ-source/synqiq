@@ -16,7 +16,7 @@ export default function HomePage() {
         </p>
         <Link
           href="/dashboard"
-          className="mt-8 inline-flex h-11 items-center rounded-md bg-primary px-5 text-sm font-medium text-white hover:bg-primary-hover"
+          className="mt-8 inline-flex h-11 items-center rounded-md bg-accent px-5 text-sm font-medium text-white hover:bg-accent-hover"
         >
           Open dashboard
         </Link>

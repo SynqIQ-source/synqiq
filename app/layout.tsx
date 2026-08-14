@@ -62,6 +62,8 @@ export default async function RootLayout({
     bodyStyle["--color-primary-subtle"] =
       `color-mix(in srgb, ${branding.primary_color} 12%, white)`;
     bodyStyle["--color-accent"] = branding.accent_color;
+    bodyStyle["--color-accent-hover"] =
+      `color-mix(in srgb, ${branding.accent_color} 85%, black)`;
     bodyStyle["--color-accent-subtle"] =
       `color-mix(in srgb, ${branding.accent_color} 12%, white)`;
     bodyStyle["--color-secondary"] = branding.secondary_color;

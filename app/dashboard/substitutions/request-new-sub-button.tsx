@@ -134,7 +134,7 @@ export function RequestNewSubButton({
                 <button
                   type="submit"
                   disabled={status === "submitting"}
-                  className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
+                  className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                 >
                   {status === "submitting" ? "Submitting..." : "Submit Request"}
                 </button>

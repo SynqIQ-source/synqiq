@@ -118,7 +118,7 @@ export function NotificationsForm() {
           <p className="text-sm text-zinc-500">Get notified here about open sub requests and new messages.</p>
           <button
             onClick={handleEnable}
-            className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover"
+            className="w-fit rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
           >
             Enable notifications
           </button>

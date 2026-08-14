@@ -176,7 +176,7 @@ export function BrandingForm({ organization }: { organization: Organization }) {
         <button
           type="submit"
           disabled={colorStatus === "saving"}
-          className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-60"
+          className="w-fit rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
         >
           {colorStatus === "saving" ? "Saving..." : "Save colors & font"}
         </button>
