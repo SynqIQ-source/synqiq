@@ -15,14 +15,18 @@ export default function ForgotPasswordPage() {
     setStatus("submitting");
 
     const supabase = createSupabaseBrowserClient();
-    // redirectTo is computed from the current origin at request time (not a
-    // fixed dashboard setting) so this works whether you're on localhost or
-    // a tunnel domain -- as long as that origin is in Supabase's Redirect
-    // URLs allowlist. The email template itself still has to be pointed at
-    // {{ .RedirectTo }} (not the default {{ .SiteURL }}-based link) for this
-    // to actually take effect -- see conversation history.
+    // NEXT_PUBLIC_SITE_URL, not window.location.origin, on purpose --
+    // synqiq.co 308-redirects to www.synqiq.co at the Vercel domain level,
+    // so a real visitor's origin here is www.synqiq.co, which isn't in
+    // Supabase's Redirect URLs allow list (only synqiq.co is). Supabase
+    // doesn't error on an unlisted redirectTo -- it silently falls back to
+    // the bare Site URL, dropping /auth/confirm from the emailed link and
+    // sending the recipient to the marketing page instead. Falls back to
+    // window.location.origin when the env var is unset, so this still
+    // works against a tunnel/localhost in dev -- see conversation history.
+    const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/confirm`,
+      redirectTo: `${siteOrigin}/auth/confirm`,
     });
 
     // Logged but never shown to the user -- the UI stays on the same "sent"

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestOrigin } from "@/lib/request-origin";
+import { getOptionalEnv } from "@/lib/env";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -68,7 +69,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const origin = resolveRequestOrigin(request);
+    // NEXT_PUBLIC_SITE_URL, not resolveRequestOrigin(request), on purpose --
+    // synqiq.co 308-redirects to www.synqiq.co at the Vercel domain level,
+    // so an admin's actual request origin here is www.synqiq.co, which
+    // isn't in Supabase's Redirect URLs allow list (only synqiq.co is).
+    // A redirectTo that fails that allow-list check doesn't error; Supabase
+    // silently substitutes the bare Site URL, which drops /auth/confirm
+    // from the emailed link entirely and sends invitees to the marketing
+    // page instead. Falls back to the request origin when unset, so this
+    // still works against a tunnel/localhost in dev.
+    const origin = getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? resolveRequestOrigin(request);
     const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${origin}/auth/confirm`,
     });
