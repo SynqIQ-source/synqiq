@@ -5,6 +5,7 @@ import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { formatClassTime } from "@/lib/format-class-time";
+import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { CancelRequestButton } from "./cancel-request-button";
 import { ResponseButtons, type ResponseStatus } from "./response-buttons";
 
@@ -20,13 +21,14 @@ type MyRequestRow = {
     start_datetime: string | null;
     end_datetime: string | null;
     substitute_staff_id: string | null;
+    department_id: string | null;
     substituteStaff: { display_name: string } | null;
     room: { name: string | null } | null;
     organization: { timezone: string | null } | null;
   } | null;
 };
 
-async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string) {
+async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string, hiddenDepartmentIds: Set<string>) {
   const { data, error } = await supabase
     .from("substitution_requests")
     .select(
@@ -39,6 +41,7 @@ async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string) {
         start_datetime,
         end_datetime,
         substitute_staff_id,
+        department_id,
         substituteStaff:staff!class_occurrences_substitute_staff_id_fkey ( display_name ),
         room:rooms!class_occurrences_room_id_fkey ( name ),
         organization:organizations!class_occurrences_organization_id_fkey ( timezone )
@@ -54,7 +57,12 @@ async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string) {
     throw new Error(`Failed to load your requests: ${error.message}`);
   }
 
-  return data ?? [];
+  // Pool Lanes doesn't use the substitution system -- see
+  // lib/excluded-departments.ts. New requests are already blocked at
+  // creation; this only matters for any pre-existing row.
+  return (data ?? []).filter(
+    (row) => !row.occurrence?.department_id || !hiddenDepartmentIds.has(row.occurrence.department_id),
+  );
 }
 
 type OpenRequestRow = {
@@ -81,6 +89,7 @@ type EligibilityRow = {
 async function getOpenRequestsQualifiedFor(
   supabase: ScopedSupabaseClient,
   staffId: string,
+  hiddenDepartmentIds: Set<string>,
 ) {
   // Same eligibility rule used at request-creation time
   // (app/api/substitution-requests/route.ts): a row in
@@ -132,6 +141,13 @@ async function getOpenRequestsQualifiedFor(
     const occurrence = request.occurrence;
 
     if (!occurrence || !occurrence.department_id || !occurrence.class_name) {
+      return false;
+    }
+
+    // Pool Lanes doesn't use the substitution system -- see
+    // lib/excluded-departments.ts. New requests are already blocked at
+    // creation; this only matters for any pre-existing row.
+    if (hiddenDepartmentIds.has(occurrence.department_id)) {
       return false;
     }
 
@@ -200,9 +216,10 @@ export default async function SubRequestsPage() {
 
   const staffId = currentStaff.id;
   const supabase = await getScopedClient(currentStaff);
+  const hiddenDepartmentIds = await getExcludedDepartmentIds(supabase);
 
-  const rows = await getOpenRequestsQualifiedFor(supabase, staffId);
-  const myRequests = await getMyRequests(supabase, staffId);
+  const rows = await getOpenRequestsQualifiedFor(supabase, staffId, hiddenDepartmentIds);
+  const myRequests = await getMyRequests(supabase, staffId, hiddenDepartmentIds);
 
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>

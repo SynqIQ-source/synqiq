@@ -4,6 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
+import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { CandidatesButton } from "./candidates-button";
 import { RequestNewSubButton } from "./request-new-sub-button";
 
@@ -21,13 +22,14 @@ type SubstitutionRequestRow = {
     class_name: string | null;
     start_datetime: string | null;
     substitute_staff_id: string | null;
+    department_id: string | null;
     substituteStaff: { display_name: string } | null;
     room: { name: string | null } | null;
     organization: { timezone: string | null } | null;
   } | null;
 };
 
-async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient) {
+async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient, hiddenDepartmentIds: Set<string>) {
   // The full active pipeline a manager needs to see: 'open' (needs
   // candidates reviewed), 'pending_selection' (another manager's selection
   // is claimed and mid-flight -- the brief window between /select's
@@ -51,6 +53,7 @@ async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient) {
         class_name,
         start_datetime,
         substitute_staff_id,
+        department_id,
         substituteStaff:staff!class_occurrences_substitute_staff_id_fkey ( display_name ),
         room:rooms!class_occurrences_room_id_fkey ( name ),
         organization:organizations!class_occurrences_organization_id_fkey ( timezone )
@@ -66,7 +69,12 @@ async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient) {
     throw new Error(`Failed to load substitution requests: ${error.message}`);
   }
 
-  return data ?? [];
+  // Pool Lanes doesn't use the substitution system -- see
+  // lib/excluded-departments.ts. New requests are already blocked at
+  // creation; this only matters for any pre-existing row.
+  return (data ?? []).filter(
+    (row) => !row.occurrence?.department_id || !hiddenDepartmentIds.has(row.occurrence.department_id),
+  );
 }
 
 function formatStartTime(startDatetime: string | null, timezone: string | null) {
@@ -95,7 +103,8 @@ export default async function SubstitutionsPage() {
   }
 
   const supabase = await getScopedClient(currentStaff);
-  const requests = await getActiveSubstitutionRequests(supabase);
+  const hiddenDepartmentIds = await getExcludedDepartmentIds(supabase);
+  const requests = await getActiveSubstitutionRequests(supabase, hiddenDepartmentIds);
 
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>

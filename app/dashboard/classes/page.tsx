@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
+import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { HistoryWindowSelect } from "./history-window-select";
 import { PeriodNav } from "./period-nav";
 
@@ -261,10 +262,20 @@ export default async function ClassesPage({
   const historyWindowStart = DateTime.fromISO(historyStart, { zone: timezone }).startOf("day");
   const historyWindowEnd = DateTime.fromISO(historyEnd, { zone: timezone }).endOf("day");
 
-  const [tableOccurrences, historicalOccurrences] = await Promise.all([
+  const [rawTableOccurrences, rawHistoricalOccurrences, hiddenDepartmentIds] = await Promise.all([
     getOccurrencesForRange(supabase, displayStart, displayEnd),
     getHistoricalOccurrences(supabase, historyWindowStart, historyWindowEnd),
+    getExcludedDepartmentIds(supabase),
   ]);
+
+  // Pool Lanes is excluded from every reporting view except Heat Map -- see
+  // lib/excluded-departments.ts.
+  const tableOccurrences = rawTableOccurrences.filter(
+    (occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id),
+  );
+  const historicalOccurrences = rawHistoricalOccurrences.filter(
+    (occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id),
+  );
 
   const historicalAverageMap = buildHistoricalAverageMap(historicalOccurrences, timezone);
 

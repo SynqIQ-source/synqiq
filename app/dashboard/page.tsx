@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
+import { excludedDepartmentIds } from "@/lib/excluded-departments";
 import { OverviewRangeSelect } from "./overview-range-select";
 
 type OverviewRow = {
@@ -198,10 +199,18 @@ export default async function DashboardPage({
   const rangeStartDT = range === "all" ? null : DateTime.fromISO(rangeStart, { zone: timezone }).startOf("day");
   const rangeEndDT = range === "all" ? null : DateTime.fromISO(rangeEnd, { zone: timezone }).endOf("day");
 
-  const [rows, departments] = await Promise.all([
+  const [allRows, allDepartments] = await Promise.all([
     getOverviewRows(supabase, rangeStartDT, rangeEndDT),
     getDepartments(supabase),
   ]);
+
+  // Pool Lanes is excluded from every reporting view except Heat Map -- see
+  // lib/excluded-departments.ts. Filtered here, once, before any
+  // aggregation, so both the Studio-wide totals and the per-department
+  // breakdown stay internally consistent with each other.
+  const hiddenDepartmentIds = excludedDepartmentIds(allDepartments);
+  const rows = allRows.filter((row) => !row.department_id || !hiddenDepartmentIds.has(row.department_id));
+  const departments = allDepartments.filter((department) => !hiddenDepartmentIds.has(department.id));
 
   const orgSummary = summarize(rows);
   const departmentRows = buildDepartmentRows(rows, departments);

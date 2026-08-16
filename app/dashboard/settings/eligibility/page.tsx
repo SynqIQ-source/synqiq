@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
+import { isExcludedDepartmentName } from "@/lib/excluded-departments";
 import { EligibilityTable, type DepartmentRow } from "./eligibility-table";
 
 export default async function EligibilitySettingsPage() {
@@ -25,12 +26,19 @@ export default async function EligibilitySettingsPage() {
     throw new Error(`Failed to load departments: ${error.message}`);
   }
 
+  // Pool Lanes doesn't use the substitution system at all -- see
+  // lib/excluded-departments.ts. Configuring eligibility for it would be
+  // pointless: a request for it can never be created in the first place.
+  const eligibleDepartments = (departments ?? []).filter(
+    (department) => !isExcludedDepartmentName(department.name),
+  );
+
   return (
     <DashboardShell
       title="Class Eligibility"
       description="Choose which instructors get pinged when a class in a given department needs a substitute. A class with no eligible instructors notifies no one."
     >
-      <EligibilityTable departments={departments ?? []} />
+      <EligibilityTable departments={eligibleDepartments} />
     </DashboardShell>
   );
 }

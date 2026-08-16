@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
+import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { RangeSelect } from "./range-select";
 import { InstructorTable } from "./instructor-table";
 
@@ -12,6 +13,7 @@ type SubstitutionRequestRow = {
   occurrence_id: string;
   created_at: string;
   resolved_at: string | null;
+  department_id: string | null;
 };
 type OccurrenceRow = {
   id: string;
@@ -19,6 +21,7 @@ type OccurrenceRow = {
   substitute_staff_id: string | null;
   max_capacity: number | null;
   total_signed_in: number | null;
+  department_id: string | null;
 };
 
 const PAGE_SIZE = 1000;
@@ -40,15 +43,27 @@ async function getInstructors(supabase: ScopedSupabaseClient): Promise<StaffRow[
 }
 
 async function getSubstitutionRequests(supabase: ScopedSupabaseClient): Promise<SubstitutionRequestRow[]> {
+  // Embeds the occurrence's department_id (not otherwise on
+  // substitution_requests itself) so Pool Lanes requests can be excluded
+  // below -- substitution_requests isn't date-range-scoped like occurrences
+  // is, so there's no other row here to join against for that.
   const { data, error } = await supabase
     .from("substitution_requests")
-    .select("requested_by, status, occurrence_id, created_at, resolved_at");
+    .select("requested_by, status, occurrence_id, created_at, resolved_at, occurrence:class_occurrences!inner ( department_id )")
+    .returns<Array<Omit<SubstitutionRequestRow, "department_id"> & { occurrence: { department_id: string | null } | null }>>();
 
   if (error) {
     throw new Error(`Failed to load substitution requests: ${error.message}`);
   }
 
-  return data ?? [];
+  return (data ?? []).map((row) => ({
+    requested_by: row.requested_by,
+    status: row.status,
+    occurrence_id: row.occurrence_id,
+    created_at: row.created_at,
+    resolved_at: row.resolved_at,
+    department_id: row.occurrence?.department_id ?? null,
+  }));
 }
 
 // Same pagination caveat as the Overview/Classes pages -- PostgREST's
@@ -69,7 +84,7 @@ async function getOccurrences(
   for (;;) {
     let query = supabase
       .from("class_occurrences")
-      .select("id, staff_id, substitute_staff_id, max_capacity, total_signed_in")
+      .select("id, staff_id, substitute_staff_id, max_capacity, total_signed_in, department_id")
       .not("mindbody_occurrence_id", "is", null)
       .lte("start_datetime", nowIso);
 
@@ -260,11 +275,21 @@ export default async function InstructorsPage({
   const rangeStartDT = range === "all" ? null : DateTime.fromISO(rangeStart, { zone: timezone }).startOf("day");
   const rangeEndDT = range === "all" ? null : DateTime.fromISO(rangeEnd, { zone: timezone }).endOf("day");
 
-  const [staff, subRequests, occurrences] = await Promise.all([
+  const [staff, rawSubRequests, rawOccurrences, hiddenDepartmentIds] = await Promise.all([
     getInstructors(supabase),
     getSubstitutionRequests(supabase),
     getOccurrences(supabase, rangeStartDT, rangeEndDT),
+    getExcludedDepartmentIds(supabase),
   ]);
+
+  // Pool Lanes is excluded from every reporting view except Heat Map -- see
+  // lib/excluded-departments.ts.
+  const subRequests = rawSubRequests.filter(
+    (request) => !request.department_id || !hiddenDepartmentIds.has(request.department_id),
+  );
+  const occurrences = rawOccurrences.filter(
+    (occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id),
+  );
 
   const instructorStats = buildInstructorStats(staff, subRequests, occurrences, rangeStartDT, rangeEndDT);
   const { totalReleased, totalPickedUp } = summarizeSubstitutionActivity(

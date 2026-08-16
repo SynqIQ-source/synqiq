@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { sendPushToStaff } from "@/lib/push/send";
+import { isExcludedDepartmentName } from "@/lib/excluded-departments";
 
 // Non-terminal statuses -- an occurrence can't have two open/pending
 // requests at once (guards against double-submission). 'approved' is
@@ -46,14 +47,34 @@ export async function POST(request: NextRequest) {
 
     const { data: occurrence, error: occurrenceError } = await supabase
       .from("class_occurrences")
-      .select("id, organization_id, department_id, class_name, staff_id")
+      .select(
+        "id, organization_id, department_id, class_name, staff_id, department:departments!class_occurrences_department_id_fkey ( name )",
+      )
       .eq("id", occurrenceId)
-      .single();
+      .single<{
+        id: string;
+        organization_id: string;
+        department_id: string | null;
+        class_name: string | null;
+        staff_id: string | null;
+        department: { name: string | null } | null;
+      }>();
 
     if (occurrenceError || !occurrence) {
       return NextResponse.json(
         { error: "Class occurrence not found." },
         { status: 404 },
+      );
+    }
+
+    // Pool Lanes doesn't use the substitution system at all -- see
+    // lib/excluded-departments.ts. Blocked here, at creation, rather than
+    // just filtered out of every read path, so there's never an orphaned
+    // request sitting invisible in the table.
+    if (isExcludedDepartmentName(occurrence.department?.name)) {
+      return NextResponse.json(
+        { error: "This department doesn't use the substitution request system." },
+        { status: 409 },
       );
     }
 
