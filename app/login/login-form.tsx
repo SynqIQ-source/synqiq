@@ -43,8 +43,7 @@ export function LoginForm() {
 
   return (
     <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-8 shadow-sm">
-      <h1 className="text-xl font-semibold text-zinc-950">Synq</h1>
-      <p className="mt-1 text-sm text-zinc-600">Sign in to your account.</p>
+      <h1 className="text-xl font-semibold text-zinc-950">Sign in to your account</h1>
 
       {linkError && LINK_ERROR_MESSAGES[linkError] ? (
         <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">

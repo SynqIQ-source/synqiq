@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AuthHeader } from "@/components/auth-header";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ResetPasswordForm } from "./reset-password-form";
 
@@ -15,7 +16,8 @@ export default async function ResetPasswordPage() {
   } = await supabase.auth.getUser();
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-4">
+      <AuthHeader />
       <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-8 shadow-sm">
         <h1 className="text-xl font-semibold text-zinc-950">Set a new password</h1>
 
