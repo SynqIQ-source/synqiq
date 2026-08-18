@@ -8,11 +8,11 @@ export default function HomePage() {
           Synq
         </p>
         <h1 className="mt-3 text-4xl font-semibold text-zinc-950 sm:text-5xl">
-          Studio operations, ready to connect.
+          Your studio&apos;s staff, finally in sync.
         </h1>
         <p className="mt-5 text-lg leading-8 text-zinc-600">
-          A production-ready Next.js foundation for Mindbody-connected class,
-          instructor, and substitution workflows.
+          Substitutions, scheduling, and instructor analytics — built on your
+          Mindbody data.
         </p>
         <Link
           href="/dashboard"
