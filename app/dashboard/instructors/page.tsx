@@ -3,7 +3,9 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
+import { isJunkClassName, normalizeClassName } from "@/lib/excluded-class-names";
 import { RangeSelect } from "./range-select";
+import { ClassFilterSelect } from "./class-filter-select";
 import { InstructorTable } from "./instructor-table";
 
 type StaffRow = { id: string; display_name: string };
@@ -14,6 +16,7 @@ type SubstitutionRequestRow = {
   created_at: string;
   resolved_at: string | null;
   department_id: string | null;
+  class_name: string | null;
 };
 type OccurrenceRow = {
   id: string;
@@ -22,6 +25,8 @@ type OccurrenceRow = {
   max_capacity: number | null;
   total_signed_in: number | null;
   department_id: string | null;
+  class_name: string | null;
+  department: { name: string | null } | null;
 };
 
 const PAGE_SIZE = 1000;
@@ -49,8 +54,16 @@ async function getSubstitutionRequests(supabase: ScopedSupabaseClient): Promise<
   // is, so there's no other row here to join against for that.
   const { data, error } = await supabase
     .from("substitution_requests")
-    .select("requested_by, status, occurrence_id, created_at, resolved_at, occurrence:class_occurrences!inner ( department_id )")
-    .returns<Array<Omit<SubstitutionRequestRow, "department_id"> & { occurrence: { department_id: string | null } | null }>>();
+    .select(
+      "requested_by, status, occurrence_id, created_at, resolved_at, occurrence:class_occurrences!inner ( department_id, class_name )",
+    )
+    .returns<
+      Array<
+        Omit<SubstitutionRequestRow, "department_id" | "class_name"> & {
+          occurrence: { department_id: string | null; class_name: string | null } | null;
+        }
+      >
+    >();
 
   if (error) {
     throw new Error(`Failed to load substitution requests: ${error.message}`);
@@ -63,6 +76,7 @@ async function getSubstitutionRequests(supabase: ScopedSupabaseClient): Promise<
     created_at: row.created_at,
     resolved_at: row.resolved_at,
     department_id: row.occurrence?.department_id ?? null,
+    class_name: row.occurrence?.class_name ?? null,
   }));
 }
 
@@ -84,7 +98,9 @@ async function getOccurrences(
   for (;;) {
     let query = supabase
       .from("class_occurrences")
-      .select("id, staff_id, substitute_staff_id, max_capacity, total_signed_in, department_id")
+      .select(
+        "id, staff_id, substitute_staff_id, max_capacity, total_signed_in, department_id, class_name, department:departments!class_occurrences_department_id_fkey ( name )",
+      )
       .not("mindbody_occurrence_id", "is", null)
       .lte("start_datetime", nowIso);
 
@@ -241,6 +257,63 @@ function summarizeSubstitutionActivity(
   return { totalReleased, totalPickedUp };
 }
 
+type DepartmentOption = { id: string; name: string };
+
+// Built from the occurrences actually in scope (already Pool-Lanes-filtered)
+// rather than a separate departments query -- a department only shows up as
+// a filter option if it has at least one real (non-junk) class name to
+// drill into, and the class list per department is exactly what's needed to
+// drive the cascade. Junk/test class_name rows (see
+// lib/excluded-class-names.ts) are dropped here, not from the underlying
+// occurrences, so they're simply unreachable through the picker rather than
+// being scrubbed from the data itself.
+function buildClassFilterOptions(occurrences: OccurrenceRow[]) {
+  const namesByDepartment = new Map<string, { name: string; classNames: Set<string> }>();
+  const allClassNames = new Set<string>();
+
+  for (const occurrence of occurrences) {
+    if (!occurrence.department_id || isJunkClassName(occurrence.class_name)) {
+      continue;
+    }
+
+    const className = normalizeClassName(occurrence.class_name);
+    const departmentName = occurrence.department?.name ?? "Unknown";
+
+    const entry = namesByDepartment.get(occurrence.department_id) ?? {
+      name: departmentName,
+      classNames: new Set<string>(),
+    };
+    entry.classNames.add(className);
+    namesByDepartment.set(occurrence.department_id, entry);
+    allClassNames.add(className);
+  }
+
+  const departments: DepartmentOption[] = [...namesByDepartment.entries()]
+    .map(([id, { name }]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const classNamesByDepartment: Record<string, string[]> = {};
+  for (const [id, { classNames }] of namesByDepartment) {
+    classNamesByDepartment[id] = [...classNames].sort((a, b) => a.localeCompare(b));
+  }
+
+  return { departments, classNamesByDepartment, allClassNames: [...allClassNames].sort((a, b) => a.localeCompare(b)) };
+}
+
+function matchesClassFilter(
+  row: { department_id: string | null; class_name?: string | null },
+  departmentId: string,
+  className: string,
+) {
+  if (departmentId && row.department_id !== departmentId) {
+    return false;
+  }
+  if (className && normalizeClassName(row.class_name) !== className) {
+    return false;
+  }
+  return true;
+}
+
 type ResolvedRange = { range: string; rangeStart: string; rangeEnd: string };
 
 function resolveRange(
@@ -263,7 +336,13 @@ function resolveRange(
 export default async function InstructorsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; rangeStart?: string; rangeEnd?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    rangeStart?: string;
+    rangeEnd?: string;
+    department?: string;
+    class?: string;
+  }>;
 }) {
   const params = await searchParams;
 
@@ -284,11 +363,31 @@ export default async function InstructorsPage({
 
   // Pool Lanes is excluded from every reporting view except Heat Map -- see
   // lib/excluded-departments.ts.
-  const subRequests = rawSubRequests.filter(
+  const scopedSubRequests = rawSubRequests.filter(
     (request) => !request.department_id || !hiddenDepartmentIds.has(request.department_id),
   );
-  const occurrences = rawOccurrences.filter(
+  const scopedOccurrences = rawOccurrences.filter(
     (occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id),
+  );
+
+  // Options are built from the range-scoped occurrences, so a department or
+  // class with no activity in the current time frame doesn't show up as a
+  // pickable (and immediately empty) filter -- same "only what's relevant
+  // right now" principle the By Instructor table below already follows.
+  const classFilterOptions = buildClassFilterOptions(scopedOccurrences);
+
+  const selectedDepartmentId =
+    params.department && classFilterOptions.departments.some((d) => d.id === params.department)
+      ? params.department
+      : "";
+  const selectedClassName =
+    params.class && classFilterOptions.allClassNames.includes(params.class) ? params.class : "";
+
+  const subRequests = scopedSubRequests.filter((request) =>
+    matchesClassFilter(request, selectedDepartmentId, selectedClassName),
+  );
+  const occurrences = scopedOccurrences.filter((occurrence) =>
+    matchesClassFilter(occurrence, selectedDepartmentId, selectedClassName),
   );
 
   const instructorStats = buildInstructorStats(staff, subRequests, occurrences, rangeStartDT, rangeEndDT);
@@ -299,15 +398,29 @@ export default async function InstructorsPage({
     rangeEndDT,
   );
 
+  const isFiltered = Boolean(selectedDepartmentId || selectedClassName);
+  const filterLabel = selectedClassName || classFilterOptions.departments.find((d) => d.id === selectedDepartmentId)?.name;
+
   return (
     <DashboardShell
       title="Instructors"
       description="Coverage activity per instructor: what they release, what they teach, and what they pick up for others."
     >
-      <RangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />
+      <div className="flex flex-wrap items-start gap-6">
+        <RangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />
+        <ClassFilterSelect
+          departments={classFilterOptions.departments}
+          classNamesByDepartment={classFilterOptions.classNamesByDepartment}
+          allClassNames={classFilterOptions.allClassNames}
+          selectedDepartmentId={selectedDepartmentId}
+          selectedClassName={selectedClassName}
+        />
+      </div>
 
       <section className="mt-6">
-        <h2 className="text-base font-semibold text-zinc-950">Studio-wide</h2>
+        <h2 className="text-base font-semibold text-zinc-950">
+          Studio-wide{isFiltered ? ` — ${filterLabel}` : ""}
+        </h2>
         <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard label="Classes Released for Coverage" value={totalReleased.toString()} />
           <StatCard label="Picked Up as a Sub" value={totalPickedUp.toString()} />
@@ -319,19 +432,23 @@ export default async function InstructorsPage({
       </section>
 
       <section className="mt-10">
-        <h2 className="text-base font-semibold text-zinc-950">By Instructor</h2>
+        <h2 className="text-base font-semibold text-zinc-950">
+          By Instructor{isFiltered ? ` — ${filterLabel}` : ""}
+        </h2>
 
         <InstructorTable rows={instructorStats} />
 
         <p className="mt-3 max-w-3xl text-xs leading-5 text-zinc-500">
           <span className="font-medium text-zinc-600">Classes Scheduled</span> and{" "}
           <span className="font-medium text-zinc-600">Avg Fill Rate</span> are scoped to the time
-          frame above and only count classes that have already occurred.{" "}
+          frame and class filter above, and only count classes that have already occurred.{" "}
           <span className="font-medium text-zinc-600">Avg Fill Rate</span> is a true aggregate
-          (total signed-in ÷ total capacity across every class they taught, any department or class
-          name) so it benchmarks instructors on one blended number, not one that shifts by class
-          style. <span className="font-medium text-zinc-600">Released for Coverage</span> counts
-          requests created in the window; <span className="font-medium text-zinc-600">
+          (total signed-in ÷ total capacity across every matching class) so it benchmarks
+          instructors on one blended number
+          {isFiltered ? " for the selected class" : ", any department or class name"}, not one
+          that shifts occurrence-to-occurrence.{" "}
+          <span className="font-medium text-zinc-600">Released for Coverage</span> counts requests
+          created in the window; <span className="font-medium text-zinc-600">
             Picked Up as Sub
           </span>{" "}
           counts approved requests resolved in the window.
