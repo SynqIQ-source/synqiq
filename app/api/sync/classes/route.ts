@@ -269,10 +269,14 @@ export async function GET(request: NextRequest) {
     // to a 2-day lookback so TotalSignedIn (which MindBody fills in
     // progressively as check-ins happen, unlike TotalBooked) is re-pulled
     // for anything that occurred since the last run, with one extra day of
-    // slack in case a prior night's run failed silently.
+    // slack in case a prior night's run failed silently. Forward side
+    // defaults to a 45-day lookahead -- instructors and admins need to see
+    // (and file sub requests against) classes well beyond today, not just
+    // the ones that have already happened.
     const startDateTime =
       searchParams.get("startDateTime") ?? DateTime.utc().minus({ days: 2 }).toISO();
-    const endDateTime = searchParams.get("endDateTime") ?? DateTime.utc().toISO();
+    const endDateTime =
+      searchParams.get("endDateTime") ?? DateTime.utc().plus({ days: 45 }).toISO();
     const locationIdParam = searchParams.get("locationId");
     const locationId = locationIdParam ? Number(locationIdParam) : undefined;
     // Captured once per run, not per row -- every occurrence written by this
