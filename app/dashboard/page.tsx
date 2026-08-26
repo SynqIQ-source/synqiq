@@ -259,25 +259,45 @@ async function getClassVisits(
   return allRows;
 }
 
-// Total Members -- Participation's denominator. A studio-wide figure, not
-// per-department (MindBody memberships aren't scoped to a single class
-// category), and independent of the selected date range -- it's "how many
-// active members do we have right now," not "how many were active at some
-// point during the period." Status = 'Active' is the only value that means
-// a real current paying member -- see the clients table's migration
-// comment for the other five observed values and why the separate `Active`
-// boolean field isn't used.
-async function getTotalActiveMembers(supabase: ScopedSupabaseClient): Promise<number> {
-  const { count, error } = await supabase
-    .from("clients")
-    .select("*", { count: "exact", head: true })
-    .eq("status", "Active");
+// Total Members -- Participation's denominator, and (via the id set) the
+// filter for its numerator too. A studio-wide figure, not per-department
+// (MindBody memberships aren't scoped to a single class category), and
+// independent of the selected date range -- it's "how many active members
+// do we have right now," not "how many were active at some point during
+// the period." Status = 'Active' is the only value that means a real
+// current paying member -- see the clients table's migration comment for
+// the other five observed values and why the separate `Active` boolean
+// field isn't used.
+//
+// Returns the id set, not just a count -- Participation needs to filter
+// *which* visiting clients count toward its numerator (see
+// summarizeClientEngagement), not just know the denominator.
+async function getActiveMemberIds(supabase: ScopedSupabaseClient): Promise<Set<number>> {
+  const allIds: number[] = [];
+  let offset = 0;
 
-  if (error) {
-    throw new Error(`Failed to load active member count: ${error.message}`);
+  for (;;) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("mindbody_unique_id")
+      .eq("status", "Active")
+      .range(offset, offset + PAGE_SIZE - 1)
+      .returns<{ mindbody_unique_id: number }[]>();
+
+    if (error) {
+      throw new Error(`Failed to load active member ids: ${error.message}`);
+    }
+
+    allIds.push(...(data ?? []).map((row) => row.mindbody_unique_id));
+
+    if (!data || data.length < PAGE_SIZE) {
+      break;
+    }
+
+    offset += PAGE_SIZE;
   }
 
-  return count ?? 0;
+  return new Set(allIds);
 }
 
 function groupVisitsByDepartment(visits: VisitRow[]): Map<string, VisitRow[]> {
@@ -300,14 +320,29 @@ type ClientEngagementSummary = {
   frequency: number | null;
 };
 
-function summarizeClientEngagement(visits: VisitRow[], totalMembers: number): ClientEngagementSummary {
+function summarizeClientEngagement(
+  visits: VisitRow[],
+  activeMemberIds: Set<number>,
+): ClientEngagementSummary {
   const totalClients = visits.length;
+  // Total Clients/Unique Clients/Frequency count every real visitor
+  // (members, drop-ins, trial/guest visits, anyone with a Non-Member/
+  // Expired/Suspended/Declined/Terminated status) -- that's genuine
+  // attendance and worth showing as-is. Participation is different: it's
+  // specifically "what fraction of our active membership base uses this
+  // department," so mixing in non-members inflates it against a
+  // denominator that excludes them. Confirmed empirically for Membership
+  // GX Classes -- 21 of 183 unique visitors (11.5%) weren't Active status,
+  // overstating Participation 18.2% vs. the correct 16.1%.
   const uniqueClients = new Set(visits.map((visit) => visit.clientMindbodyUniqueId)).size;
+  const uniqueActiveClients = new Set(
+    visits.filter((visit) => activeMemberIds.has(visit.clientMindbodyUniqueId)).map((visit) => visit.clientMindbodyUniqueId),
+  ).size;
 
   return {
     totalClients,
     uniqueClients,
-    participationPct: totalMembers > 0 ? (uniqueClients / totalMembers) * 100 : null,
+    participationPct: activeMemberIds.size > 0 ? (uniqueActiveClients / activeMemberIds.size) * 100 : null,
     // Undefined, not a real zero, when nobody attended -- same convention
     // as avgPerClass. 0 unique clients over 0 visits is "no data," not "0
     // visits per client."
@@ -485,11 +520,11 @@ export default async function DashboardPage({
   const rangeStartDT = range === "all" ? null : DateTime.fromISO(rangeStart, { zone: timezone }).startOf("day");
   const rangeEndDT = range === "all" ? null : DateTime.fromISO(rangeEnd, { zone: timezone }).endOf("day");
 
-  const [allRows, allDepartments, allVisits, totalMembers] = await Promise.all([
+  const [allRows, allDepartments, allVisits, activeMemberIds] = await Promise.all([
     getOverviewRows(supabase, rangeStartDT, rangeEndDT),
     getDepartments(supabase),
     getClassVisits(supabase, rangeStartDT, rangeEndDT),
-    getTotalActiveMembers(supabase),
+    getActiveMemberIds(supabase),
   ]);
 
   // Pool Lanes is excluded from every reporting view except Heat Map -- see
@@ -511,7 +546,7 @@ export default async function DashboardPage({
   // a person is still one person across departments), so "All departments"
   // Unique Clients has to be a true distinct count, not a sum that would
   // double-count them.
-  const orgClientEngagement = summarizeClientEngagement(visits, totalMembers);
+  const orgClientEngagement = summarizeClientEngagement(visits, activeMemberIds);
   const visitsByDept = groupVisitsByDepartment(visits);
 
   const priorWindow = resolvePriorWindow(range, rangeStart, rangeEnd, timezone);
@@ -585,7 +620,7 @@ export default async function DashboardPage({
     }
     const { totalClients, uniqueClients, participationPct, frequency } = summarizeClientEngagement(
       visitsByDept.get(department.id) ?? [],
-      totalMembers,
+      activeMemberIds,
     );
     return { department, totalClients, uniqueClients, participationPct, frequency };
   });
