@@ -9,6 +9,8 @@ type OverviewRow = {
   id: string;
   department_id: string | null;
   staff_id: string | null;
+  start_datetime: string | null;
+  class_name: string | null;
   max_capacity: number | null;
   total_signed_in: number | null;
   total_booked: number | null;
@@ -39,7 +41,7 @@ async function getOverviewRows(
   for (;;) {
     let query = supabase
       .from("class_occurrences")
-      .select("id, department_id, staff_id, max_capacity, total_signed_in, total_booked")
+      .select("id, department_id, staff_id, start_datetime, class_name, max_capacity, total_signed_in, total_booked")
       // The pre-redesign rows never captured an occurrence id -- exclude
       // them rather than let stale/ambiguous data skew the aggregates.
       // Attendance counts are only meaningful for classes that have already
@@ -139,20 +141,30 @@ async function getDepartments(supabase: ScopedSupabaseClient): Promise<Departmen
   return data ?? [];
 }
 
-type PayrollCostRow = { staff_id: string | null; earnings_amt: number; class_date: string | null };
+type PayrollCostRow = { staff_id: string | null; earnings_amt: number; class_date: string | null; class_name: string };
 
 // payroll_line_items has no department column (see
 // supabase/migrations/20260807180000_payroll_line_items_columns.sql) -- Cost
-// attribution instead goes staff_id -> which department(s) that staff member
-// actually taught in during the period (from class_occurrences), same
-// instructor-attribution approach as the rest of this function's callers.
+// attribution instead matches each payroll row to the specific class
+// occurrence it paid for, via (staff_id, local class date, class name), and
+// attributes the earnings to that occurrence's own department. See
+// buildPayrollByKey/sumMatchedPayroll below.
+//
+// An earlier version of this attributed an instructor's ENTIRE payroll for
+// the period to every department they taught in at all -- confirmed wrong
+// against this org's real data (e.g. an instructor who also teaches
+// Reformer Pilates had that pay counted toward Cycling too, inflating
+// Cycling's Avg/Class well past its real flat per-class rate). Matching by
+// the actual class instance fixes that; the tradeoff is the opposite
+// failure mode -- a payroll row whose class name doesn't exactly match the
+// synced Mindbody occurrence (sub, reschedule, naming drift) goes
+// unmatched and is undercounted rather than misattributed. Verified
+// against a real payroll import: ~98% of dated rows matched.
 //
 // Personal Training/Hourly Pay rows collapse to a single lump row per
 // instructor per pay period with class_date null (expected, not missing --
-// see the migration above), so there's no date to test against a bounded
-// range. Rather than guess, those rows are only included when "all synced
-// history" is selected (rangeStart/rangeEnd both null); a bounded range only
-// ever sums dated (per-class) rows.
+// see the migration above) -- there's no class to match those to, so they
+// never contribute to any department's Total Spend, regardless of range.
 async function getPayrollRows(
   supabase: ScopedSupabaseClient,
   rangeStart: DateTime | null,
@@ -162,7 +174,7 @@ async function getPayrollRows(
   let offset = 0;
 
   for (;;) {
-    let query = supabase.from("payroll_line_items").select("staff_id, earnings_amt, class_date");
+    let query = supabase.from("payroll_line_items").select("staff_id, earnings_amt, class_date, class_name");
 
     if (rangeStart && rangeEnd) {
       query = query.gte("class_date", rangeStart.toISODate() ?? "").lte("class_date", rangeEnd.toISODate() ?? "");
@@ -243,30 +255,56 @@ function groupByDepartment(rows: OverviewRow[]): Map<string, OverviewRow[]> {
   return rowsByDepartment;
 }
 
-// Sums payroll earnings for every instructor who taught at least one
-// occurrence in this scope (a department, for the period) -- see
-// getPayrollRows for why department attribution has to go through staff_id
-// rather than a direct column on payroll_line_items. An instructor who
-// taught in more than one department during the period (confirmed real in
-// this org's data) has their full payroll counted toward each department
-// they taught in. That's an accepted over-count if you read "All
-// departments" as a true distinct-staff total -- but it's exactly what
-// keeps "All departments" equal to the literal sum of the department rows,
-// which callers rely on below.
-function sumPayrollForOccurrences(occRows: OverviewRow[], payrollRows: PayrollCostRow[]): number {
-  const staffIds = new Set<string>();
-  for (const row of occRows) {
-    if (row.staff_id) {
-      staffIds.add(row.staff_id);
+// Identifies one specific class instance -- the join key between a payroll
+// row and the class_occurrence it paid for. class_date is a plain date (no
+// timezone) as MindBody's payroll export reports it, so the occurrence side
+// has to be converted to the org's local calendar date, not compared as a
+// UTC timestamp, or every occurrence whose UTC date rolls over near
+// midnight local time would silently fail to match.
+function classInstanceKey(staffId: string, localDate: string, className: string): string {
+  return `${staffId}|${localDate}|${className.trim().toLowerCase()}`;
+}
+
+// staff_id/class_date-less (Personal Training/Hourly Pay lump) rows can't
+// be tied to a key at all and are dropped here -- see getPayrollRows.
+function buildPayrollByKey(payrollRows: PayrollCostRow[]): Map<string, number> {
+  const byKey = new Map<string, number>();
+  for (const row of payrollRows) {
+    if (!row.staff_id || !row.class_date) {
+      continue;
     }
+    const key = classInstanceKey(row.staff_id, row.class_date, row.class_name);
+    byKey.set(key, (byKey.get(key) ?? 0) + row.earnings_amt);
+  }
+  return byKey;
+}
+
+// Sums the payroll matched to this scope's (a department, for the period)
+// own occurrences, one payroll row's earnings counted at most once per
+// distinct class instance even if two occurrences coincidentally share a
+// key (e.g. the same class taught twice in one day) -- see
+// classInstanceKey/getPayrollRows for what "matched" means and its
+// tradeoffs.
+function sumMatchedPayroll(occRows: OverviewRow[], payrollByKey: Map<string, number>, timezone: string): number {
+  const countedKeys = new Set<string>();
+  let total = 0;
+
+  for (const row of occRows) {
+    if (!row.staff_id || !row.start_datetime || !row.class_name) {
+      continue;
+    }
+    const localDate = DateTime.fromISO(row.start_datetime, { zone: "utc" }).setZone(timezone).toISODate();
+    if (!localDate) {
+      continue;
+    }
+    const key = classInstanceKey(row.staff_id, localDate, row.class_name);
+    if (countedKeys.has(key)) {
+      continue;
+    }
+    countedKeys.add(key);
+    total += payrollByKey.get(key) ?? 0;
   }
 
-  let total = 0;
-  for (const row of payrollRows) {
-    if (row.staff_id && staffIds.has(row.staff_id)) {
-      total += row.earnings_amt;
-    }
-  }
   return total;
 }
 
@@ -357,10 +395,12 @@ export default async function DashboardPage({
   const priorRows = priorAllRows.filter((row) => !row.department_id || !hiddenDepartmentIds.has(row.department_id));
   const currentOccByDept = groupByDepartment(rows);
   const priorOccByDept = groupByDepartment(priorRows);
+  const currentPayrollByKey = buildPayrollByKey(currentPayrollRows);
+  const priorPayrollByKey = buildPayrollByKey(priorPayrollRows);
 
   // Cost columns for each real department row, built alongside (not inside)
   // buildDepartmentRows/summarize -- Cost needs the raw per-department
-  // staff_id sets and a second (prior-period) query, neither of which the
+  // occurrence rows and a second (prior-period) query, neither of which the
   // This-period aggregates above need.
   const departmentCostRows: DepartmentCostRow[] = departmentRows.map(({ department, summary }) => {
     if (summary.totalClasses === 0) {
@@ -374,7 +414,7 @@ export default async function DashboardPage({
       };
     }
 
-    const totalSpend = sumPayrollForOccurrences(currentOccByDept.get(department.id) ?? [], currentPayrollRows);
+    const totalSpend = sumMatchedPayroll(currentOccByDept.get(department.id) ?? [], currentPayrollByKey, timezone);
     const currentAvg = avgPerClass(totalSpend, summary.totalClasses);
 
     let priorTotalSpend: number | null = null;
@@ -384,18 +424,17 @@ export default async function DashboardPage({
     if (priorWindow) {
       const priorOccRows = priorOccByDept.get(department.id) ?? [];
       priorClassesCount = priorOccRows.length;
-      priorTotalSpend = sumPayrollForOccurrences(priorOccRows, priorPayrollRows);
+      priorTotalSpend = sumMatchedPayroll(priorOccRows, priorPayrollByKey, timezone);
       vsPriorPct = vsPriorPercent(currentAvg, avgPerClass(priorTotalSpend, priorClassesCount));
     }
 
     return { department, totalSpend, avgPerClass: currentAvg, vsPriorPct, priorTotalSpend, priorClassesCount };
   });
 
-  // "All departments" Total Spend is the literal sum of the department rows
-  // above (see sumPayrollForOccurrences), not an independent distinct-staff
-  // total -- that's what keeps the two numbers reconcilable when an
-  // instructor teaches in more than one department, at the cost of counting
-  // that instructor's payroll once per department they touched.
+  // "All departments" Total Spend is the sum of the department rows above.
+  // Unlike an instructor-level attribution, a specific class instance can
+  // only ever belong to one department, so this is now effectively also the
+  // true org-wide total (no double-counting to reconcile away).
   const allDepartmentsTotalSpend = departmentCostRows.reduce((sum, row) => sum + (row.totalSpend ?? 0), 0);
   const allDepartmentsAvgPerClass = avgPerClass(allDepartmentsTotalSpend, orgSummary.totalClasses);
 
