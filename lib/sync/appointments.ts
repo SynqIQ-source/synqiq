@@ -1,0 +1,183 @@
+import { DateTime } from "luxon";
+import { createMindbodyClient } from "@/lib/mindbody/client";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { delay, withRetry } from "@/lib/retry";
+import { getEnv } from "@/lib/env";
+import type { MindbodyAppointment } from "@/types/mindbody";
+
+type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
+
+// 7-day lookback, not classes' 2 -- classes re-pulls TotalSignedIn, which
+// MindBody fills in automatically as check-ins happen; Status here (Booked
+// -> Completed/NoShow) is set by staff manually marking a session
+// afterward, which realistically lags by more than a day or two (e.g.
+// end-of-week reconciliation). No forward window -- Trainer Health only
+// ever counts already-Completed sessions, so there's nothing gained by
+// pulling appointments that haven't happened yet.
+const DEFAULT_LOOKBACK_DAYS = 7;
+
+// Staff and Locations are synced by syncClasses, not here -- this just
+// looks up the ids that sync already produced. Reads the whole org
+// roster/location list once per run rather than one query per appointment
+// (a handful of rows, same as syncLocations/syncStaff in lib/sync/classes.ts).
+async function getStaffIdByMindbodyId(supabase: SupabaseAdminClient, organizationId: string) {
+  const { data, error } = await supabase
+    .from("staff")
+    .select("id, mindbody_staff_id")
+    .eq("organization_id", organizationId);
+
+  if (error) {
+    throw new Error(`Failed to load staff: ${error.message}`);
+  }
+
+  return new Map((data ?? []).map((row) => [row.mindbody_staff_id as number, row.id as string]));
+}
+
+async function getLocationIdByMindbodyId(supabase: SupabaseAdminClient, organizationId: string) {
+  const { data, error } = await supabase
+    .from("Locations")
+    .select("id, mindbody_location_id")
+    .eq("organization_id", organizationId);
+
+  if (error) {
+    throw new Error(`Failed to load locations: ${error.message}`);
+  }
+
+  return new Map((data ?? []).map((row) => [row.mindbody_location_id as number, row.id as string]));
+}
+
+export type SyncAppointmentsOptions = {
+  startDate?: string;
+  endDate?: string;
+};
+
+export type SyncAppointmentsResult =
+  | { success: true; imported: number; total: number }
+  | { success: false; error: string };
+
+// Extracted from app/api/sync/appointments/route.ts -- see that file's
+// comment and lib/sync/classes.ts for why.
+export async function syncAppointments(options: SyncAppointmentsOptions): Promise<SyncAppointmentsResult> {
+  try {
+    const startDate = options.startDate ?? DateTime.utc().minus({ days: DEFAULT_LOOKBACK_DAYS }).toISO();
+    const endDate = options.endDate ?? DateTime.utc().toISO();
+
+    const mindbody = createMindbodyClient();
+    const supabase = createSupabaseAdminClient();
+
+    // Site resolution stays Authorization-free -- see lib/sync/classes.ts
+    // for the full reasoning. This is the one call that must never depend
+    // on a staff token's own scoping.
+    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
+    const siteResult = await mindbody.getSite();
+    const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
+
+    if (!site) {
+      throw new Error(
+        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+      );
+    }
+
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .upsert(
+        {
+          mindbody_site_id: site.Id,
+          timezone: site.TimeZone,
+          name: site.Name,
+        },
+        { onConflict: "mindbody_site_id" },
+      )
+      .select()
+      .single();
+
+    if (orgError || !org) {
+      throw new Error(orgError?.message ?? "Failed to upsert organization.");
+    }
+
+    const staffIdByMindbodyId = await getStaffIdByMindbodyId(supabase, org.id);
+    const locationIdByMindbodyId = await getLocationIdByMindbodyId(supabase, org.id);
+
+    // Appointment/client data is treated as non-public on a plain Api-Key +
+    // SiteId request, same as class capacity -- confirmed empirically: 0
+    // results without a staff User Token, 3,252 real appointments with one
+    // included (real staff, real client ids, real completed sessions). Used
+    // ONLY for this call, never for getSite above -- same safeguard as
+    // lib/sync/classes.ts. Soft-fails rather than failing the whole sync.
+    let appointmentsAccessToken: string | undefined;
+    try {
+      const appointmentsAuth = await mindbody.authenticate();
+      appointmentsAccessToken = appointmentsAuth.AccessToken;
+    } catch (authError) {
+      console.error("Failed to fetch an appointments-visibility user token -- continuing without it:", authError);
+    }
+
+    let imported = 0;
+    let total = 0;
+    let offset = 0;
+    const pageLimit = 200;
+
+    for (;;) {
+      const page = await withRetry(() =>
+        mindbody.getStaffAppointments(appointmentsAccessToken, { startDate, endDate, offset, limit: pageLimit }),
+      );
+      const appointments = (page.Appointments ?? []) as MindbodyAppointment[];
+      // Only trust TotalResults from a page that actually returned rows --
+      // confirmed empirically against the sandbox's /sale/sales endpoint
+      // (same pagination shape as this one): the true terminal empty page
+      // reports TotalResults: 0 even when every prior page agreed on a
+      // higher (and it turns out overstated) figure. Skipping the empty
+      // page's TotalResults keeps `total` at the last real value instead of
+      // being clobbered to 0 right as the loop is about to exit anyway.
+      if (appointments.length > 0) {
+        total = page.PaginationResponse?.TotalResults ?? total;
+      }
+
+      for (const appointment of appointments) {
+        // Same naive-local-time shape as class occurrences' StartDateTime --
+        // confirmed empirically (no timezone offset in the raw string) --
+        // interpreted against the site's own timezone, not assumed UTC.
+        const startDatetime = DateTime.fromISO(appointment.StartDateTime, { zone: org.timezone })
+          .toUTC()
+          .toISO();
+        const endDatetime = appointment.EndDateTime
+          ? DateTime.fromISO(appointment.EndDateTime, { zone: org.timezone }).toUTC().toISO()
+          : null;
+
+        const { error } = await supabase.from("appointment_occurrences").upsert(
+          {
+            mindbody_appointment_id: appointment.Id,
+            organization_id: org.id,
+            staff_id: staffIdByMindbodyId.get(appointment.StaffId) ?? null,
+            location_id:
+              appointment.LocationId != null ? locationIdByMindbodyId.get(appointment.LocationId) ?? null : null,
+            client_id: appointment.ClientId,
+            session_type_id: appointment.SessionTypeId,
+            status: appointment.Status,
+            start_datetime: startDatetime,
+            end_datetime: endDatetime,
+            duration_minutes: appointment.Duration,
+          },
+          { onConflict: "organization_id,mindbody_appointment_id" },
+        );
+
+        if (!error) {
+          imported++;
+        } else {
+          console.error(error);
+        }
+      }
+
+      offset += appointments.length;
+      if (appointments.length === 0 || offset >= total) {
+        break;
+      }
+
+      await delay(300);
+    }
+
+    return { success: true, imported, total };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+  }
+}

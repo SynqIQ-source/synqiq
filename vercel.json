@@ -1,11 +1,11 @@
 {
   "crons": [
     {
-      "path": "/api/sync/classes",
+      "path": "/api/sync/all",
       "schedule": "59 4 * * *"
     },
     {
-      "path": "/api/sync/classes",
+      "path": "/api/sync/all",
       "schedule": "59 5 * * *"
     }
   ]
