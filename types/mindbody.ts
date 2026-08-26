@@ -107,3 +107,47 @@ export interface MindbodySale {
     TotalAmount: number | null;
   }> | null;
 }
+
+// GET /client/clients. UniqueId (not Id, which is a formatted string of the
+// same value here but not always -- see MindbodyClassVisit) is the stable
+// per-site identifier used everywhere else in this app.
+//
+// Active is intentionally NOT declared here -- confirmed empirically
+// (sampled 2,000 real clients) that it's `true` for every client regardless
+// of real membership status, so it doesn't mean what it sounds like. Status
+// is the real signal: observed values are Active, Non-Member, Expired,
+// Terminated, Suspended, Declined.
+export interface MindbodyClientRecord {
+  UniqueId: number;
+  FirstName: string;
+  LastName: string;
+  Status: string;
+  IsProspect: boolean;
+  CreationDate: string | null;
+}
+
+export interface MindbodyClientsResponse {
+  PaginationResponse: {
+    RequestedLimit: number;
+    RequestedOffset: number;
+    PageSize: number;
+    TotalResults: number;
+  };
+  Clients: MindbodyClientRecord[] | null;
+}
+
+// GET /class/classvisits. ClientUniqueId, not ClientId -- confirmed
+// empirically against a real class's visits that the two are NOT
+// interchangeable (a check-in method other than staff lookup, e.g. a
+// membership barcode scan, produces a ClientId that doesn't match this
+// client's actual UniqueId at all; ClientUniqueId is consistent everywhere).
+export interface MindbodyClassVisit {
+  ClientUniqueId: number;
+  SignedIn: boolean;
+}
+
+export interface MindbodyClassVisitsResponse {
+  Class: {
+    Visits: MindbodyClassVisit[] | null;
+  } | null;
+}

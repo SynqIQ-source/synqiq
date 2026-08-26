@@ -159,6 +159,17 @@ export class MindbodyClient {
     });
   }
 
+  async getClients(accessToken?: string, pagination?: { offset?: number; limit?: number }) {
+    return this.request("/client/clients", {
+      method: "GET",
+      accessToken,
+      searchParams: {
+        Offset: pagination?.offset,
+        Limit: pagination?.limit,
+      },
+    });
+  }
+
   async getClassVisits(occurrenceId: MindbodyOccurrenceId, accessToken?: string) {
     return this.request("/class/classvisits", {
       method: "GET",
@@ -200,6 +211,12 @@ export class MindbodyClient {
       }
     });
 
+    // Node's fetch has no default timeout -- a connection that stalls after
+    // establishing (confirmed happening during the class-visits backfill:
+    // one call hung indefinitely with zero progress for 5+ minutes,
+    // outliving withRetry entirely since a promise that never settles never
+    // gives retry logic a chance to run) would otherwise hang the calling
+    // process forever instead of failing fast into a retry.
     const response = await fetch(url, {
       method: options.method ?? "GET",
       headers: {
@@ -210,6 +227,7 @@ export class MindbodyClient {
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
       cache: "no-store",
+      signal: AbortSignal.timeout(20_000),
     });
 
     if (!response.ok) {

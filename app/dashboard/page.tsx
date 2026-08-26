@@ -198,6 +198,123 @@ async function getPayrollRows(
   return allRows;
 }
 
+type VisitRow = { clientMindbodyUniqueId: number; departmentId: string | null };
+
+type RawVisitRow = {
+  client_mindbody_unique_id: number;
+  class_occurrences: { department_id: string | null; start_datetime: string | null } | null;
+};
+
+// class_visits has no department/date column of its own by design (see
+// supabase/migrations/20260826120000_clients_and_class_visits.sql) --
+// department comes from the occurrence it's for, so the period filter has
+// to apply to the embedded class_occurrences relation, not this table.
+// `!inner` makes it an actual join rather than a left-join-with-nulls, so
+// the date filter genuinely restricts which rows come back.
+//
+// signed_in = true only -- a no-show shouldn't count as "engagement," same
+// convention as every other real number on this page already using
+// total_signed_in rather than total_booked.
+async function getClassVisits(
+  supabase: ScopedSupabaseClient,
+  rangeStart: DateTime | null,
+  rangeEnd: DateTime | null,
+): Promise<VisitRow[]> {
+  const allRows: VisitRow[] = [];
+  let offset = 0;
+
+  for (;;) {
+    let query = supabase
+      .from("class_visits")
+      .select("client_mindbody_unique_id, class_occurrences!inner(department_id, start_datetime)")
+      .eq("signed_in", true);
+
+    if (rangeStart) {
+      query = query.gte("class_occurrences.start_datetime", rangeStart.toUTC().toISO() ?? "");
+    }
+    if (rangeEnd) {
+      query = query.lte("class_occurrences.start_datetime", rangeEnd.toUTC().toISO() ?? "");
+    }
+
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1).returns<RawVisitRow[]>();
+
+    if (error) {
+      throw new Error(`Failed to load class visits: ${error.message}`);
+    }
+
+    for (const row of data ?? []) {
+      allRows.push({
+        clientMindbodyUniqueId: row.client_mindbody_unique_id,
+        departmentId: row.class_occurrences?.department_id ?? null,
+      });
+    }
+
+    if (!data || data.length < PAGE_SIZE) {
+      break;
+    }
+
+    offset += PAGE_SIZE;
+  }
+
+  return allRows;
+}
+
+// Total Members -- Participation's denominator. A studio-wide figure, not
+// per-department (MindBody memberships aren't scoped to a single class
+// category), and independent of the selected date range -- it's "how many
+// active members do we have right now," not "how many were active at some
+// point during the period." Status = 'Active' is the only value that means
+// a real current paying member -- see the clients table's migration
+// comment for the other five observed values and why the separate `Active`
+// boolean field isn't used.
+async function getTotalActiveMembers(supabase: ScopedSupabaseClient): Promise<number> {
+  const { count, error } = await supabase
+    .from("clients")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "Active");
+
+  if (error) {
+    throw new Error(`Failed to load active member count: ${error.message}`);
+  }
+
+  return count ?? 0;
+}
+
+function groupVisitsByDepartment(visits: VisitRow[]): Map<string, VisitRow[]> {
+  const rowsByDepartment = new Map<string, VisitRow[]>();
+  for (const visit of visits) {
+    if (!visit.departmentId) {
+      continue;
+    }
+    const list = rowsByDepartment.get(visit.departmentId) ?? [];
+    list.push(visit);
+    rowsByDepartment.set(visit.departmentId, list);
+  }
+  return rowsByDepartment;
+}
+
+type ClientEngagementSummary = {
+  totalClients: number;
+  uniqueClients: number;
+  participationPct: number | null;
+  frequency: number | null;
+};
+
+function summarizeClientEngagement(visits: VisitRow[], totalMembers: number): ClientEngagementSummary {
+  const totalClients = visits.length;
+  const uniqueClients = new Set(visits.map((visit) => visit.clientMindbodyUniqueId)).size;
+
+  return {
+    totalClients,
+    uniqueClients,
+    participationPct: totalMembers > 0 ? (uniqueClients / totalMembers) * 100 : null,
+    // Undefined, not a real zero, when nobody attended -- same convention
+    // as avgPerClass. 0 unique clients over 0 visits is "no data," not "0
+    // visits per client."
+    frequency: uniqueClients > 0 ? totalClients / uniqueClients : null,
+  };
+}
+
 type MetricsSummary = {
   totalClasses: number;
   avgClassSize: number;
@@ -368,9 +485,11 @@ export default async function DashboardPage({
   const rangeStartDT = range === "all" ? null : DateTime.fromISO(rangeStart, { zone: timezone }).startOf("day");
   const rangeEndDT = range === "all" ? null : DateTime.fromISO(rangeEnd, { zone: timezone }).endOf("day");
 
-  const [allRows, allDepartments] = await Promise.all([
+  const [allRows, allDepartments, allVisits, totalMembers] = await Promise.all([
     getOverviewRows(supabase, rangeStartDT, rangeEndDT),
     getDepartments(supabase),
+    getClassVisits(supabase, rangeStartDT, rangeEndDT),
+    getTotalActiveMembers(supabase),
   ]);
 
   // Pool Lanes is excluded from every reporting view except Heat Map -- see
@@ -380,9 +499,20 @@ export default async function DashboardPage({
   const hiddenDepartmentIds = excludedDepartmentIds(allDepartments);
   const rows = allRows.filter((row) => !row.department_id || !hiddenDepartmentIds.has(row.department_id));
   const departments = allDepartments.filter((department) => !hiddenDepartmentIds.has(department.id));
+  const visits = allVisits.filter((visit) => !visit.departmentId || !hiddenDepartmentIds.has(visit.departmentId));
 
   const orgSummary = summarize(rows);
   const departmentRows = buildDepartmentRows(rows, departments);
+
+  // Computed directly from the whole (hidden-department-filtered) visits
+  // list, not summed from the department rows below -- unlike Cost, a
+  // client visiting more than one department is a real, common case here
+  // (per-class-instance attribution has no analogous overlap problem, but
+  // a person is still one person across departments), so "All departments"
+  // Unique Clients has to be a true distinct count, not a sum that would
+  // double-count them.
+  const orgClientEngagement = summarizeClientEngagement(visits, totalMembers);
+  const visitsByDept = groupVisitsByDepartment(visits);
 
   const priorWindow = resolvePriorWindow(range, rangeStart, rangeEnd, timezone);
 
@@ -445,6 +575,21 @@ export default async function DashboardPage({
     allDepartmentsVsPriorPct = vsPriorPercent(allDepartmentsAvgPerClass, avgPerClass(priorTotalSpendSum, priorTotalClasses));
   }
 
+  // Same zero-classes-in-scope -> N/A convention as Cost -- a department
+  // with no classes this period has no meaningful engagement figures
+  // either, matching how Online Group Fitness already reads elsewhere in
+  // this table.
+  const departmentClientRows = departmentRows.map(({ department, summary }) => {
+    if (summary.totalClasses === 0) {
+      return { department, totalClients: null, uniqueClients: null, participationPct: null, frequency: null };
+    }
+    const { totalClients, uniqueClients, participationPct, frequency } = summarizeClientEngagement(
+      visitsByDept.get(department.id) ?? [],
+      totalMembers,
+    );
+    return { department, totalClients, uniqueClients, participationPct, frequency };
+  });
+
   return (
     <DashboardShell
       title="Overview"
@@ -490,11 +635,8 @@ export default async function DashboardPage({
                 <th className="border-l p-3 text-left text-xs font-semibold text-zinc-950" colSpan={4}>
                   This period
                 </th>
-                <th className="border-l p-3 text-left text-xs font-semibold text-zinc-400" colSpan={5}>
-                  Client engagement{" "}
-                  <span className="rounded-full border border-dashed border-zinc-300 px-2 py-0.5 text-[0.65rem] font-medium normal-case text-zinc-400">
-                    Coming soon
-                  </span>
+                <th className="border-l p-3 text-left text-xs font-semibold text-zinc-950" colSpan={4}>
+                  Client engagement
                 </th>
                 <th className="border-l p-3 text-left text-xs font-semibold text-zinc-950" colSpan={3}>
                   Cost
@@ -510,7 +652,6 @@ export default async function DashboardPage({
                 <th className="p-3 text-right">Unique Clients</th>
                 <th className="p-3 text-right">Participation</th>
                 <th className="p-3 text-right">Frequency</th>
-                <th className="p-3 text-right">Utilization</th>
                 <th className="border-l p-3 text-right">Total Spend</th>
                 <th className="p-3 text-right">Avg / Class</th>
                 <th className="p-3 text-right">vs. Prior Period</th>
@@ -527,7 +668,20 @@ export default async function DashboardPage({
                 <td className="p-3 text-right">
                   {orgSummary.fillRatePct !== null ? `${orgSummary.fillRatePct.toFixed(1)}%` : "N/A"}
                 </td>
-                <MockCells count={5} borderLeft />
+                <td className="border-l p-3 text-right">
+                  {orgSummary.totalClasses > 0 ? orgClientEngagement.totalClients : "N/A"}
+                </td>
+                <td className="p-3 text-right">
+                  {orgSummary.totalClasses > 0 ? orgClientEngagement.uniqueClients : "N/A"}
+                </td>
+                <td className="p-3 text-right">
+                  {orgClientEngagement.participationPct !== null
+                    ? `${orgClientEngagement.participationPct.toFixed(1)}%`
+                    : "N/A"}
+                </td>
+                <td className="p-3 text-right">
+                  {orgClientEngagement.frequency !== null ? orgClientEngagement.frequency.toFixed(1) : "N/A"}
+                </td>
                 <td className="border-l p-3 text-right">
                   {orgSummary.totalClasses > 0 ? formatCurrency(allDepartmentsTotalSpend) : "N/A"}
                 </td>
@@ -538,6 +692,7 @@ export default async function DashboardPage({
               </tr>
               {departmentRows.map(({ department, summary }, index) => {
                 const cost = departmentCostRows[index];
+                const engagement = departmentClientRows[index];
                 return (
                   <tr key={department.id} className="border-b">
                     <td className="p-3 font-medium">{department.name}</td>
@@ -549,7 +704,14 @@ export default async function DashboardPage({
                     <td className="p-3 text-right">
                       {summary.fillRatePct !== null ? `${summary.fillRatePct.toFixed(1)}%` : "N/A"}
                     </td>
-                    <MockCells count={5} />
+                    <td className="border-l p-3 text-right">{engagement.totalClients ?? "N/A"}</td>
+                    <td className="p-3 text-right">{engagement.uniqueClients ?? "N/A"}</td>
+                    <td className="p-3 text-right">
+                      {engagement.participationPct !== null ? `${engagement.participationPct.toFixed(1)}%` : "N/A"}
+                    </td>
+                    <td className="p-3 text-right">
+                      {engagement.frequency !== null ? engagement.frequency.toFixed(1) : "N/A"}
+                    </td>
                     <td className="border-l p-3 text-right">
                       {cost.totalSpend !== null ? formatCurrency(cost.totalSpend) : "N/A"}
                     </td>
@@ -565,11 +727,10 @@ export default async function DashboardPage({
         </div>
 
         <p className="mt-3 max-w-3xl text-xs leading-5 text-zinc-500">
-          <span className="font-medium text-zinc-600">This period</span> and{" "}
-          <span className="font-medium text-zinc-600">Cost</span> columns are real, computed from
-          synced <code>class_occurrences</code> and imported <code>payroll_line_items</code>.{" "}
-          <span className="font-medium text-zinc-600">Client engagement</span> columns are still a
-          placeholder -- they need the client/membership integration, which isn&apos;t wired up yet.
+          Every column on this table is real, computed from synced{" "}
+          <code>class_occurrences</code>/<code>class_visits</code>/<code>clients</code> and imported{" "}
+          <code>payroll_line_items</code>. Frequency is Total Clients ÷ Unique Clients; Participation
+          is Unique Clients ÷ studio-wide active members.
         </p>
       </section>
     </DashboardShell>
@@ -604,23 +765,5 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <p className="text-sm font-medium text-zinc-600">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-zinc-950">{value}</p>
     </div>
-  );
-}
-
-// Renders `count` placeholder cells for the not-yet-built column groups --
-// a real dash, not a fake number, so nobody mistakes these for computed
-// values while skimming the table.
-function MockCells({ count, borderLeft }: { count: number; borderLeft?: boolean }) {
-  return (
-    <>
-      {Array.from({ length: count }, (_, index) => (
-        <td
-          key={index}
-          className={`p-3 text-right italic text-zinc-400 ${borderLeft && index === 0 ? "border-l" : ""}`}
-        >
-          —
-        </td>
-      ))}
-    </>
   );
 }
