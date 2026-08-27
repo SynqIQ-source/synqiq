@@ -73,12 +73,23 @@ async function getRecipientsForRequest(
   }
 
   // Same eligibility query as request creation (app/api/substitution-requests/route.ts),
-  // but the reminder recipient set additionally includes the original
-  // requester -- they need to know coverage still hasn't been found too,
-  // not just the pool of people who could pick it up.
+  // but narrowed two ways for the reminder specifically:
+  //
+  // 1. Anyone who already responded (interested OR declined -- either way
+  //    they've made their call) is excluded. Reminding someone who already
+  //    said yes or no has no purpose; only non-responders still need the
+  //    nudge.
+  // 2. Anyone who's opted out of reminders (staff.substitution_reminder_opt_out)
+  //    is excluded.
+  //
+  // The requester is still added afterward regardless of either -- opting
+  // out of reminders about OTHER instructors' open requests isn't the same
+  // as not wanting to know their OWN request is still unfilled.
   let eligibilityQuery = supabase
     .from("instructor_class_eligibility")
-    .select("staff:staff!instructor_class_eligibility_staff_id_fkey ( id, email )")
+    .select(
+      "staff:staff!instructor_class_eligibility_staff_id_fkey ( id, email, substitution_reminder_opt_out )",
+    )
     .eq("department_id", occurrence.department_id)
     .eq("class_name", occurrence.class_name.trim())
     .eq("enabled", true);
@@ -87,15 +98,35 @@ async function getRecipientsForRequest(
     eligibilityQuery = eligibilityQuery.neq("staff_id", occurrence.staff_id);
   }
 
-  const { data: eligibilityRows, error: eligibilityError } = await eligibilityQuery;
+  const [{ data: eligibilityRows, error: eligibilityError }, { data: interestRows, error: interestError }] =
+    await Promise.all([
+      eligibilityQuery,
+      supabase.from("substitution_interests").select("staff_id").eq("request_id", request.id),
+    ]);
 
   if (eligibilityError) {
     throw new Error(eligibilityError.message);
   }
+  if (interestError) {
+    throw new Error(interestError.message);
+  }
+
+  const respondedStaffIds = new Set((interestRows ?? []).map((row) => row.staff_id));
 
   const eligibleEmails = (eligibilityRows ?? [])
-    .map((row) => (row.staff as unknown as { id: string; email: string | null } | null))
-    .filter((staff): staff is { id: string; email: string } => Boolean(staff?.email))
+    .map(
+      (row) =>
+        row.staff as unknown as {
+          id: string;
+          email: string | null;
+          substitution_reminder_opt_out: boolean;
+        } | null,
+    )
+    .filter((staff): staff is { id: string; email: string; substitution_reminder_opt_out: boolean } =>
+      Boolean(staff?.email),
+    )
+    .filter((staff) => !respondedStaffIds.has(staff.id))
+    .filter((staff) => !staff.substitution_reminder_opt_out)
     .map((staff) => ({ email: staff.email }));
 
   const { data: requester } = await supabase
