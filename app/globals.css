@@ -36,6 +36,18 @@
   --color-secondary: #0f766e;
   --color-secondary-hover: #115e59;
   --color-secondary-subtle: #f0fdfa;
+
+  /* Fixed, NOT per-org-overridable -- unlike primary/accent/secondary above
+     (which app/layout.tsx rewrites per-request from an organization's own
+     branding row), gold is Synq's own product brand color for its public
+     marketing pages (/, /about, /contact), which render for logged-out
+     visitors with no organization in context at all. Introduced for the
+     About/Contact build -- no gold existed anywhere in this codebase
+     before (confirmed: the app icon and every existing themed page are
+     teal + white only). */
+  --color-gold: #c9a227;
+  --color-gold-hover: #a9841d;
+  --color-gold-subtle: #fbf3da;
 }
 
 /* @layer base, not unlayered -- Tailwind v4 (via @import "tailwindcss" above)
