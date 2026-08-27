@@ -124,6 +124,24 @@ async function syncDepartments(mindbody: MindbodyClient, supabase: SupabaseAdmin
 }
 
 async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient, organizationId: string) {
+  // Email (and likely other contact fields) comes back null for every
+  // record on a plain Api-Key + SiteId request -- confirmed empirically
+  // against the real production account: 0/74 real staff had a non-empty
+  // Email without a staff user token, 73/74 with one. This was silently
+  // overwriting staff.email with null on every nightly sync (only 7 of 195
+  // rows had an email, all traceable to the manual admin invite flow, none
+  // to this sync) until caught while scoping the substitution-request
+  // email-notification feature. Same soft-fail pattern as
+  // appointments/sales/clients/class-visits -- never used for the
+  // /site/sites call above, only here.
+  let staffAccessToken: string | undefined;
+  try {
+    const staffAuth = await mindbody.authenticate();
+    staffAccessToken = staffAuth.AccessToken;
+  } catch (authError) {
+    console.error("Failed to fetch a staff-visibility user token -- continuing without it:", authError);
+  }
+
   // getStaff with no pagination params silently returns MindBody's default
   // page size, not the full roster -- confirmed empirically: two real
   // instructors (ids 100000237, 100000285) were missing from an unpaginated
@@ -134,7 +152,7 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
   const limit = 200;
 
   for (;;) {
-    const page = await mindbody.getStaff(undefined, { offset, limit });
+    const page = await mindbody.getStaff(staffAccessToken, { offset, limit });
     const pageMembers = (page.StaffMembers ?? []) as MindbodyStaffMember[];
     allMembers.push(...pageMembers);
 
