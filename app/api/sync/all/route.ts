@@ -5,6 +5,7 @@ import { syncAppointments } from "@/lib/sync/appointments";
 import { syncSales } from "@/lib/sync/sales";
 import { syncClients } from "@/lib/sync/clients";
 import { syncClassVisits } from "@/lib/sync/class-visits";
+import { sendSubstitutionReminders } from "@/lib/substitutions/reminders";
 
 // Hobby's function-duration ceiling -- class-visits sync is one MindBody
 // API call per occurrence (no bulk form), so it's the one piece of this
@@ -57,11 +58,23 @@ export async function GET(request: NextRequest) {
   const clients = await syncClients();
   const classVisits = await syncClassVisits({});
 
+  // Not a MindBody sync -- runs against this app's own substitution_requests
+  // data, so it's cheap and has no reason to depend on any of the syncs
+  // above succeeding. Placed last simply so a fresh class/staff sync this
+  // same run is available to it (an eligibility change from today already
+  // applies to today's reminder pass).
+  const substitutionReminders = await sendSubstitutionReminders();
+
   const success =
-    classes.success && appointments.success && sales.success && clients.success && classVisits.success;
+    classes.success &&
+    appointments.success &&
+    sales.success &&
+    clients.success &&
+    classVisits.success &&
+    substitutionReminders.success;
 
   return NextResponse.json(
-    { success, classes, appointments, sales, clients, classVisits },
+    { success, classes, appointments, sales, clients, classVisits, substitutionReminders },
     { status: success ? 200 : 500 },
   );
 }

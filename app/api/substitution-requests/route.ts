@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { sendPushToStaff } from "@/lib/push/send";
+import { sendEmailToRecipients } from "@/lib/email/send";
+import { substitutionRequestOpenEmail } from "@/lib/email/templates";
 import { isExcludedDepartmentName } from "@/lib/excluded-departments";
+import { getOptionalEnv } from "@/lib/env";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 // Non-terminal statuses -- an occurrence can't have two open/pending
 // requests at once (guards against double-submission). 'approved' is
@@ -48,7 +52,7 @@ export async function POST(request: NextRequest) {
     const { data: occurrence, error: occurrenceError } = await supabase
       .from("class_occurrences")
       .select(
-        "id, organization_id, department_id, class_name, staff_id, department:departments!class_occurrences_department_id_fkey ( name )",
+        "id, organization_id, department_id, class_name, staff_id, start_datetime, department:departments!class_occurrences_department_id_fkey ( name )",
       )
       .eq("id", occurrenceId)
       .single<{
@@ -57,6 +61,7 @@ export async function POST(request: NextRequest) {
         department_id: string | null;
         class_name: string | null;
         staff_id: string | null;
+        start_datetime: string | null;
         department: { name: string | null } | null;
       }>();
 
@@ -260,6 +265,43 @@ export async function POST(request: NextRequest) {
         console.error(
           `[substitution-requests] Failed to send push for request ${substitutionRequest?.id}:`,
           pushError instanceof Error ? pushError.message : pushError,
+        );
+      }
+    }
+
+    // Same best-effort, never-fails-the-request convention as the push
+    // block above, and the same qualifiedInstructors group -- just the
+    // email channel instead of/alongside push, for instructors who don't
+    // have the push-enabled PWA installed on a device.
+    const instructorsWithEmail = qualifiedInstructors.filter(
+      (instructor): instructor is typeof instructor & { email: string } => Boolean(instructor.email),
+    );
+
+    if (instructorsWithEmail.length > 0 && occurrence.class_name && occurrence.start_datetime) {
+      try {
+        const { data: org } = await supabase
+          .from("organizations")
+          .select("timezone")
+          .eq("id", occurrence.organization_id)
+          .maybeSingle();
+
+        const siteUrl = getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? resolveRequestOrigin(request);
+
+        const { subject, html } = substitutionRequestOpenEmail({
+          className: occurrence.class_name,
+          startDatetime: occurrence.start_datetime,
+          timezone: org?.timezone ?? "utc",
+          siteUrl,
+        });
+
+        await sendEmailToRecipients(
+          instructorsWithEmail.map((instructor) => ({ email: instructor.email, displayName: instructor.displayName })),
+          { subject, html },
+        );
+      } catch (emailError) {
+        console.error(
+          `[substitution-requests] Failed to send email for request ${substitutionRequest?.id}:`,
+          emailError instanceof Error ? emailError.message : emailError,
         );
       }
     }
