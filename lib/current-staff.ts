@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -10,7 +11,16 @@ export type CurrentStaff = {
   photoUrl: string | null;
 };
 
-export async function getCurrentStaff(): Promise<CurrentStaff | null> {
+// Wrapped in React's cache() (same pattern as getOrgBranding in
+// lib/org-branding.ts) because a single dashboard navigation calls this up
+// to 4 times independently -- the root layout (twice: generateViewport and
+// the layout body), DashboardShell, and the page itself all resolve their
+// own currentStaff. Each call was two sequential round trips
+// (auth.getUser() then a staff table lookup) with no dedup, so that was up
+// to 8 sequential Supabase calls just to resolve identity before any page
+// data loaded. cache() makes repeat calls with no arguments within one
+// request resolve to the same in-flight/completed call instead.
+export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<CurrentStaff | null> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -46,4 +56,4 @@ export async function getCurrentStaff(): Promise<CurrentStaff | null> {
     title: staff.title,
     photoUrl: staff.photo_url,
   };
-}
+});
