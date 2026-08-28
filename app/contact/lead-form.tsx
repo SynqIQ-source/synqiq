@@ -62,9 +62,15 @@ export function LeadForm() {
   }
 
   if (status === "success") {
+    const firstName = name.trim().split(/\s+/)[0];
     return (
       <div className="rounded-lg border border-gold bg-gold-subtle p-6 text-sm text-zinc-800">
-        Thanks — we&apos;ll be in touch if it&apos;s a good fit.
+        <p className="font-medium text-zinc-900">Thanks, {firstName} — we&apos;ve got it.</p>
+        <p className="mt-2">
+          We&apos;re reviewing what you shared about {studioName.trim()} and will follow up
+          personally within the next few business days. Check your inbox — a confirmation is on
+          its way.
+        </p>
       </div>
     );
   }
