@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { sendEmailToRecipients } from "@/lib/email/send";
+import { newLeadEmail } from "@/lib/email/templates";
+import { getOptionalEnv } from "@/lib/env";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_FIELD_LENGTH = 200;
@@ -56,16 +59,41 @@ export async function POST(request: NextRequest) {
 
     const admin = createSupabaseAdminClient();
 
+    const trimmedWebsite = typeof website === "string" && website.trim() ? website.trim() : null;
+    const trimmedPhone = typeof phone === "string" && phone.trim() ? phone.trim() : null;
+
     const { error } = await admin.from("leads").insert({
       name: name.trim(),
       studio_name: studioName.trim(),
-      website: typeof website === "string" && website.trim() ? website.trim() : null,
-      phone: typeof phone === "string" && phone.trim() ? phone.trim() : null,
+      website: trimmedWebsite,
+      phone: trimmedPhone,
       email: email.trim(),
     });
 
     if (error) {
       throw new Error(error.message);
+    }
+
+    // Best-effort, never fails the request -- the lead is already saved by
+    // this point, same non-blocking convention as every other notification
+    // send in this app (lib/push/send.ts, the substitution-request emails).
+    const notifyEmail = getOptionalEnv("LEAD_NOTIFICATION_EMAIL");
+    if (notifyEmail) {
+      try {
+        const { subject, html } = newLeadEmail({
+          name: name.trim(),
+          studioName: studioName.trim(),
+          website: trimmedWebsite,
+          phone: trimmedPhone,
+          email: email.trim(),
+        });
+        await sendEmailToRecipients([{ email: notifyEmail }], { subject, html });
+      } catch (notifyError) {
+        console.error(
+          "[leads] Failed to send new-lead notification email:",
+          notifyError instanceof Error ? notifyError.message : notifyError,
+        );
+      }
     }
 
     return NextResponse.json({ success: true });

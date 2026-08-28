@@ -9,7 +9,8 @@ type EnvKey =
   | "MINDBODY_PASSWORD"
   | "CRON_SECRET"
   | "NEXT_PUBLIC_SITE_URL"
-  | "RESEND_API_KEY";
+  | "RESEND_API_KEY"
+  | "LEAD_NOTIFICATION_EMAIL";
 
 export function getEnv(key: EnvKey): string {
   const value = process.env[key];
