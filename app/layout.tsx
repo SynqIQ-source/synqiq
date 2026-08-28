@@ -16,6 +16,11 @@ export const metadata: Metadata = {
   // screen; iOS also requires that install step before Web Push works at
   // all (Safari-tab push is not supported on iOS).
   icons: {
+    // Manually configuring `icons` at all (needed for `apple` below)
+    // stops Next.js from auto-injecting the app/icon.png file-convention
+    // favicon -- has to be listed explicitly here too, or the browser tab
+    // falls back to the generic globe.
+    icon: "/icon.png",
     apple: "/icons/apple-touch-icon.png",
   },
   appleWebApp: {
