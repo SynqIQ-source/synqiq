@@ -46,8 +46,11 @@ export async function middleware(request: NextRequest) {
   // staff member now needs a real account. No session reaching anything
   // under /dashboard/* redirects to /login before any page code runs, so
   // this is enforced once here instead of duplicated (and easy to forget)
-  // per page. Scoped to /dashboard specifically -- /, /login, and /api/*
-  // are unaffected; API routes enforce their own session requirement.
+  // per page. The startsWith check is redundant with config.matcher below
+  // (which already restricts this whole middleware to /dashboard/:path*)
+  // -- kept as cheap defense in depth, not because it's load-bearing.
+  // /, /login, and /api/* never reach this function at all now; API routes
+  // enforce their own session requirement separately.
   if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
     const redirectResponse = NextResponse.redirect(new URL("/login", resolveRequestOrigin(request)));
     // Carry over any cookie mutation setAll already applied to `response`
@@ -63,7 +66,18 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  // Scoped to /dashboard/:path* only -- this used to match nearly every
+  // route (everything but static assets), which meant a network round trip
+  // to Supabase Auth (getUser() below) ran on every single hit to genuinely
+  // public pages too: /, /login, /about, /contact, /api/leads. None of
+  // those need a session at all, so that call was pure unnecessary latency
+  // and risk for them -- confirmed as the actual cause of a real production
+  // incident (504 MIDDLEWARE_INVOCATION_TIMEOUT on synqiq.co) once /about
+  // and /contact started getting real traffic and one Supabase Auth
+  // response was slow enough to blow the Edge middleware's execution
+  // budget. The auth check/redirect this middleware exists for is only
+  // ever relevant under /dashboard -- narrowing the matcher removes the
+  // Supabase call (and its timeout risk) from every route that never
+  // needed it.
+  matcher: ["/dashboard/:path*"],
 };
