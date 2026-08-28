@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendEmailToRecipients } from "@/lib/email/send";
-import { newLeadEmail } from "@/lib/email/templates";
+import { newLeadEmail, leadAutoResponseEmail } from "@/lib/email/templates";
 import { getOptionalEnv } from "@/lib/env";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -94,6 +94,21 @@ export async function POST(request: NextRequest) {
           notifyError instanceof Error ? notifyError.message : notifyError,
         );
       }
+    }
+
+    // Also best-effort -- the internal notification above and this one are
+    // independent sends, so a failure in one must never block the other.
+    try {
+      const { subject, html } = leadAutoResponseEmail({ name: name.trim(), studioName: studioName.trim() });
+      await sendEmailToRecipients(
+        [{ email: email.trim() }],
+        { subject, html, from: "SynqIQ Support <noreply@synqiq.co>" },
+      );
+    } catch (autoResponseError) {
+      console.error(
+        "[leads] Failed to send lead auto-response email:",
+        autoResponseError instanceof Error ? autoResponseError.message : autoResponseError,
+      );
     }
 
     return NextResponse.json({ success: true });

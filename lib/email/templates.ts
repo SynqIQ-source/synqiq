@@ -96,3 +96,31 @@ export function newLeadEmail({ name, studioName, website, phone, email }: NewLea
     `,
   };
 }
+
+// Sent to the visitor themselves (not the internal LEAD_NOTIFICATION_EMAIL
+// address above) -- from noreply@synqiq.co / "SynqIQ Support", a distinct
+// sender identity from the notifications@ address the rest of this app's
+// emails use, since this one is visitor-facing rather than an internal
+// notification. name/studioName are visitor-submitted, so escaped same as
+// newLeadEmail above.
+export function leadAutoResponseEmail({ name, studioName }: Pick<NewLead, "name" | "studioName">): {
+  subject: string;
+  html: string;
+} {
+  return {
+    subject: "We've received your inquiry — SynqIQ",
+    html: `
+      <p>Hi ${escapeHtml(name)},</p>
+      <p>Thanks for reaching out about SynqIQ for ${escapeHtml(studioName)}.</p>
+      <p>We're building slowly and with intention, working closely with a small number of studios at a time rather than onboarding everyone at once. That means every inquiry gets a real look — we'll review what you've shared and get back to you personally.</p>
+      <p>Here's what happens next:</p>
+      <ol>
+        <li><strong>We review your submission.</strong> We'll take a look at your studio and what you're hoping to solve.</li>
+        <li><strong>We follow up directly</strong> — either to answer a few questions first, or, if it looks like a strong fit, to schedule a time for a more in-depth call and a live demo.</li>
+        <li><strong>No automated onboarding.</strong> If we move forward, it'll be a real conversation about how SynqIQ fits your studio specifically, not a generic sales pitch.</li>
+      </ol>
+      <p>You can expect to hear from us within the next few — 3-4 — business days.</p>
+      <p>Talk soon,<br>The SynqIQ Team</p>
+    `,
+  };
+}

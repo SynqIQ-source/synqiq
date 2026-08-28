@@ -1,7 +1,11 @@
 import { getEnv } from "@/lib/env";
 
 export type EmailRecipient = { email: string; displayName?: string | null };
-export type EmailPayload = { subject: string; html: string };
+// `from` is optional per-send override -- everything today uses the
+// default (notifications@), but the lead auto-response sends as
+// noreply@ / "SynqIQ Support" instead, a distinct sender identity for a
+// visitor-facing reply rather than an internal notification.
+export type EmailPayload = { subject: string; html: string; from?: string };
 
 const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
 const FROM_ADDRESS = "Synq <notifications@synqiq.co>";
@@ -47,7 +51,7 @@ export async function sendEmailToRecipients(
         },
         body: JSON.stringify(
           batch.map((recipient) => ({
-            from: FROM_ADDRESS,
+            from: payload.from ?? FROM_ADDRESS,
             to: [recipient.email],
             subject: payload.subject,
             html: payload.html,
