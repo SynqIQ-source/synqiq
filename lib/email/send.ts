@@ -8,7 +8,7 @@ export type EmailRecipient = { email: string; displayName?: string | null };
 export type EmailPayload = { subject: string; html: string; from?: string };
 
 const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
-const FROM_ADDRESS = "Synq <notifications@synqiq.co>";
+const FROM_ADDRESS = "SynqIQ <notifications@synqiq.co>";
 
 // Resend's batch endpoint, not one call per recipient -- each recipient
 // gets their own message object (a shared "to" array would expose every

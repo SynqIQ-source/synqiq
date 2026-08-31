@@ -3,7 +3,7 @@ import Link from "next/link";
 import { MarketingHeader } from "@/components/marketing-header";
 
 export const metadata: Metadata = {
-  title: "About | Synq",
+  title: "About | SynqIQ",
   description: "Built by someone who's run the floor, not just the dashboard.",
 };
 
@@ -13,7 +13,7 @@ export default function AboutPage() {
       <MarketingHeader />
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-16">
-        <p className="text-sm font-semibold uppercase tracking-wide text-gold">About Synq</p>
+        <p className="text-sm font-semibold uppercase tracking-wide text-gold">About SynqIQ</p>
         <h1 className="mt-3 text-3xl font-semibold text-zinc-950 sm:text-4xl">
           Built by someone who&apos;s run the floor, not just the dashboard.
         </h1>

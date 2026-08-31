@@ -11,7 +11,7 @@ type Role = (typeof VALID_ROLES)[number];
 // has no permission concept that maps onto this (see
 // 20260716040000_staff_role_and_auth_linkage.sql) -- a staff member's
 // Mindbody manager access, if any, was never going to carry over
-// automatically, so this is the only way to grant Synq-admin access short of
+// automatically, so this is the only way to grant SynqIQ-admin access short of
 // a direct DB edit.
 //
 // Admin client throughout, same reasoning as the invite route: `staff` has a

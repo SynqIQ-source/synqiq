@@ -7,7 +7,7 @@ import { FONT_VARIABLE_CLASS_NAMES, FONT_CSS_VAR_BY_NAME, isAllowedFont } from "
 const DEFAULT_THEME_COLOR = "#0f766e";
 
 export const metadata: Metadata = {
-  title: "Synq",
+  title: "SynqIQ",
   description: "Studio operations dashboard for classes, instructors, and substitutions.",
   manifest: "/manifest.webmanifest",
   // iOS ignores the manifest's icons list for home-screen install -- needs
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Synq",
+    title: "SynqIQ",
   },
 };
 

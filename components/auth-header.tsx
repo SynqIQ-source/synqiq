@@ -5,9 +5,9 @@
 export function AuthHeader() {
   return (
     <div className="mb-6 flex items-center gap-3">
-      <img src="/icons/icon-192.png" alt="Synq" className="h-10 w-10 rounded-md" />
+      <img src="/icons/icon-192.png" alt="SynqIQ" className="h-10 w-10 rounded-md" />
       <div>
-        <p className="text-lg font-semibold text-zinc-950">Synq</p>
+        <p className="text-lg font-semibold text-zinc-950">SynqIQ</p>
         <p className="text-xs text-zinc-500">Studio operations platform</p>
       </div>
     </div>

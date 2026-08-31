@@ -73,7 +73,7 @@ export async function DashboardShell({
       <ServiceWorkerRegister />
       <aside className="fixed inset-y-0 left-0 hidden w-64 bg-primary px-5 py-6 md:block">
         <Link href="/" className="text-xl font-semibold text-white">
-          Synq
+          SynqIQ
         </Link>
         <SidebarNav items={visibleNavigation} />
       </aside>
@@ -83,7 +83,7 @@ export async function DashboardShell({
             <div className="min-w-0 flex-1">
               <div className="mb-4 md:hidden">
                 <Link href="/" className="text-xl font-semibold text-white">
-                  Synq
+                  SynqIQ
                 </Link>
               </div>
               <p className="text-sm font-medium text-white/80">Dashboard</p>

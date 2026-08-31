@@ -8,7 +8,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_FIELD_LENGTH = 200;
 
 // Public, unauthenticated -- this is the /contact marketing page's lead
-// form, submitted by visitors who have no Synq account at all. Not gated
+// form, submitted by visitors who have no SynqIQ account at all. Not gated
 // by middleware.ts (that only covers /dashboard/*). Re-validates
 // server-side rather than trusting the client form's own checks, same as
 // every other public-facing write in this app.

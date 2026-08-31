@@ -91,7 +91,7 @@ export function newLeadEmail({ name, studioName, website, phone, email }: NewLea
   return {
     subject: `New lead: ${studioName}`,
     html: `
-      <p>A new lead came in through the Synq contact form.</p>
+      <p>A new lead came in through the SynqIQ contact form.</p>
       ${rows}
     `,
   };

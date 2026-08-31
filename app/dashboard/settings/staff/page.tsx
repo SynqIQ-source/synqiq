@@ -28,7 +28,7 @@ export default async function StaffSettingsPage() {
   return (
     <DashboardShell
       title="Staff Logins"
-      description="Link each staff member's synced Mindbody record to a real Synq login. There's no self-serve signup -- an invite is the only way in."
+      description="Link each staff member's synced Mindbody record to a real SynqIQ login. There's no self-serve signup -- an invite is the only way in."
     >
       <StaffLinkingTable staff={staff ?? []} />
     </DashboardShell>

@@ -3,7 +3,7 @@ import { MarketingHeader } from "@/components/marketing-header";
 import { LeadForm } from "./lead-form";
 
 export const metadata: Metadata = {
-  title: "Contact | Synq",
+  title: "Contact | SynqIQ",
   description: "Interested in SynqIQ for your studio? Tell us a bit about it.",
 };
 

@@ -26,10 +26,10 @@ self.addEventListener("push", (event) => {
     console.log("[sw] push payload parsed:", payload);
   } catch (err) {
     console.log("[sw] push payload was not JSON, falling back to text:", err);
-    payload = { title: "Synq", body: event.data.text() };
+    payload = { title: "SynqIQ", body: event.data.text() };
   }
 
-  const title = payload.title || "Synq";
+  const title = payload.title || "SynqIQ";
   const options = {
     body: payload.body || "",
     icon: payload.icon || "/icons/icon-192.png",

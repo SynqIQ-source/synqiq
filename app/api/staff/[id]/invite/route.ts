@@ -8,7 +8,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-// Links a staff row to a real Synq login via Supabase's invite flow.
+// Links a staff row to a real SynqIQ login via Supabase's invite flow.
 // Admin client throughout, same reasoning as trainer-health-settings and
 // branding routes: `staff` has a SELECT RLS policy but no UPDATE policy at
 // all today, so the explicit role check below is the real authorization

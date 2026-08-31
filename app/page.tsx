@@ -9,7 +9,7 @@ export default function HomePage() {
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col justify-center px-6 py-16">
         <div className="max-w-2xl">
           <p className="text-sm font-semibold uppercase tracking-wide text-primary">
-            Synq
+            SynqIQ
           </p>
           <h1 className="mt-3 text-4xl font-semibold text-zinc-950 sm:text-5xl">
             Your studio&apos;s staff, finally in sync.

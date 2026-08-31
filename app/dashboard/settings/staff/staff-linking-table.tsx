@@ -172,7 +172,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
                   <td className="p-3">
                     {row.mindbody_staff_id != null ? (
                       <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
-                        Synq&apos;d
+                        Synced
                       </span>
                     ) : (
                       <span className="text-xs text-zinc-400">Software only</span>

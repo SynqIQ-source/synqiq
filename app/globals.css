@@ -39,7 +39,7 @@
 
   /* Fixed, NOT per-org-overridable -- unlike primary/accent/secondary above
      (which app/layout.tsx rewrites per-request from an organization's own
-     branding row), gold is Synq's own product brand color for its public
+     branding row), gold is SynqIQ's own product brand color for its public
      marketing pages (/, /about, /contact), which render for logged-out
      visitors with no organization in context at all. Introduced for the
      About/Contact build -- no gold existed anywhere in this codebase
