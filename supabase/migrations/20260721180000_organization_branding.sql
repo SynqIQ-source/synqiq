@@ -18,7 +18,7 @@
 -- allow at all).
 --
 -- logo_url has no default (null until an admin uploads one) -- the UI
--- falls back to the existing plain-text "Synq" wordmark when null, same
+-- falls back to the existing plain-text "SynqIQ" wordmark when null, same
 -- fallback-to-current-behavior philosophy as the colors.
 
 begin;
