@@ -84,9 +84,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     if (inviteError || !inviteData?.user) {
+      // inviteUserByEmail creates a NEW auth user, so it fails outright if
+      // that address is already registered -- the dead end admins kept
+      // hitting when they meant "reset this person's password" or "their
+      // email changed". Point them at the action that actually handles an
+      // existing account.
+      const alreadyRegistered = /already been registered|already registered|email address is already/i.test(
+        inviteError?.message ?? "",
+      );
       return NextResponse.json(
-        { success: false, error: inviteError?.message ?? "Failed to send invite." },
-        { status: 502 },
+        {
+          success: false,
+          error: alreadyRegistered
+            ? `${email} already has an account. Use "Send password reset" instead of re-inviting.`
+            : inviteError?.message ?? "Failed to send invite.",
+        },
+        { status: alreadyRegistered ? 409 : 502 },
       );
     }
 

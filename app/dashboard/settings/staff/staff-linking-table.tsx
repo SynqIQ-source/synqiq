@@ -16,6 +16,12 @@ type RowState = {
   email: string;
   status: "idle" | "sending" | "success" | "error";
   message?: string;
+  // Set while the destructive "Re-invite" action is waiting for an inline
+  // confirm. Not a window.confirm() -- those can be silently suppressed by
+  // the browser after a prior dialog ("prevent this page from creating
+  // additional dialogs"), which left admins with a re-invite that just
+  // did nothing and no way through.
+  confirmingRelink: boolean;
   role: string;
   roleStatus: "idle" | "saving" | "error";
   roleError?: string;
@@ -26,21 +32,28 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
     Object.fromEntries(
       staff.map((row) => [
         row.id,
-        { email: row.email ?? "", status: "idle" as const, role: row.role, roleStatus: "idle" as const },
+        {
+          email: row.email ?? "",
+          status: "idle" as const,
+          confirmingRelink: false,
+          role: row.role,
+          roleStatus: "idle" as const,
+        },
       ]),
     ),
   );
 
+  function patchRow(staffId: string, patch: Partial<RowState>) {
+    setRowState((prev) => ({ ...prev, [staffId]: { ...prev[staffId], ...patch } }));
+  }
+
   function updateEmail(staffId: string, email: string) {
-    setRowState((prev) => ({ ...prev, [staffId]: { ...prev[staffId], email } }));
+    patchRow(staffId, { email });
   }
 
   async function updateRole(staffId: string, role: string) {
     const previousRole = rowState[staffId]?.role;
-    setRowState((prev) => ({
-      ...prev,
-      [staffId]: { ...prev[staffId], role, roleStatus: "saving", roleError: undefined },
-    }));
+    patchRow(staffId, { role, roleStatus: "saving", roleError: undefined });
 
     try {
       const response = await fetch(`/api/staff/${staffId}/role`, {
@@ -51,44 +64,64 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        setRowState((prev) => ({
-          ...prev,
-          [staffId]: {
-            ...prev[staffId],
-            role: previousRole ?? prev[staffId].role,
-            roleStatus: "error",
-            roleError: result?.error ?? "Failed to update role.",
-          },
-        }));
+        patchRow(staffId, {
+          role: previousRole ?? role,
+          roleStatus: "error",
+          roleError: result?.error ?? "Failed to update role.",
+        });
         return;
       }
 
-      setRowState((prev) => ({ ...prev, [staffId]: { ...prev[staffId], roleStatus: "idle" } }));
+      patchRow(staffId, { roleStatus: "idle" });
     } catch (error) {
-      setRowState((prev) => ({
-        ...prev,
-        [staffId]: {
-          ...prev[staffId],
-          role: previousRole ?? prev[staffId].role,
-          roleStatus: "error",
-          roleError: error instanceof Error ? error.message : "Failed to update role.",
-        },
-      }));
+      patchRow(staffId, {
+        role: previousRole ?? role,
+        roleStatus: "error",
+        roleError: error instanceof Error ? error.message : "Failed to update role.",
+      });
     }
   }
 
+  // Existing account: change the linked login's email if the field differs,
+  // then send a Supabase password-reset email. Never creates a new auth
+  // user -- see app/api/staff/[id]/reset-password/route.ts.
+  async function sendReset(row: StaffLinkingRow) {
+    const email = rowState[row.id]?.email ?? "";
+    patchRow(row.id, { status: "sending", message: undefined, confirmingRelink: false });
+
+    try {
+      const response = await fetch(`/api/staff/${row.id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        patchRow(row.id, { status: "error", message: result.error ?? "Failed to send reset." });
+        return;
+      }
+
+      patchRow(row.id, {
+        status: "success",
+        message: result.emailChanged
+          ? `Login email set to ${result.email} and a reset link sent.`
+          : `Password reset sent to ${result.email}.`,
+      });
+    } catch (error) {
+      patchRow(row.id, {
+        status: "error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  // First-time link for a staff member with no login yet, or -- behind the
+  // inline confirm -- a deliberate re-invite that REPLACES an existing
+  // login with a brand-new account.
   async function sendInvite(row: StaffLinkingRow, confirmRelink: boolean) {
     const email = rowState[row.id]?.email ?? "";
-
-    if (row.auth_user_id && !confirmRelink) {
-      const confirmed = window.confirm(
-        `${row.display_name} already has a linked login. Sending a new invite will replace it -- continue?`,
-      );
-      if (!confirmed) return;
-      return sendInvite(row, true);
-    }
-
-    setRowState((prev) => ({ ...prev, [row.id]: { ...prev[row.id], status: "sending", message: undefined } }));
+    patchRow(row.id, { status: "sending", message: undefined, confirmingRelink: false });
 
     try {
       const response = await fetch(`/api/staff/${row.id}/invite`, {
@@ -99,26 +132,16 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
-        setRowState((prev) => ({
-          ...prev,
-          [row.id]: { ...prev[row.id], status: "error", message: result.error ?? "Failed to send invite." },
-        }));
+        patchRow(row.id, { status: "error", message: result.error ?? "Failed to send invite." });
         return;
       }
 
-      setRowState((prev) => ({
-        ...prev,
-        [row.id]: { ...prev[row.id], status: "success", message: `Invite sent to ${result.email}.` },
-      }));
+      patchRow(row.id, { status: "success", message: `Invite sent to ${result.email}.` });
     } catch (error) {
-      setRowState((prev) => ({
-        ...prev,
-        [row.id]: {
-          ...prev[row.id],
-          status: "error",
-          message: error instanceof Error ? error.message : "Unknown error",
-        },
-      }));
+      patchRow(row.id, {
+        status: "error",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   }
 
@@ -147,10 +170,12 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               const state = rowState[row.id] ?? {
                 email: row.email ?? "",
                 status: "idle" as const,
+                confirmingRelink: false,
                 role: row.role,
                 roleStatus: "idle" as const,
               };
               const isLinked = Boolean(row.auth_user_id);
+              const busy = state.status === "sending";
 
               return (
                 <tr key={row.id} className="border-b align-top">
@@ -195,23 +220,67 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
                       value={state.email}
                       onChange={(event) => updateEmail(row.id, event.target.value)}
                       placeholder="staff@email.com"
-                      disabled={state.status === "sending"}
+                      disabled={busy}
                       className="w-56 rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
                     />
                   </td>
                   <td className="p-3">
-                    <button
-                      type="button"
-                      onClick={() => sendInvite(row, false)}
-                      disabled={state.status === "sending" || !state.email}
-                      className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
-                    >
-                      {state.status === "sending" ? "Sending..." : isLinked ? "Resend invite" : "Send invite"}
-                    </button>
+                    {isLinked ? (
+                      <div className="flex flex-col items-start gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => sendReset(row)}
+                          disabled={busy || !state.email}
+                          className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                        >
+                          {busy ? "Working..." : "Send password reset"}
+                        </button>
+                        {state.confirmingRelink ? (
+                          <div className="flex items-center gap-2 text-xs text-zinc-600">
+                            <span>Replace their login with a new account?</span>
+                            <button
+                              type="button"
+                              onClick={() => sendInvite(row, true)}
+                              disabled={busy}
+                              className="font-medium text-red-600 hover:underline disabled:opacity-60"
+                            >
+                              Replace
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => patchRow(row.id, { confirmingRelink: false })}
+                              className="text-zinc-500 hover:underline"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => patchRow(row.id, { confirmingRelink: true, message: undefined })}
+                            disabled={busy}
+                            className="text-xs text-zinc-500 hover:text-zinc-700 hover:underline disabled:opacity-60"
+                          >
+                            Re-invite instead
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => sendInvite(row, false)}
+                        disabled={busy || !state.email}
+                        className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                      >
+                        {busy ? "Sending..." : "Send invite"}
+                      </button>
+                    )}
                     {state.status === "success" && (
                       <p className="mt-1.5 text-xs text-emerald-700">{state.message}</p>
                     )}
-                    {state.status === "error" && <p className="mt-1.5 text-xs text-red-600">{state.message}</p>}
+                    {state.status === "error" && (
+                      <p className="mt-1.5 text-xs text-red-600">{state.message}</p>
+                    )}
                   </td>
                 </tr>
               );
