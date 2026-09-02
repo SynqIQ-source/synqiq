@@ -1,12 +1,14 @@
 {
   "crons": [
-    {
-      "path": "/api/sync/all",
-      "schedule": "59 4 * * *"
-    },
-    {
-      "path": "/api/sync/all",
-      "schedule": "59 5 * * *"
-    }
+    { "path": "/api/sync/classes", "schedule": "59 4 * * *" },
+    { "path": "/api/sync/classes", "schedule": "59 5 * * *" },
+    { "path": "/api/sync/appointments", "schedule": "10 6 * * *" },
+    { "path": "/api/sync/appointments", "schedule": "10 7 * * *" },
+    { "path": "/api/sync/sales", "schedule": "20 6 * * *" },
+    { "path": "/api/sync/sales", "schedule": "20 7 * * *" },
+    { "path": "/api/sync/clients", "schedule": "30 6 * * *" },
+    { "path": "/api/sync/clients", "schedule": "30 7 * * *" },
+    { "path": "/api/sync/class-visits", "schedule": "40 6 * * *" },
+    { "path": "/api/sync/class-visits", "schedule": "40 7 * * *" }
   ]
 }

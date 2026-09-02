@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { syncClasses } from "@/lib/sync/classes";
 
-// Thin wrapper -- see lib/sync/classes.ts for the actual sync logic, shared
-// with app/api/sync/all/route.ts (the endpoint vercel.json's cron entries
-// actually hit, to stay within Hobby's 2-cron-job cap). Kept as its own
-// route so it's still individually callable by hand with explicit
-// startDateTime/endDateTime, same as before.
+// Thin wrapper -- see lib/sync/classes.ts for the actual sync logic (which
+// carries its own DST-safe "already ran today" gate, keyed off
+// class_occurrences.sync_timestamp). Its own two cron firings in
+// vercel.json, and still shared with app/api/sync/all as the manual
+// "run everything" route.
+export const maxDuration = 120;
+
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (authHeader !== `Bearer ${getEnv("CRON_SECRET")}`) {

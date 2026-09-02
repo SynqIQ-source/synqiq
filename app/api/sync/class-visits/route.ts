@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { syncClassVisits } from "@/lib/sync/class-visits";
+import { runGatedSync } from "@/lib/sync/sync-state";
 
-// Thin wrapper -- see lib/sync/class-visits.ts for the actual sync logic,
-// shared with app/api/sync/all/route.ts (the endpoint vercel.json's cron
-// entries actually hit, to stay within Hobby's 2-cron-job cap). Kept as its
-// own route so it's still individually callable by hand with an explicit
-// `since`.
+// Its own cron target now (two firings in vercel.json), not a passenger
+// inside /api/sync/all -- see lib/sync/sync-state.ts and
+// supabase/migrations/20260902140000_sync_state.sql for why that changed.
 //
-// NOT the right tool for a wide historical backfill -- one MindBody API
-// call per occurrence means a few thousand occurrences will exceed any
-// serverless function's execution-time budget regardless of maxDuration.
-// Run a backfill as a local script calling syncClassVisits directly instead.
-export const maxDuration = 60;
+// One MindBody API call per occurrence + a 250ms pace between them, so the
+// nightly 2-day lookback is fine but a wide historical backfill still is
+// NOT -- a few thousand occurrences will exceed any serverless budget
+// regardless of maxDuration. Run that as a local script calling
+// syncClassVisits directly. Pro's 300s ceiling here just gives the nightly
+// run headroom on a busy day.
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -20,11 +21,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const searchParams = request.nextUrl.searchParams;
+  const since = request.nextUrl.searchParams.get("since") ?? undefined;
 
-  const result = await syncClassVisits({
-    since: searchParams.get("since") ?? undefined,
-  });
+  // An explicit `since` is a deliberate backfill -- bypass the once-a-day gate.
+  const result = await runGatedSync(
+    "class-visits",
+    () => syncClassVisits({ since }),
+    { force: Boolean(since) },
+  );
 
   return NextResponse.json(result, { status: result.success ? 200 : 500 });
 }
