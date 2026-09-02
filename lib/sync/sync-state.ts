@@ -60,13 +60,13 @@ export async function runGatedSync<T extends SyncResultish>(
   const localToday = DateTime.utc().setZone(zone).toISODate();
   const key = { organization_id: org.id, sync_name: name };
 
-  if (!opts.force) {
-    const { data: state } = await supabase
-      .from("sync_state")
-      .select("last_success_at")
-      .match(key)
-      .maybeSingle();
+  const { data: state } = await supabase
+    .from("sync_state")
+    .select("last_status, last_run_at, last_success_at")
+    .match(key)
+    .maybeSingle();
 
+  if (!opts.force) {
     const lastSuccessDate = state?.last_success_at
       ? DateTime.fromISO(state.last_success_at, { zone: "utc" }).setZone(zone).toISODate()
       : null;
@@ -79,6 +79,24 @@ export async function runGatedSync<T extends SyncResultish>(
         reason: `Already synced today (local date ${localToday} in ${zone}).`,
       };
     }
+  }
+
+  // A serverless timeout / hard kill has no finally, so a run that died
+  // mid-flight leaves last_status stuck on "running". The gate above keys
+  // off last_success_at so it doesn't block anything, but an observer
+  // reading last_status can't tell "in progress" from "crashed days ago" --
+  // so if the "running" row is older than any run could plausibly still be
+  // going, record it as the failure it was before starting the new attempt.
+  const STALE_RUNNING_MS = 20 * 60 * 1000;
+  if (
+    state?.last_status === "running" &&
+    state.last_run_at &&
+    Date.now() - new Date(state.last_run_at).getTime() > STALE_RUNNING_MS
+  ) {
+    await supabase.from("sync_state").upsert(
+      { ...key, last_status: "error", last_error: "Previous run did not finish (timed out or crashed)." },
+      { onConflict: "organization_id,sync_name" },
+    );
   }
 
   await supabase
