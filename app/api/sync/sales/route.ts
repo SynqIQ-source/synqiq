@@ -8,7 +8,11 @@ import { runGatedSync } from "@/lib/sync/sync-state";
 // supabase/migrations/20260902140000_sync_state.sql for why that changed.
 // Still individually callable by hand with explicit
 // startSaleDateTime/endSaleDateTime.
-export const maxDuration = 120;
+//
+// 300, not 120: the nightly 7-day window runs in well under a minute, but
+// a manual multi-week backfill (?startSaleDateTime=...) needs the headroom
+// -- a 15-day catch-up hit the old 120s ceiling.
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
