@@ -288,15 +288,38 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
       // than blocking bootstrap on a gate that has nothing to check against.
     }
 
-    // No explicit window -- default to a 2-day lookback so TotalSignedIn
-    // (which MindBody fills in progressively as check-ins happen, unlike
-    // TotalBooked) is re-pulled for anything that occurred since the last
-    // run, with one extra day of slack in case a prior night's run failed
-    // silently. Forward side defaults to a 45-day lookahead -- instructors
-    // and admins need to see (and file sub requests against) classes well
-    // beyond today, not just the ones that have already happened.
-    const startDateTime = options.startDateTime ?? DateTime.utc().minus({ days: 2 }).toISO();
-    const endDateTime = options.endDateTime ?? DateTime.utc().plus({ days: 45 }).toISO();
+    // No explicit window: two separate passes, not one wide 47-day sweep.
+    // MindBody's /class/classes is NOT ordered by date -- it returns an
+    // entire high-frequency room (the pool: ~75 lane-slot occurrences a day,
+    // scheduled weeks out) before any other room -- so a single sweep spends
+    // its whole function budget upserting future pool slots and times out
+    // before it ever reaches the studio classes, which then never refresh
+    // their TotalSignedIn/TotalBooked (heat map + attendance stuck at 0,
+    // which is exactly what happened from late Aug on).
+    //
+    // Backward pass first: a tight 2-day lookback, small enough (all rooms,
+    // 2 days) to always finish -- it's the one that keeps signed-in /
+    // attendance current for classes that just occurred (MindBody fills
+    // TotalSignedIn in progressively as check-ins happen). Forward pass
+    // second: the 45-day schedule lookahead instructors need to file sub
+    // requests against; if a slow night cuts one pass short, better it's
+    // this one, where only far-future schedule rows are affected.
+    const isExplicitWindow =
+      options.startDateTime !== undefined || options.endDateTime !== undefined;
+    const windows: Array<{ start: string; end: string }> = isExplicitWindow
+      ? [
+          {
+            start: options.startDateTime ?? DateTime.utc().minus({ days: 2 }).toISO() ?? "",
+            end: options.endDateTime ?? DateTime.utc().plus({ days: 45 }).toISO() ?? "",
+          },
+        ]
+      : [
+          { start: DateTime.utc().minus({ days: 2 }).toISO() ?? "", end: DateTime.utc().toISO() ?? "" },
+          {
+            start: DateTime.utc().toISO() ?? "",
+            end: DateTime.utc().plus({ days: 45 }).toISO() ?? "",
+          },
+        ];
     const locationId = options.locationId;
     // Captured once per run, not per row -- every occurrence written by this
     // sync shares one timestamp, so it answers "when did the run that wrote
@@ -391,146 +414,161 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
       console.error("Failed to fetch a capacity-visibility user token -- continuing without it:", authError);
     }
 
-    // Paginate through every class in the window -- a single unpaginated
-    // call silently truncates to MindBody's default page size (the same bug
-    // fixed for /staff/staff: it looks like "it worked" while quietly
-    // dropping most of the results). A small delay between pages and a
-    // retry-with-backoff around each fetch keep this polite at the volume a
-    // 90-day, all-locations sync pulls (roughly 1,000 classes / ~5 pages),
-    // and give it a chance to recover from a transient MindBody hiccup
-    // instead of failing the whole sync outright.
-    let imported = 0;
-    let totalClasses = 0;
-    let offset = 0;
+    // Paginate through one date window -- a single unpaginated call silently
+    // truncates to MindBody's default page size (the same bug fixed for
+    // /staff/staff: it looks like "it worked" while quietly dropping most of
+    // the results). A small delay between pages and a retry-with-backoff
+    // around each fetch keep this polite, and give it a chance to recover
+    // from a transient MindBody hiccup instead of failing outright. Called
+    // once per entry in `windows` (see the two-pass rationale above); the
+    // id maps and the room->location accumulator are shared across passes
+    // through closure scope.
     const pageLimit = 200;
 
-    for (;;) {
-      const page = await withRetry(() =>
-        mindbody.getClasses(capacityAccessToken, {
-          startDateTime,
-          endDateTime,
-          locationId,
-          offset,
-          limit: pageLimit,
-        }),
-      );
-      const classes = page.Classes ?? [];
-      // Only trust TotalResults from a page that actually returned rows --
-      // confirmed empirically against /sale/sales (same pagination shape as
-      // this endpoint): the true terminal empty page reports
-      // TotalResults: 0 even though every prior page agreed on a higher
-      // (and it turns out overstated) figure. Skipping the empty page's
-      // TotalResults keeps totalClasses at the last real value instead of
-      // being clobbered to 0 right as the loop is about to exit anyway.
-      if (classes.length > 0) {
-        totalClasses = page.PaginationResponse?.TotalResults ?? totalClasses;
-      }
+    async function processWindow(windowStart: string, windowEnd: string) {
+      let imported = 0;
+      let totalClasses = 0;
+      let offset = 0;
 
-      for (const cls of classes) {
-        const maxCapacity = cls.MaxCapacity ?? 0;
-        const totalBooked = cls.TotalBooked ?? 0;
+      for (;;) {
+        const page = await withRetry(() =>
+          mindbody.getClasses(capacityAccessToken, {
+            startDateTime: windowStart,
+            endDateTime: windowEnd,
+            locationId,
+            offset,
+            limit: pageLimit,
+          }),
+        );
+        const classes = page.Classes ?? [];
+        // Only trust TotalResults from a page that actually returned rows --
+        // confirmed empirically against /sale/sales (same pagination shape
+        // as this endpoint): the true terminal empty page reports
+        // TotalResults: 0 even though every prior page agreed on a higher
+        // (and it turns out overstated) figure. Skipping the empty page's
+        // TotalResults keeps totalClasses at the last real value instead of
+        // being clobbered to 0 right as the loop is about to exit anyway.
+        if (classes.length > 0) {
+          totalClasses = page.PaginationResponse?.TotalResults ?? totalClasses;
+        }
 
-        const fillRate =
-          maxCapacity > 0
-            ? Number(((totalBooked / maxCapacity) * 100).toFixed(2))
-            : 0;
+        for (const cls of classes) {
+          const maxCapacity = cls.MaxCapacity ?? 0;
+          const totalBooked = cls.TotalBooked ?? 0;
 
-        const startDateTimeUtc = DateTime.fromISO(cls.StartDateTime, {
-          zone: org.timezone,
-        }).toUTC();
-        const startDatetime = startDateTimeUtc.toISO();
+          const fillRate =
+            maxCapacity > 0
+              ? Number(((totalBooked / maxCapacity) * 100).toFixed(2))
+              : 0;
 
-        const endDatetime = cls.EndDateTime
-          ? DateTime.fromISO(cls.EndDateTime, { zone: org.timezone }).toUTC().toISO()
-          : null;
+          const startDateTimeUtc = DateTime.fromISO(cls.StartDateTime, {
+            zone: org.timezone,
+          }).toUTC();
+          const startDatetime = startDateTimeUtc.toISO();
 
-        // Same eligibility rule verified on the dashboard: only meaningful for
-        // classes that have already happened and had at least one booking.
-        // An upcoming class has 0 sign-ins because check-in hasn't occurred
-        // yet, not because of a no-show, and a class nobody booked has no
-        // attendance concept at all -- both stay null rather than 0.
-        const attendanceRate =
-          totalBooked > 0 && startDateTimeUtc <= DateTime.utc()
-            ? Number((((cls.TotalSignedIn ?? 0) / totalBooked) * 100).toFixed(2))
+          const endDatetime = cls.EndDateTime
+            ? DateTime.fromISO(cls.EndDateTime, { zone: org.timezone }).toUTC().toISO()
             : null;
 
-        const { error } = await supabase
-          .from("class_occurrences")
-          .upsert(
-            {
-              // MindBody's occurrence-level Id: the true unique per-class-instance
-              // identifier, stable across re-syncs. Do not confuse with
-              // ClassScheduleId, which identifies the recurring series and is
-              // shared by every occurrence of that series.
-              mindbody_occurrence_id: cls.Id,
-              mindbody_class_schedule_id: cls.ClassScheduleId,
-              organization_id: org.id,
+          // Same eligibility rule verified on the dashboard: only meaningful
+          // for classes that have already happened and had at least one
+          // booking. An upcoming class has 0 sign-ins because check-in hasn't
+          // occurred yet, not because of a no-show, and a class nobody booked
+          // has no attendance concept at all -- both stay null rather than 0.
+          const attendanceRate =
+            totalBooked > 0 && startDateTimeUtc <= DateTime.utc()
+              ? Number((((cls.TotalSignedIn ?? 0) / totalBooked) * 100).toFixed(2))
+              : null;
 
-              class_name: cls.ClassDescription?.Name ?? "Unknown",
+          const { error } = await supabase
+            .from("class_occurrences")
+            .upsert(
+              {
+                // MindBody's occurrence-level Id: the true unique
+                // per-class-instance identifier, stable across re-syncs. Do
+                // not confuse with ClassScheduleId, which identifies the
+                // recurring series and is shared by every occurrence of it.
+                mindbody_occurrence_id: cls.Id,
+                mindbody_class_schedule_id: cls.ClassScheduleId,
+                organization_id: org.id,
 
-              instructor_name:
-                cls.Staff?.Name ??
-                cls.Staff?.FirstName ??
-                "Unknown",
+                class_name: cls.ClassDescription?.Name ?? "Unknown",
 
-              start_datetime: startDatetime,
-              end_datetime: endDatetime,
+                instructor_name:
+                  cls.Staff?.Name ??
+                  cls.Staff?.FirstName ??
+                  "Unknown",
 
-              max_capacity: maxCapacity,
-              web_capacity: cls.WebCapacity ?? 0,
+                start_datetime: startDatetime,
+                end_datetime: endDatetime,
 
-              total_booked: totalBooked,
-              total_signed_in: cls.TotalSignedIn ?? 0,
+                max_capacity: maxCapacity,
+                web_capacity: cls.WebCapacity ?? 0,
 
-              fill_rate: fillRate,
-              attendance_rate: attendanceRate,
-              sync_timestamp: syncedAt,
+                total_booked: totalBooked,
+                total_signed_in: cls.TotalSignedIn ?? 0,
 
-              staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
-              department_id:
-                cls.ClassDescription?.Program?.Id != null
-                  ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
-                  : null,
-              room_id: cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) ?? null : null,
-              substitute_staff_id: null,
-            },
-            {
-              onConflict: "organization_id,mindbody_occurrence_id",
-            },
-          );
+                fill_rate: fillRate,
+                attendance_rate: attendanceRate,
+                sync_timestamp: syncedAt,
 
-        if (!error) {
-          imported++;
-        } else {
-          console.error(error);
+                staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
+                department_id:
+                  cls.ClassDescription?.Program?.Id != null
+                    ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
+                    : null,
+                room_id: cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) ?? null : null,
+                substitute_staff_id: null,
+              },
+              {
+                onConflict: "organization_id,mindbody_occurrence_id",
+              },
+            );
+
+          if (!error) {
+            imported++;
+          } else {
+            console.error(error);
+          }
+
+          const roomId = cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) : null;
+          const locationIdForRoom =
+            cls.Location?.Id != null ? locationIdByMindbodyId.get(cls.Location.Id) : null;
+          if (roomId && locationIdForRoom) {
+            roomLocationUpdates.set(roomId, locationIdForRoom);
+          }
         }
 
-        const roomId = cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) : null;
-        const locationIdForRoom = cls.Location?.Id != null ? locationIdByMindbodyId.get(cls.Location.Id) : null;
-        if (roomId && locationIdForRoom) {
-          roomLocationUpdates.set(roomId, locationIdForRoom);
+        offset += classes.length;
+        if (classes.length === 0 || offset >= totalClasses) {
+          break;
         }
+
+        // Courtesy pacing between MindBody page fetches, not needed between
+        // the Supabase upserts above (different service, no shared limit).
+        await delay(300);
       }
 
-      offset += classes.length;
-      if (classes.length === 0 || offset >= totalClasses) {
-        break;
-      }
+      return { imported, total: totalClasses };
+    }
 
-      // Courtesy pacing between MindBody page fetches, not needed between
-      // the Supabase upserts above (different service, no shared limit).
-      await delay(300);
+    let imported = 0;
+    let totalClasses = 0;
+    for (const dateWindow of windows) {
+      const windowResult = await processWindow(dateWindow.start, dateWindow.end);
+      imported += windowResult.imported;
+      totalClasses += windowResult.total;
     }
 
     // One update per distinct room seen this run (a handful of rows), not
     // one per class -- rooms rarely change location, so this just keeps
     // rooms.location_id self-healing on every future sync instead of relying
     // on a one-time backfill staying correct forever.
-    for (const [roomId, locationId] of roomLocationUpdates) {
+    for (const [updatedRoomId, updatedLocationId] of roomLocationUpdates) {
       const { error: roomLocationError } = await supabase
         .from("rooms")
-        .update({ location_id: locationId })
-        .eq("id", roomId);
+        .update({ location_id: updatedLocationId })
+        .eq("id", updatedRoomId);
 
       if (roomLocationError) {
         console.error(roomLocationError);

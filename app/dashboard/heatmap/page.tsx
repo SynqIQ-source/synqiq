@@ -34,15 +34,17 @@ async function getRooms(supabase: ScopedSupabaseClient): Promise<Room[]> {
   return data ?? [];
 }
 
+type OccurrenceIdRow = { id: string; start_datetime: string | null; max_capacity: number | null };
+
 async function getRoomOccurrences(
   supabase: ScopedSupabaseClient,
   roomId: string,
   rangeStart: DateTime,
   rangeEnd: DateTime,
-) {
-  const { data, error } = await supabase
+): Promise<OccurrenceRow[]> {
+  const { data: occurrences, error } = await supabase
     .from("class_occurrences")
-    .select("start_datetime, max_capacity, total_signed_in")
+    .select("id, start_datetime, max_capacity")
     .eq("room_id", roomId)
     .not("mindbody_occurrence_id", "is", null)
     // Only occurred classes -- an upcoming class's signed-in count is
@@ -50,13 +52,51 @@ async function getRoomOccurrences(
     .lte("start_datetime", DateTime.now().toUTC().toISO() ?? "")
     .gte("start_datetime", rangeStart.toUTC().toISO() ?? "")
     .lt("start_datetime", rangeEnd.toUTC().toISO() ?? "")
-    .returns<OccurrenceRow[]>();
+    .returns<OccurrenceIdRow[]>();
 
   if (error) {
     throw new Error(`Failed to load room occurrences: ${error.message}`);
   }
 
-  return data ?? [];
+  const rows = occurrences ?? [];
+  if (rows.length === 0) {
+    return [];
+  }
+
+  // Signed-in count per occurrence comes from class_visits -- the
+  // per-attendee check-in rows -- not class_occurrences.total_signed_in.
+  // That column is MindBody's /class/classes TotalSignedIn, which lags
+  // (studio classes are reconciled days later) and, for a high-frequency
+  // room like the pool crowding out the paginated result set, can stop
+  // updating for the other rooms entirely -- which is exactly why every
+  // non-pool cell here was reading 0%. class_visits is synced per
+  // occurrence and stays correct.
+  const signedInByOccurrence = new Map<string, number>();
+  const occurrenceIds = rows.map((row) => row.id);
+  for (let i = 0; i < occurrenceIds.length; i += 500) {
+    const { data: visits, error: visitsError } = await supabase
+      .from("class_visits")
+      .select("occurrence_id")
+      .eq("signed_in", true)
+      .in("occurrence_id", occurrenceIds.slice(i, i + 500));
+
+    if (visitsError) {
+      throw new Error(`Failed to load class visits: ${visitsError.message}`);
+    }
+
+    for (const visit of visits ?? []) {
+      signedInByOccurrence.set(
+        visit.occurrence_id,
+        (signedInByOccurrence.get(visit.occurrence_id) ?? 0) + 1,
+      );
+    }
+  }
+
+  return rows.map((row) => ({
+    start_datetime: row.start_datetime,
+    max_capacity: row.max_capacity,
+    total_signed_in: signedInByOccurrence.get(row.id) ?? 0,
+  }));
 }
 
 type Cell = { sum: number; count: number };

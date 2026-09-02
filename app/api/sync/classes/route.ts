@@ -4,10 +4,14 @@ import { syncClasses } from "@/lib/sync/classes";
 
 // Thin wrapper -- see lib/sync/classes.ts for the actual sync logic (which
 // carries its own DST-safe "already ran today" gate, keyed off
-// class_occurrences.sync_timestamp). Its own two cron firings in
-// vercel.json, and still shared with app/api/sync/all as the manual
+// class_occurrences.sync_timestamp, and runs a narrow backward pass then a
+// 45-day forward pass -- see lib/sync/classes.ts). Its own two cron firings
+// in vercel.json, and still shared with app/api/sync/all as the manual
 // "run everything" route.
-export const maxDuration = 120;
+//
+// 300: the forward pass sweeps 45 days of a pool schedule that MindBody
+// returns ahead of every other room, so it needs the headroom Pro allows.
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
