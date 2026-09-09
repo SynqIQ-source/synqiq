@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { verifyResendWebhook } from "@/lib/followup/verify-webhook";
-import { handleInboundEmail, type InboundEmail } from "@/lib/followup/inbound";
+import { fetchReceivedEmail } from "@/lib/email/resend-inbound";
+import { handleInboundEmail } from "@/lib/followup/inbound";
 
-// crypto (webhook verification) + several sequential Supabase round trips
-// and a Resend send per inbound mail.
+// crypto (webhook verification) + the Receiving API fetch + several
+// sequential Supabase round trips + a Resend send per inbound mail.
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+// Resend's `email.received` webhook is METADATA ONLY -- it carries the
+// email_id plus sender/recipient/subject, NOT the body or headers. We
+// verify the signature, pull the email_id, then fetch the full content
+// from the Receiving API before doing anything with it.
 export async function POST(request: NextRequest) {
-  // Raw body -- the signature is computed over the exact bytes, so this
-  // must be read before any JSON parsing.
+  // Raw body -- the signature is computed over the exact bytes.
   const body = await request.text();
 
   const verification = verifyResendWebhook({
@@ -35,29 +39,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  const email = parseInboundEmail(payload);
-  if (!email) {
-    // Structurally not an inbound email we can act on (a delivery/bounce
-    // event on the same endpoint, or a shape we don't recognise). 200 so
-    // Resend doesn't retry it.
-    console.warn(
-      `[followup] inbound webhook: no actionable email in payload (keys: ${describeShape(payload)})`,
-    );
+  const parsed = parseWebhook(payload);
+  if (!parsed) {
+    // Not an inbound-email event (a delivery/bounce notification on the
+    // same endpoint, or an unrecognised shape). 200 so Resend doesn't retry.
+    console.warn(`[followup] inbound webhook: not an email.received event (${describeShape(payload)})`);
     return NextResponse.json({ status: "ignored" });
   }
 
-  const result = await handleInboundEmail(email);
+  const received = await fetchReceivedEmail(parsed.emailId);
+  if (!received) {
+    // The fetch layer already logged why. 500 so Resend retries -- a
+    // transient Receiving API failure shouldn't lose the message.
+    return NextResponse.json({ error: "could not fetch email content" }, { status: 500 });
+  }
+
+  const result = await handleInboundEmail({
+    from: received.from,
+    to: received.to,
+    subject: received.subject,
+    text: received.text,
+    messageId: received.messageId,
+  });
+
   if (result.status === "dropped") {
     console.warn(`[followup] inbound dropped: ${result.reason}`);
   }
   return NextResponse.json(result);
 }
 
-// Resend's inbound payload shape is still settling and isn't pinned in a
-// versioned SDK type, so parse defensively: accept string-or-object
-// addresses, array-or-map headers, and both top-level and data-nested
-// fields. If Resend firms this up, tighten here.
-function parseInboundEmail(payload: unknown): InboundEmail | null {
+type ParsedWebhook = { emailId: string };
+
+function parseWebhook(payload: unknown): ParsedWebhook | null {
   if (!payload || typeof payload !== "object") {
     return null;
   }
@@ -67,94 +80,15 @@ function parseInboundEmail(payload: unknown): InboundEmail | null {
     return null;
   }
 
-  const data =
-    root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : root;
+  const data = root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : root;
+  const emailId =
+    typeof data.email_id === "string"
+      ? data.email_id
+      : typeof data.id === "string"
+        ? data.id
+        : null;
 
-  const from = firstAddress(data.from);
-  const to = addressList(data.to);
-  const subject = typeof data.subject === "string" ? data.subject : "";
-  const text = pickText(data);
-  const messageId = headerValue(data.headers, "message-id");
-
-  if (!from || to.length === 0 || !text) {
-    return null;
-  }
-
-  return { from, to, subject, text, messageId };
-}
-
-function firstAddress(value: unknown): string | null {
-  const list = addressList(value);
-  return list[0] ?? null;
-}
-
-function addressList(value: unknown): string[] {
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-  }
-  if (Array.isArray(value)) {
-    return value.map(addressString).filter((entry): entry is string => Boolean(entry));
-  }
-  const single = addressString(value);
-  return single ? [single] : [];
-}
-
-function addressString(value: unknown): string | null {
-  if (typeof value === "string") {
-    return value.trim() || null;
-  }
-  if (value && typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    const address = typeof obj.address === "string" ? obj.address : typeof obj.email === "string" ? obj.email : null;
-    if (!address) {
-      return null;
-    }
-    const name = typeof obj.name === "string" && obj.name.trim() ? obj.name.trim() : null;
-    return name ? `${name} <${address}>` : address;
-  }
-  return null;
-}
-
-function pickText(data: Record<string, unknown>): string {
-  if (typeof data.text === "string" && data.text.trim()) {
-    return data.text;
-  }
-  // Last resort: strip tags off the HTML part so a text-less mail still relays.
-  if (typeof data.html === "string" && data.html.trim()) {
-    return data.html
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+\n/g, "\n")
-      .replace(/[ \t]{2,}/g, " ")
-      .trim();
-  }
-  return "";
-}
-
-function headerValue(headers: unknown, name: string): string | null {
-  const target = name.toLowerCase();
-  if (Array.isArray(headers)) {
-    for (const entry of headers) {
-      if (entry && typeof entry === "object") {
-        const obj = entry as Record<string, unknown>;
-        if (typeof obj.name === "string" && obj.name.toLowerCase() === target && typeof obj.value === "string") {
-          return obj.value;
-        }
-      }
-    }
-    return null;
-  }
-  if (headers && typeof headers === "object") {
-    for (const [key, val] of Object.entries(headers as Record<string, unknown>)) {
-      if (key.toLowerCase() === target && typeof val === "string") {
-        return val;
-      }
-    }
-  }
-  return null;
+  return emailId ? { emailId } : null;
 }
 
 function describeShape(payload: unknown): string {
@@ -163,6 +97,9 @@ function describeShape(payload: unknown): string {
   }
   const root = payload as Record<string, unknown>;
   const keys = Object.keys(root);
+  if (typeof root.type === "string") {
+    keys.push(`type=${root.type}`);
+  }
   if (root.data && typeof root.data === "object") {
     keys.push(`data:{${Object.keys(root.data as Record<string, unknown>).join(",")}}`);
   }
