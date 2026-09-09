@@ -81,6 +81,33 @@ export async function syncClients(): Promise<SyncClientsResult> {
         total = page.PaginationResponse?.TotalResults ?? total;
       }
 
+      // clients.email is persisted ONLY for members who have actually
+      // checked in to a class (a signed_in class_visit) -- the follow-up
+      // relay can only target those people, and we don't want a roster-wide
+      // copy of every prospect's address sitting in our DB. Everyone else's
+      // Email comes back on the same payload and is written as null (read
+      // and discarded). One lookup per page against the ids on this page.
+      // Self-healing if the class_visits sync lags: a newly checked-in
+      // member's email fills in on the next run after their visit lands.
+      const pageIds = clients.map((client) => client.UniqueId);
+      const checkedInIds = new Set<number>();
+      if (pageIds.length > 0) {
+        const { data: visitRows, error: visitError } = await supabase
+          .from("class_visits")
+          .select("client_mindbody_unique_id")
+          .eq("organization_id", org.id)
+          .eq("signed_in", true)
+          .in("client_mindbody_unique_id", pageIds);
+
+        if (visitError) {
+          console.error(visitError);
+        } else {
+          for (const row of visitRows ?? []) {
+            checkedInIds.add(row.client_mindbody_unique_id as number);
+          }
+        }
+      }
+
       // One upsert call per page (up to 200 rows), not one per client -- at
       // ~14.5k clients, a row-at-a-time loop (the convention
       // syncStaff/syncDepartments use, fine at their much smaller scale)
@@ -98,6 +125,7 @@ export async function syncClients(): Promise<SyncClientsResult> {
               status: client.Status,
               is_prospect: client.IsProspect,
               creation_date: client.CreationDate,
+              email: checkedInIds.has(client.UniqueId) ? client.Email ?? null : null,
               synced_at: syncedAt,
             })),
             { onConflict: "organization_id,mindbody_unique_id" },

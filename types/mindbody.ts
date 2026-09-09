@@ -124,6 +124,10 @@ export interface MindbodyClientRecord {
   Status: string;
   IsProspect: boolean;
   CreationDate: string | null;
+  // Present on GET /client/clients when the request carries a
+  // clients-visibility user token (same token the roster pull already
+  // fetches). Persisted only for checked-in members -- see lib/sync/clients.ts.
+  Email: string | null;
 }
 
 export interface MindbodyClientsResponse {
