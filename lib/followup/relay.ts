@@ -282,16 +282,21 @@ export async function deliverHop(params: {
   return { ok: true, messageId: sendResult.resendMessageId };
 }
 
-// Convenience for the outbound (instructor-composed) path in PR2's API
-// route: create/resolve the conversation, optionally refresh the subject,
-// then deliver.
+export type SendFollowupResult =
+  | { ok: true; conversationId: string; messageId: string }
+  | { ok: false; error: string };
+
+// Convenience for the outbound (instructor-composed) path used by
+// /api/followup: create/resolve the conversation, optionally refresh the
+// subject, then deliver. Returns the conversation id so the caller can
+// link the sender straight to the thread view.
 export async function sendInstructorFollowup(params: {
   organizationId: string;
   instructorId: string;
   clientId: string;
   subject: string;
   bodyText: string;
-}): Promise<DeliverResult> {
+}): Promise<SendFollowupResult> {
   const conversation = await getOrCreateConversation({
     organizationId: params.organizationId,
     instructorId: params.instructorId,
@@ -303,18 +308,26 @@ export async function sendInstructorFollowup(params: {
     return { ok: false, error: conversation.error };
   }
 
+  const conversationId = conversation.context.conversation.id;
+
   if (!conversation.created && conversation.context.conversation.subject !== params.subject) {
     const admin = createSupabaseAdminClient();
     await admin
       .from("followup_conversations")
       .update({ subject: params.subject })
-      .eq("id", conversation.context.conversation.id);
+      .eq("id", conversationId);
     conversation.context.conversation.subject = params.subject;
   }
 
-  return deliverHop({
+  const delivered = await deliverHop({
     context: conversation.context,
     direction: "outbound",
     bodyText: params.bodyText,
   });
+
+  if (!delivered.ok) {
+    return { ok: false, error: delivered.error };
+  }
+
+  return { ok: true, conversationId, messageId: delivered.messageId };
 }

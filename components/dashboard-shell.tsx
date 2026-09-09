@@ -14,6 +14,7 @@ const navigation = [
   { href: "/dashboard", label: "Overview", adminOnly: true },
   { href: "/dashboard/classes", label: "Classes", adminOnly: false },
   { href: "/dashboard/schedule", label: "My Schedule", adminOnly: false },
+  { href: "/dashboard/follow-up", label: "Follow Up", adminOnly: false },
   { href: "/dashboard/sub-requests", label: "Sub Requests", adminOnly: false },
   { href: "/dashboard/messages", label: "Message Boards", adminOnly: false },
   { href: "/dashboard/notifications", label: "Notifications", adminOnly: false },
