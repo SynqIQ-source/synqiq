@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { loadManageableStaff, revokeStaffLogin, wouldOrphanAdmins } from "@/lib/staff/lifecycle";
+import {
+  loadManageableStaff,
+  removeEligibility,
+  revokeStaffLogin,
+  wouldOrphanAdmins,
+} from "@/lib/staff/lifecycle";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -36,6 +41,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       await revokeStaffLogin(admin, target.auth_user_id);
+      // A departed/inactive instructor drops off the Class Eligibility page
+      // the same way Delete does -- see removeEligibility.
+      await removeEligibility(admin, staffId);
 
       const { error } = await admin
         .from("staff")

@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   findStaffReferences,
   loadManageableStaff,
+  removeEligibility,
   revokeStaffLogin,
   wouldOrphanAdmins,
 } from "@/lib/staff/lifecycle";
@@ -70,6 +71,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     await revokeStaffLogin(admin, target.auth_user_id);
+    // Drop off the Class Eligibility page too -- see removeEligibility.
+    // Deliberately after the reference check above, not before: if that
+    // check blocks the delete, this staff member is staying, and their
+    // eligibility toggles must stay with them.
+    await removeEligibility(admin, staffId);
 
     const { error: deleteError } = await admin.from("staff").delete().eq("id", staffId);
     if (deleteError) {

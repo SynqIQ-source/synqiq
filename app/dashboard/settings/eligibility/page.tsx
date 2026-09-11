@@ -46,6 +46,9 @@ export default async function EligibilitySettingsPage() {
     .from("staff")
     .select("id, display_name, substitution_reminder_opt_out")
     .eq("active", true)
+    // Same reasoning as GET /api/instructor-eligibility -- an archived
+    // instructor shouldn't linger in this opt-out list either.
+    .is("archived_at", null)
     .order("display_name")
     .returns<{ id: string; display_name: string; substitution_reminder_opt_out: boolean }[]>();
 

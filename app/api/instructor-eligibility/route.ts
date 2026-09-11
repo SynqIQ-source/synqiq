@@ -28,7 +28,17 @@ export async function GET(request: NextRequest) {
     const supabase = await getScopedClient(currentStaff);
 
     const [instructorsResult, classNamesResult, eligibilityResult] = await Promise.all([
-      supabase.from("staff").select("id, display_name").eq("role", "instructor").order("display_name"),
+      supabase
+        .from("staff")
+        .select("id, display_name")
+        .eq("role", "instructor")
+        // Archived (let-go / inactive) instructors are gone from Staff
+        // Logins -- keep them off this list too instead of leaving a
+        // stale toggle row visible for someone no longer here. A deleted
+        // instructor is already gone from `staff` entirely, no filter
+        // needed for that case.
+        .is("archived_at", null)
+        .order("display_name"),
       supabase
         .from("class_occurrences")
         .select("class_name")

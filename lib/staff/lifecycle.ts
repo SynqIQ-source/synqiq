@@ -88,16 +88,52 @@ export async function revokeStaffLogin(admin: Admin, authUserId: string | null):
   }
 }
 
-// Every table with a staff FK. A DELETE only goes through when the row is
-// referenced by NONE of these -- the mis-imported-front-desk case. Anything
-// else (a real instructor with class or payroll history) is told to
+// Called by both Archive and Delete: a gone instructor shouldn't linger on
+// the Class Eligibility page. instructor_class_eligibility rows are
+// deleted (not just disabled) rather than left as stale enabled=false
+// data, and deleting them -- not merely updating -- also fires
+// sync_department_board_membership's DELETE branch, which soft-removes
+// their group-department board membership as a side effect. Best-effort:
+// this is tidy-up, not the action the caller is actually performing, so a
+// failure here is logged, never surfaced as the archive/delete failing.
+export async function removeEligibility(admin: Admin, staffId: string): Promise<void> {
+  const { error: deleteError } = await admin
+    .from("instructor_class_eligibility")
+    .delete()
+    .eq("staff_id", staffId);
+
+  if (deleteError) {
+    console.error(
+      `[staff-lifecycle] could not remove eligibility rows for ${staffId}: ${deleteError.message}`,
+    );
+  }
+
+  // Rows THEY toggled for someone else -- null the attribution rather than
+  // deleting another instructor's real eligibility row.
+  const { error: updatedByError } = await admin
+    .from("instructor_class_eligibility")
+    .update({ updated_by: null })
+    .eq("updated_by", staffId);
+
+  if (updatedByError) {
+    console.error(
+      `[staff-lifecycle] could not clear eligibility updated_by for ${staffId}: ${updatedByError.message}`,
+    );
+  }
+}
+
+// Every table with a staff FK EXCEPT instructor_class_eligibility -- that
+// one is cleaned up automatically (see removeEligibility) rather than
+// blocking, since a mis-imported front-desk person showing up there with a
+// stray toggle is exactly the case Delete exists for, not a reason to
+// refuse it. A DELETE only goes through when the row is referenced by NONE
+// of the tables below; anything real (class or payroll history) is told to
 // archive instead. This is a friendly pre-check; the FK constraints are
 // still the real enforcement.
 const STAFF_REFERENCES: { table: string; columns: string[]; label: string }[] = [
   { table: "class_occurrences", columns: ["staff_id", "substitute_staff_id"], label: "classes" },
   { table: "substitution_requests", columns: ["requested_by"], label: "substitution requests" },
   { table: "substitution_interests", columns: ["staff_id"], label: "substitution interests" },
-  { table: "instructor_class_eligibility", columns: ["staff_id", "updated_by"], label: "class eligibility" },
   { table: "report_imports", columns: ["uploaded_by_staff_id"], label: "report imports" },
   { table: "instructor_reviews", columns: ["staff_id"], label: "instructor reviews" },
   { table: "revenue_line_items", columns: ["staff_id"], label: "revenue records" },
