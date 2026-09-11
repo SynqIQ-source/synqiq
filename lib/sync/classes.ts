@@ -163,9 +163,23 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
     }
   }
 
+  // Staff an admin explicitly deleted from the Staff Logins page (a
+  // front-desk person MindBody mis-labelled as an instructor). Without this
+  // filter every nightly sync would re-create the row they just removed.
+  // See supabase/migrations/20260910120000_staff_archive_and_sync_exclusions.sql.
+  const { data: exclusionRows } = await supabase
+    .from("staff_sync_exclusions")
+    .select("mindbody_staff_id")
+    .eq("organization_id", organizationId);
+  const excludedMindbodyStaffIds = new Set(
+    (exclusionRows ?? []).map((row) => row.mindbody_staff_id as number),
+  );
+
   // MindBody's staff roster includes reserved/system placeholder accounts
   // (e.g. Id -5 "Autoemail", Id -4 "Client") with negative ids -- exclude them.
-  const members = allMembers.filter((member) => member.Id > 0);
+  const members = allMembers.filter(
+    (member) => member.Id > 0 && !excludedMindbodyStaffIds.has(member.Id),
+  );
   const idMap = new Map<number, string>();
 
   for (const member of members) {

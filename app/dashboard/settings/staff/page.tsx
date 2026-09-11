@@ -17,7 +17,7 @@ export default async function StaffSettingsPage() {
   const supabase = await getScopedClient(currentStaff);
   const { data: staff, error } = await supabase
     .from("staff")
-    .select("id, display_name, role, email, mindbody_staff_id, auth_user_id, active")
+    .select("id, display_name, role, email, mindbody_staff_id, auth_user_id, active, archived_at")
     .order("display_name", { ascending: true })
     .returns<StaffLinkingRow[]>();
 
