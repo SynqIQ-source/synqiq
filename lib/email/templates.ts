@@ -65,6 +65,56 @@ export function substitutionRequestReminderEmail({ className, startDatetime, tim
   };
 }
 
+// Sent to every admin in the org the moment a request opens -- an
+// oversight/FYI copy, not a call to action (that's substitutionRequestOpenEmail
+// above, sent to eligible instructors instead). Admins otherwise have no way
+// to learn a request exists short of opening the dashboard themselves.
+export function substitutionRequestAdminAlertEmail({ className, startDatetime, timezone, siteUrl }: ClassInfo): {
+  subject: string;
+  html: string;
+} {
+  const when = formatClassTime(startDatetime, timezone);
+
+  return {
+    subject: `Sub request opened: ${className}`,
+    html: `
+      <p><strong>${className}</strong> on ${when} needs a substitute instructor.</p>
+      <p>Eligible instructors have been notified automatically. Track responses and approve a substitute here:</p>
+      <p><a href="${siteUrl}/dashboard/sub-requests">${siteUrl}/dashboard/sub-requests</a></p>
+    `,
+  };
+}
+
+type VolunteerInfo = ClassInfo & {
+  instructorName: string;
+};
+
+// Sent to every admin when an instructor volunteers for an open request --
+// this is the action-relevant moment (someone is available, an approval
+// decision is now possible), unlike a plain decline which needs no admin
+// action and stays silent.
+export function substitutionRequestVolunteerEmail({
+  className,
+  startDatetime,
+  timezone,
+  siteUrl,
+  instructorName,
+}: VolunteerInfo): {
+  subject: string;
+  html: string;
+} {
+  const when = formatClassTime(startDatetime, timezone);
+
+  return {
+    subject: `${instructorName} can cover: ${className}`,
+    html: `
+      <p><strong>${instructorName}</strong> volunteered to cover <strong>${className}</strong> on ${when}.</p>
+      <p>Approve the substitute here:</p>
+      <p><a href="${siteUrl}/dashboard/sub-requests">${siteUrl}/dashboard/sub-requests</a></p>
+    `,
+  };
+}
+
 type NewLead = {
   name: string;
   studioName: string;

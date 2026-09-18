@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     const { data: board, error: boardError } = await supabase
       .from("message_boards")
-      .select("title")
+      .select("title, board_type, organization_id")
       .eq("id", message.board_id)
       .single();
 
@@ -50,19 +50,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Board not found." }, { status: 404 });
     }
 
-    const { data: members, error: membersError } = await supabase
-      .from("board_members")
-      .select("staff_id")
-      .eq("board_id", message.board_id)
-      .is("removed_at", null);
+    // Announcements boards have no board_members rows -- access is granted
+    // structurally in RLS (can_access_board: board_type = 'announcements' is
+    // enough on its own, see 20260719232838), and the org-creation backfill
+    // never populates membership for them either. So the membership lookup
+    // below would silently return zero recipients for every announcement.
+    // Recipients there are "every non-archived staff member in the org"
+    // instead -- there's no membership list to read.
+    let recipientStaffIds: string[];
 
-    if (membersError) {
-      throw new Error(membersError.message);
+    if (board.board_type === "announcements") {
+      const { data: orgStaff, error: orgStaffError } = await supabase
+        .from("staff")
+        .select("id")
+        .eq("organization_id", board.organization_id)
+        .is("archived_at", null);
+
+      if (orgStaffError) {
+        throw new Error(orgStaffError.message);
+      }
+
+      recipientStaffIds = (orgStaff ?? []).map((staff) => staff.id);
+    } else {
+      const { data: members, error: membersError } = await supabase
+        .from("board_members")
+        .select("staff_id")
+        .eq("board_id", message.board_id)
+        .is("removed_at", null);
+
+      if (membersError) {
+        throw new Error(membersError.message);
+      }
+
+      recipientStaffIds = (members ?? []).map((member) => member.staff_id);
     }
 
-    const recipientStaffIds = (members ?? [])
-      .map((member) => member.staff_id)
-      .filter((staffId) => staffId !== message.author_staff_id);
+    recipientStaffIds = recipientStaffIds.filter((staffId) => staffId !== message.author_staff_id);
 
     const bodyPreview = message.body.length > 120 ? `${message.body.slice(0, 117)}...` : message.body;
 

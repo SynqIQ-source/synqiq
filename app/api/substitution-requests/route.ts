@@ -3,7 +3,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { sendPushToStaff } from "@/lib/push/send";
 import { sendEmailToRecipients } from "@/lib/email/send";
-import { substitutionRequestOpenEmail } from "@/lib/email/templates";
+import { substitutionRequestOpenEmail, substitutionRequestAdminAlertEmail } from "@/lib/email/templates";
 import { isExcludedDepartmentName } from "@/lib/excluded-departments";
 import { getOptionalEnv } from "@/lib/env";
 import { resolveRequestOrigin } from "@/lib/request-origin";
@@ -302,6 +302,59 @@ export async function POST(request: NextRequest) {
         console.error(
           `[substitution-requests] Failed to send email for request ${substitutionRequest?.id}:`,
           emailError instanceof Error ? emailError.message : emailError,
+        );
+      }
+    }
+
+    // Admin oversight copy -- email only, no push (an admin doesn't need a
+    // phone buzz for every request, just a record they can act on later).
+    // Separate from the instructorsWithEmail block above: different
+    // audience, different template, and must never be skipped just because
+    // the department/eligibility lookup above came back empty (a manager
+    // still needs to know a request exists even when nobody was
+    // automatically qualified to fill it).
+    if (occurrence.class_name && occurrence.start_datetime) {
+      try {
+        const { data: admins, error: adminsError } = await supabase
+          .from("staff")
+          .select("id, display_name, email")
+          .eq("organization_id", occurrence.organization_id)
+          .eq("role", "admin")
+          .is("archived_at", null)
+          .not("email", "is", null)
+          .neq("id", requestedBy);
+
+        if (adminsError) {
+          throw new Error(adminsError.message);
+        }
+
+        if (admins && admins.length > 0) {
+          const { data: org } = await supabase
+            .from("organizations")
+            .select("timezone")
+            .eq("id", occurrence.organization_id)
+            .maybeSingle();
+
+          const siteUrl = getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? resolveRequestOrigin(request);
+
+          const { subject, html } = substitutionRequestAdminAlertEmail({
+            className: occurrence.class_name,
+            startDatetime: occurrence.start_datetime,
+            timezone: org?.timezone ?? "utc",
+            siteUrl,
+          });
+
+          await sendEmailToRecipients(
+            admins
+              .filter((admin): admin is typeof admin & { email: string } => Boolean(admin.email))
+              .map((admin) => ({ email: admin.email, displayName: admin.display_name })),
+            { subject, html },
+          );
+        }
+      } catch (adminEmailError) {
+        console.error(
+          `[substitution-requests] Failed to send admin alert email for request ${substitutionRequest?.id}:`,
+          adminEmailError instanceof Error ? adminEmailError.message : adminEmailError,
         );
       }
     }

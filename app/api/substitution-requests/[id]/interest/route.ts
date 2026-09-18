@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { respondToSubstitutionRequest } from "@/lib/substitutions/respond";
+import { sendEmailToRecipients } from "@/lib/email/send";
+import { substitutionRequestVolunteerEmail } from "@/lib/email/templates";
+import { getOptionalEnv } from "@/lib/env";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-export async function POST(_request: NextRequest, { params }: RouteParams) {
+export async function POST(request: NextRequest, { params }: RouteParams) {
   const { id: requestId } = await params;
 
   // A real session is required, full stop -- this used to trust a
@@ -26,6 +30,68 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       { error: result.error, existingStatus: result.existingStatus },
       { status: result.httpStatus },
     );
+  }
+
+  // Admin oversight copy, email only (same convention as the request-creation
+  // route's admin alert -- no push, this isn't urgent enough for a phone
+  // buzz). Only on a genuinely new response, not the idempotent replay of an
+  // identical repeat -- an admin should hear about a volunteer once, not on
+  // every retry of the same click.
+  if (!result.alreadyResponded) {
+    try {
+      const { data: substitutionRequest } = await supabase
+        .from("substitution_requests")
+        .select(
+          "organization_id, occurrence:class_occurrences!substitution_requests_occurrence_id_fkey ( class_name, start_datetime )",
+        )
+        .eq("id", requestId)
+        .single<{
+          organization_id: string;
+          occurrence: { class_name: string | null; start_datetime: string | null } | null;
+        }>();
+
+      const occurrence = substitutionRequest?.occurrence;
+
+      if (substitutionRequest && occurrence?.class_name && occurrence.start_datetime) {
+        const { data: admins } = await supabase
+          .from("staff")
+          .select("display_name, email")
+          .eq("organization_id", substitutionRequest.organization_id)
+          .eq("role", "admin")
+          .is("archived_at", null)
+          .not("email", "is", null);
+
+        if (admins && admins.length > 0) {
+          const { data: org } = await supabase
+            .from("organizations")
+            .select("timezone")
+            .eq("id", substitutionRequest.organization_id)
+            .maybeSingle();
+
+          const siteUrl = getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? resolveRequestOrigin(request);
+
+          const { subject, html } = substitutionRequestVolunteerEmail({
+            className: occurrence.class_name,
+            startDatetime: occurrence.start_datetime,
+            timezone: org?.timezone ?? "utc",
+            siteUrl,
+            instructorName: currentStaff.displayName,
+          });
+
+          await sendEmailToRecipients(
+            admins
+              .filter((admin): admin is typeof admin & { email: string } => Boolean(admin.email))
+              .map((admin) => ({ email: admin.email, displayName: admin.display_name })),
+            { subject, html },
+          );
+        }
+      }
+    } catch (adminEmailError) {
+      console.error(
+        `[interest/route] Failed to send admin volunteer email for request ${requestId}:`,
+        adminEmailError instanceof Error ? adminEmailError.message : adminEmailError,
+      );
+    }
   }
 
   return NextResponse.json({
