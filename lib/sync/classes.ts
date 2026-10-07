@@ -3,7 +3,7 @@ import { MindbodyClient, createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
 import { getEnv } from "@/lib/env";
-import type { MindbodyStaffMember } from "@/types/mindbody";
+import type { MindbodyClass, MindbodyStaffMember } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -241,6 +241,17 @@ export type SyncClassesResult =
 // wrapper so it's still individually callable by hand (as it was before, and
 // as this backfill session used it) with explicit startDateTime/endDateTime.
 export async function syncClasses(options: SyncClassesOptions): Promise<SyncClassesResult> {
+  // Set once org resolves below -- lets the catch block record a failed run
+  // against the right org even though `org` itself is scoped to the try
+  // block. classes intentionally does NOT go through runGatedSync /
+  // sync_state's gating (see lib/sync/sync-state.ts's header comment -- it
+  // keeps its own calendar-date gate keyed off class_occurrences.sync_timestamp,
+  // which already handles DST-safe "ran today" correctly for this sync
+  // specifically). This is observability only, so a truncated/failed run is
+  // visible next to appointments/sales/clients/class-visits instead of
+  // looking identical to success -- it never gates or blocks anything.
+  let orgIdForSyncState: string | null = null;
+
   try {
     const mindbody = createMindbodyClient();
     const supabase = createSupabaseAdminClient();
@@ -385,6 +396,18 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
       throw new Error(orgError?.message ?? "Failed to upsert organization.");
     }
 
+    orgIdForSyncState = org.id;
+    await supabase.from("sync_state").upsert(
+      {
+        organization_id: org.id,
+        sync_name: "classes",
+        last_run_at: DateTime.utc().toISO(),
+        last_status: "running",
+        last_error: null,
+      },
+      { onConflict: "organization_id,sync_name" },
+    );
+
     // Reference data is synced from site-wide MindBody endpoints (not scoped
     // to the classes date window below), so staff/rooms/departments resolve
     // correctly regardless of which day is being synced.
@@ -454,7 +477,7 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
             limit: pageLimit,
           }),
         );
-        const classes = page.Classes ?? [];
+        const classes: MindbodyClass[] = page.Classes ?? [];
         // Only trust TotalResults from a page that actually returned rows --
         // confirmed empirically against /sale/sales (same pagination shape
         // as this endpoint): the true terminal empty page reports
@@ -466,7 +489,20 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
           totalClasses = page.PaginationResponse?.TotalResults ?? totalClasses;
         }
 
-        for (const cls of classes) {
+        // One upsert call per page (up to pageLimit rows), not one per
+        // class -- a single-row-at-a-time loop here meant ~1900 sequential
+        // Supabase round trips for a full 45-day forward sweep (~150ms each
+        // easily exceeds this route's 300s maxDuration before the loop ever
+        // reaches classes MindBody returns late, since /class/classes
+        // returns the whole Pool Lanes room -- ~1200 of ~1900 rows -- before
+        // any studio class). Confirmed as the cause of real classes (e.g. a
+        // Svelte occurrence ~3 weeks out) missing from class_occurrences
+        // even though MindBody had them and pagination walked every page.
+        // Batched per MindBody page (<=200 rows) rather than one upsert for
+        // the entire window: bounds the blast radius of a bad row to the
+        // page it's in instead of risking the whole run on one malformed
+        // class.
+        const rows = classes.map((cls) => {
           const maxCapacity = cls.MaxCapacity ?? 0;
           const totalBooked = cls.TotalBooked ?? 0;
 
@@ -494,62 +530,61 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
               ? Number((((cls.TotalSignedIn ?? 0) / totalBooked) * 100).toFixed(2))
               : null;
 
-          const { error } = await supabase
-            .from("class_occurrences")
-            .upsert(
-              {
-                // MindBody's occurrence-level Id: the true unique
-                // per-class-instance identifier, stable across re-syncs. Do
-                // not confuse with ClassScheduleId, which identifies the
-                // recurring series and is shared by every occurrence of it.
-                mindbody_occurrence_id: cls.Id,
-                mindbody_class_schedule_id: cls.ClassScheduleId,
-                organization_id: org.id,
-
-                class_name: cls.ClassDescription?.Name ?? "Unknown",
-
-                instructor_name:
-                  cls.Staff?.Name ??
-                  cls.Staff?.FirstName ??
-                  "Unknown",
-
-                start_datetime: startDatetime,
-                end_datetime: endDatetime,
-
-                max_capacity: maxCapacity,
-                web_capacity: cls.WebCapacity ?? 0,
-
-                total_booked: totalBooked,
-                total_signed_in: cls.TotalSignedIn ?? 0,
-
-                fill_rate: fillRate,
-                attendance_rate: attendanceRate,
-                sync_timestamp: syncedAt,
-
-                staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
-                department_id:
-                  cls.ClassDescription?.Program?.Id != null
-                    ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
-                    : null,
-                room_id: cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) ?? null : null,
-                substitute_staff_id: null,
-              },
-              {
-                onConflict: "organization_id,mindbody_occurrence_id",
-              },
-            );
-
-          if (!error) {
-            imported++;
-          } else {
-            console.error(error);
-          }
-
-          const roomId = cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) : null;
+          const roomId = cls.Resource?.Id != null ? roomIdByResourceId.get(cls.Resource.Id) ?? null : null;
           const locationIdForRoom =
             cls.Location?.Id != null ? locationIdByMindbodyId.get(cls.Location.Id) : null;
           if (roomId && locationIdForRoom) {
             roomLocationUpdates.set(roomId, locationIdForRoom);
+          }
+
+          return {
+            // MindBody's occurrence-level Id: the true unique
+            // per-class-instance identifier, stable across re-syncs. Do
+            // not confuse with ClassScheduleId, which identifies the
+            // recurring series and is shared by every occurrence of it.
+            mindbody_occurrence_id: cls.Id,
+            mindbody_class_schedule_id: cls.ClassScheduleId,
+            organization_id: org.id,
+
+            class_name: cls.ClassDescription?.Name ?? "Unknown",
+
+            instructor_name:
+              cls.Staff?.Name ??
+              cls.Staff?.FirstName ??
+              "Unknown",
+
+            start_datetime: startDatetime,
+            end_datetime: endDatetime,
+
+            max_capacity: maxCapacity,
+            web_capacity: cls.WebCapacity ?? 0,
+
+            total_booked: totalBooked,
+            total_signed_in: cls.TotalSignedIn ?? 0,
+
+            fill_rate: fillRate,
+            attendance_rate: attendanceRate,
+            sync_timestamp: syncedAt,
+
+            staff_id: cls.Staff?.Id != null ? staffIdByMindbodyId.get(cls.Staff.Id) ?? null : null,
+            department_id:
+              cls.ClassDescription?.Program?.Id != null
+                ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
+                : null,
+            room_id: roomId,
+            substitute_staff_id: null,
+          };
+        });
+
+        if (rows.length > 0) {
+          const { error } = await supabase
+            .from("class_occurrences")
+            .upsert(rows, { onConflict: "organization_id,mindbody_occurrence_id" });
+
+          if (!error) {
+            imported += rows.length;
+          } else {
+            console.error(error);
           }
         }
 
@@ -589,8 +624,44 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
       }
     }
 
+    await supabase.from("sync_state").upsert(
+      {
+        organization_id: org.id,
+        sync_name: "classes",
+        last_run_at: syncedAt,
+        last_success_at: syncedAt,
+        last_status: "success",
+        last_error: null,
+        last_result: { imported, total: totalClasses },
+      },
+      { onConflict: "organization_id,sync_name" },
+    );
+
     return { success: true, skipped: false, imported, total: totalClasses };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+    const message = error instanceof Error ? error.message : "Unknown error";
+
+    // Best-effort and never allowed to mask the real failure above --
+    // org resolution itself may be what failed, in which case there's no
+    // org to attribute a sync_state row to and this is skipped entirely.
+    if (orgIdForSyncState) {
+      try {
+        const supabase = createSupabaseAdminClient();
+        await supabase.from("sync_state").upsert(
+          {
+            organization_id: orgIdForSyncState,
+            sync_name: "classes",
+            last_run_at: DateTime.utc().toISO(),
+            last_status: "error",
+            last_error: message,
+          },
+          { onConflict: "organization_id,sync_name" },
+        );
+      } catch (syncStateError) {
+        console.error("[syncClasses] Failed to record sync_state error row:", syncStateError);
+      }
+    }
+
+    return { success: false, error: message };
   }
 }
