@@ -13,8 +13,9 @@ export default function TermsPage() {
   return (
     <LegalPage title="Terms of Service" updated="October 14, 2026">
       <p>
-        These terms cover your use of SynqIQ, a staff scheduling and substitute-coverage tool for
-        fitness studios. By using SynqIQ you agree to them. If your studio has a separate written
+        These terms are an agreement between you and SynqIQ LLC (&quot;SynqIQ,&quot;
+        &quot;we,&quot; or &quot;us&quot;) and cover your use of SynqIQ, a staff scheduling and
+        substitute-coverage tool for fitness studios. By using SynqIQ you agree to them. If your studio has a separate written
         agreement with us, that agreement takes priority where the two differ.
       </p>
 
@@ -56,6 +57,12 @@ export default function TermsPage() {
       <p>
         Your studio can stop using SynqIQ at any time. We may suspend accounts that break these
         terms.
+      </p>
+
+      <h2>Governing law</h2>
+      <p>
+        These terms are governed by the laws of the State of Texas, without regard to its
+        conflict-of-law rules.
       </p>
 
       <h2>Changes and contact</h2>

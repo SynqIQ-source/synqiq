@@ -12,7 +12,7 @@ export function SiteFooter() {
     <footer className="w-full border-t border-zinc-200">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-6 py-6 text-sm text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
         <p>
-          &copy; {new Date().getFullYear()} SynqIQ &middot;{" "}
+          &copy; {new Date().getFullYear()} SynqIQ LLC &middot;{" "}
           <a href={`mailto:${CONTACT_EMAIL}`} className="hover:text-zinc-950">
             {CONTACT_EMAIL}
           </a>

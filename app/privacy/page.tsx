@@ -12,7 +12,8 @@ export default function PrivacyPage() {
   return (
     <LegalPage title="Privacy Policy" updated="October 14, 2026">
       <p>
-        SynqIQ is a staff scheduling and substitute-coverage tool used by fitness studios. This
+        SynqIQ is a staff scheduling and substitute-coverage tool used by fitness studios,
+        operated by SynqIQ LLC (&quot;SynqIQ,&quot; &quot;we,&quot; or &quot;us&quot;). This
         page explains what information we handle, why, and who we share it with. We keep it short
         and plain on purpose. If anything here is unclear, email{" "}
         <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>.
