@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { MarketingHeader } from "@/components/marketing-header";
+import { SiteFooter } from "@/components/site-footer";
 import { LeadForm } from "./lead-form";
 
 export const metadata: Metadata = {
   title: "Contact | SynqIQ",
   description: "Interested in SynqIQ for your studio? Tell us a bit about it.",
+  alternates: { canonical: "/contact" },
 };
 
 export default function ContactPage() {
@@ -28,6 +30,8 @@ export default function ContactPage() {
           <LeadForm />
         </div>
       </main>
+
+      <SiteFooter />
     </div>
   );
 }

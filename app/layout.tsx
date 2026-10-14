@@ -6,9 +6,29 @@ import { FONT_VARIABLE_CLASS_NAMES, FONT_CSS_VAR_BY_NAME, isAllowedFont } from "
 
 const DEFAULT_THEME_COLOR = "#0f766e";
 
+const SITE_DESCRIPTION =
+  "Staff scheduling and substitute coverage for fitness studios.";
+
 export const metadata: Metadata = {
+  // synqiq.co (apex) is the canonical host -- www 308s to it at the Vercel
+  // domain level. Resolves the relative canonical/OG URLs set per page.
+  metadataBase: new URL("https://synqiq.co"),
   title: "SynqIQ",
-  description: "Studio operations dashboard for classes, instructors, and substitutions.",
+  description: SITE_DESCRIPTION,
+  applicationName: "SynqIQ",
+  openGraph: {
+    type: "website",
+    siteName: "SynqIQ",
+    title: "SynqIQ",
+    description: SITE_DESCRIPTION,
+    images: [{ url: "/icons/icon-512.png", width: 512, height: 512, alt: "SynqIQ" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "SynqIQ",
+    description: SITE_DESCRIPTION,
+    images: ["/icons/icon-512.png"],
+  },
   manifest: "/manifest.webmanifest",
   // iOS ignores the manifest's icons list for home-screen install -- needs
   // its own apple-touch-icon link. appleWebApp enables the fuller

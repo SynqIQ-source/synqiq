@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AuthHeader } from "@/components/auth-header";
+import { SiteFooter } from "@/components/site-footer";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Status = "idle" | "submitting" | "sent";
@@ -43,60 +44,63 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-4">
-      <AuthHeader />
-      <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-zinc-950">Reset your password</h1>
+    <div className="flex min-h-screen flex-col bg-zinc-50">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
+        <AuthHeader />
+        <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-8 shadow-sm">
+          <h1 className="text-xl font-semibold text-zinc-950">Reset your password</h1>
 
-        {status === "sent" ? (
-          <>
-            <p className="mt-3 text-sm leading-6 text-zinc-600">
-              If an account exists for that email, a reset link has been sent. Open it on
-              whichever device is easiest -- it isn&apos;t tied to the device you&apos;re on now.
-            </p>
-            <Link
-              href="/login"
-              className="mt-6 inline-block text-sm font-medium text-primary hover:underline"
-            >
-              Back to sign in
-            </Link>
-          </>
-        ) : (
-          <>
-            <p className="mt-1 text-sm text-zinc-600">
-              Enter your email and we&apos;ll send you a reset link.
-            </p>
-
-            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-              <label className="block text-sm font-medium text-zinc-700">
-                Email
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  required
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-950"
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={status === "submitting"}
-                className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+          {status === "sent" ? (
+            <>
+              <p className="mt-3 text-sm leading-6 text-zinc-600">
+                If an account exists for that email, a reset link has been sent. Open it on
+                whichever device is easiest -- it isn&apos;t tied to the device you&apos;re on now.
+              </p>
+              <Link
+                href="/login"
+                className="mt-6 inline-block text-sm font-medium text-primary hover:underline"
               >
-                {status === "submitting" ? "Sending..." : "Send reset link"}
-              </button>
-            </form>
+                Back to sign in
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-zinc-600">
+                Enter your email and we&apos;ll send you a reset link.
+              </p>
 
-            <Link
-              href="/login"
-              className="mt-4 inline-block text-sm font-medium text-primary hover:underline"
-            >
-              Back to sign in
-            </Link>
-          </>
-        )}
+              <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+                <label className="block text-sm font-medium text-zinc-700">
+                  Email
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    required
+                    className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-950"
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={status === "submitting"}
+                  className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                >
+                  {status === "submitting" ? "Sending..." : "Send reset link"}
+                </button>
+              </form>
+
+              <Link
+                href="/login"
+                className="mt-4 inline-block text-sm font-medium text-primary hover:underline"
+              >
+                Back to sign in
+              </Link>
+            </>
+          )}
+        </div>
       </div>
+      <SiteFooter />
     </div>
   );
 }

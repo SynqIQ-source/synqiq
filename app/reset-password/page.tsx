@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AuthHeader } from "@/components/auth-header";
+import { SiteFooter } from "@/components/site-footer";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ResetPasswordForm } from "./reset-password-form";
 
@@ -16,30 +17,33 @@ export default async function ResetPasswordPage() {
   } = await supabase.auth.getUser();
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-4">
-      <AuthHeader />
-      <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-8 shadow-sm">
-        <h1 className="text-xl font-semibold text-zinc-950">Set a new password</h1>
+    <div className="flex min-h-screen flex-col bg-zinc-50">
+      <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
+        <AuthHeader />
+        <div className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-8 shadow-sm">
+          <h1 className="text-xl font-semibold text-zinc-950">Set a new password</h1>
 
-        {user ? (
-          <>
-            <p className="mt-1 text-sm text-zinc-600">Choose a new password for your account.</p>
-            <ResetPasswordForm />
-          </>
-        ) : (
-          <>
-            <p className="mt-3 text-sm leading-6 text-zinc-600">
-              This link is invalid or has expired.
-            </p>
-            <Link
-              href="/forgot-password"
-              className="mt-4 inline-block text-sm font-medium text-primary hover:underline"
-            >
-              Request a new reset link
-            </Link>
-          </>
-        )}
+          {user ? (
+            <>
+              <p className="mt-1 text-sm text-zinc-600">Choose a new password for your account.</p>
+              <ResetPasswordForm />
+            </>
+          ) : (
+            <>
+              <p className="mt-3 text-sm leading-6 text-zinc-600">
+                This link is invalid or has expired.
+              </p>
+              <Link
+                href="/forgot-password"
+                className="mt-4 inline-block text-sm font-medium text-primary hover:underline"
+              >
+                Request a new reset link
+              </Link>
+            </>
+          )}
+        </div>
       </div>
+      <SiteFooter />
     </div>
   );
 }

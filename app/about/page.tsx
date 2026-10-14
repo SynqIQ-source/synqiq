@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingHeader } from "@/components/marketing-header";
+import { SiteFooter } from "@/components/site-footer";
 
 export const metadata: Metadata = {
   title: "About | SynqIQ",
   description: "Built by someone who's run the floor, not just the dashboard.",
+  alternates: { canonical: "/about" },
 };
 
 export default function AboutPage() {
@@ -51,6 +53,8 @@ export default function AboutPage() {
           </Link>
         </div>
       </main>
+
+      <SiteFooter />
     </div>
   );
 }
