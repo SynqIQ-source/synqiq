@@ -11,6 +11,48 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 // and toggle who's eligible -- including someone the 90-day seed missed
 // entirely (a newer hire, for instance).
 
+const PAGE_SIZE = 1000;
+
+// Distinct + sorted in JS rather than SQL -- class_occurrences has no
+// DISTINCT-friendly index for this. Paged: Supabase caps an unranged select
+// at 1000 rows and Membership GX Classes alone is past that, so an unpaged
+// read silently dropped whichever class names fell outside the first 1000
+// rows (a newer format like "Beat" being the most likely casualty). Trimmed
+// because eligibility rows are stored trimmed -- " Mat Fusion" in
+// class_occurrences has to match "Mat Fusion" in the eligibility table or
+// its toggles all render as off.
+async function loadDistinctClassNames(
+  supabase: Awaited<ReturnType<typeof getScopedClient>>,
+  departmentId: string,
+): Promise<string[]> {
+  const names = new Set<string>();
+
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("class_occurrences")
+      .select("class_name")
+      .eq("department_id", departmentId)
+      .not("class_name", "is", null)
+      .order("id")
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+    for (const row of data) {
+      const name = (row.class_name as string).trim();
+      if (name) {
+        names.add(name);
+      }
+    }
+    if (data.length < PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
 export async function GET(request: NextRequest) {
   try {
     const currentStaff = await getCurrentStaff();
@@ -27,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     const supabase = await getScopedClient(currentStaff);
 
-    const [instructorsResult, classNamesResult, eligibilityResult] = await Promise.all([
+    const [instructorsResult, classNames, eligibilityResult] = await Promise.all([
       supabase
         .from("staff")
         .select("id, display_name")
@@ -39,11 +81,7 @@ export async function GET(request: NextRequest) {
         // needed for that case.
         .is("archived_at", null)
         .order("display_name"),
-      supabase
-        .from("class_occurrences")
-        .select("class_name")
-        .eq("department_id", departmentId)
-        .not("class_name", "is", null),
+      loadDistinctClassNames(supabase, departmentId),
       supabase
         .from("instructor_class_eligibility")
         .select("staff_id, class_name, enabled")
@@ -53,19 +91,9 @@ export async function GET(request: NextRequest) {
     if (instructorsResult.error) {
       throw new Error(instructorsResult.error.message);
     }
-    if (classNamesResult.error) {
-      throw new Error(classNamesResult.error.message);
-    }
     if (eligibilityResult.error) {
       throw new Error(eligibilityResult.error.message);
     }
-
-    // Distinct + sorted here rather than in SQL -- class_occurrences has no
-    // DISTINCT-friendly index for this and the per-department row count is
-    // small enough that doing it in JS is simpler than a second RPC.
-    const classNames = [...new Set(classNamesResult.data.map((row) => row.class_name as string))].sort(
-      (a, b) => a.localeCompare(b),
-    );
 
     return NextResponse.json({
       instructors: instructorsResult.data,

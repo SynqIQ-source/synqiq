@@ -3,6 +3,7 @@ import { MindbodyClient, createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
 import { getEnv } from "@/lib/env";
+import { seedEligibilityForNewClassTypes } from "@/lib/eligibility/new-class-types";
 import type { MindbodyClass, MindbodyStaffMember } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -624,6 +625,20 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
       }
     }
 
+    // A class type that first appears on the schedule after the one-time
+    // eligibility seed (e.g. "Beat") would otherwise have no one eligible to
+    // sub it. Best-effort: a failure here is logged, never fails the sync.
+    let newClassTypes: string[] = [];
+    try {
+      const seeded = await seedEligibilityForNewClassTypes(supabase, org.id);
+      newClassTypes = seeded.map((type) => `${type.departmentName} / ${type.className}`);
+    } catch (eligibilityError) {
+      console.error(
+        "[syncClasses] Failed to seed eligibility for new class types:",
+        eligibilityError instanceof Error ? eligibilityError.message : eligibilityError,
+      );
+    }
+
     await supabase.from("sync_state").upsert(
       {
         organization_id: org.id,
@@ -632,7 +647,7 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
         last_success_at: syncedAt,
         last_status: "success",
         last_error: null,
-        last_result: { imported, total: totalClasses },
+        last_result: { imported, total: totalClasses, newClassTypes },
       },
       { onConflict: "organization_id,sync_name" },
     );

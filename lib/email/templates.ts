@@ -85,6 +85,48 @@ export function substitutionRequestAdminAlertEmail({ className, startDatetime, t
   };
 }
 
+type NewClassTypeInfo = {
+  departmentName: string;
+  className: string;
+  seededStaffNames: string[];
+};
+
+// Sent to admins when the nightly sync sees a class type with no
+// eligibility rows yet (lib/eligibility/new-class-types.ts). Its scheduled
+// instructors were made eligible automatically; this is the prompt to add
+// anyone else qualified to sub it. Escaped even though the values come from
+// synced MindBody data -- class names are free text typed into MindBody.
+export function newClassTypesEmail({
+  newClassTypes,
+  siteUrl,
+}: {
+  newClassTypes: NewClassTypeInfo[];
+  siteUrl: string;
+}): { subject: string; html: string } {
+  const names = newClassTypes.map((type) => type.className);
+  const items = newClassTypes
+    .map(
+      (type) =>
+        `<li><strong>${escapeHtml(type.className)}</strong> (${escapeHtml(type.departmentName)}) -- eligible now: ${escapeHtml(
+          type.seededStaffNames.join(", "),
+        )}</li>`,
+    )
+    .join("");
+
+  return {
+    subject:
+      names.length === 1 ? `New class type in SynqIQ: ${names[0]}` : `${names.length} new class types in SynqIQ`,
+    html: `
+      <p>SynqIQ found ${names.length === 1 ? "a new class type" : "new class types"} on the schedule. The instructors scheduled to teach ${
+        names.length === 1 ? "it were" : "them were"
+      } made eligible to cover substitutions automatically:</p>
+      <ul>${items}</ul>
+      <p>Add anyone else qualified to sub ${names.length === 1 ? "this class" : "these classes"} here:</p>
+      <p><a href="${siteUrl}/dashboard/settings/eligibility">${siteUrl}/dashboard/settings/eligibility</a></p>
+    `,
+  };
+}
+
 type VolunteerInfo = ClassInfo & {
   instructorName: string;
 };
