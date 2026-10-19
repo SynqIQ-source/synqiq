@@ -41,14 +41,14 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <label className="block text-sm font-medium text-zinc-700">
+      <label className="block text-sm font-medium text-foreground">
         Reply
         <textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           rows={3}
           required
-          className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-950"
+          className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm text-foreground"
         />
       </label>
 
@@ -58,7 +58,7 @@ export function ReplyBox({ conversationId }: { conversationId: string }) {
         <button
           type="submit"
           disabled={status === "submitting" || !message.trim()}
-          className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+          className="rounded-md bg-brand-accent px-3 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
         >
           {status === "submitting" ? "Sending..." : "Send reply"}
         </button>

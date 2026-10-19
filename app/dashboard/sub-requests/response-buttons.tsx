@@ -45,7 +45,7 @@ export function ResponseButtons({ requestId, initialStatus }: ResponseButtonsPro
 
   if (status === "interested") {
     return (
-      <span className="inline-flex items-center rounded-md bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
+      <span className="inline-flex items-center rounded-md bg-brand-accent-subtle px-3 py-2 text-sm font-medium text-brand-accent">
         You&apos;re interested
       </span>
     );
@@ -53,7 +53,7 @@ export function ResponseButtons({ requestId, initialStatus }: ResponseButtonsPro
 
   if (status === "declined") {
     return (
-      <span className="inline-flex items-center rounded-md bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-600">
+      <span className="inline-flex items-center rounded-md bg-muted px-3 py-2 text-sm font-medium text-muted-foreground">
         You declined
       </span>
     );
@@ -66,7 +66,7 @@ export function ResponseButtons({ requestId, initialStatus }: ResponseButtonsPro
           type="button"
           onClick={() => respond("interest")}
           disabled={actionState === "submitting"}
-          className="flex-1 rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+          className="flex-1 rounded-md bg-brand-accent px-3 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
         >
           Interested
         </button>
@@ -74,7 +74,7 @@ export function ResponseButtons({ requestId, initialStatus }: ResponseButtonsPro
           type="button"
           onClick={() => respond("decline")}
           disabled={actionState === "submitting"}
-          className="flex-1 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60"
+          className="flex-1 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-60"
         >
           Decline
         </button>

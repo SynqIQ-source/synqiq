@@ -251,12 +251,12 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               type="button"
               onClick={() => sendReset(row)}
               disabled={busy || !state.email}
-              className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+              className="rounded-md bg-brand-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
             >
               {state.status === "sending" ? "Working..." : "Send password reset"}
             </button>
             {state.confirmingRelink ? (
-              <div className="flex items-center gap-2 text-xs text-zinc-600">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span>Replace their login with a new account?</span>
                 <button
                   type="button"
@@ -269,7 +269,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
                 <button
                   type="button"
                   onClick={() => patchRow(row.id, { confirmingRelink: false })}
-                  className="text-zinc-500 hover:underline"
+                  className="text-muted-foreground hover:underline"
                 >
                   Cancel
                 </button>
@@ -279,7 +279,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
                 type="button"
                 onClick={() => patchRow(row.id, { confirmingRelink: true, message: undefined })}
                 disabled={busy}
-                className="text-xs text-zinc-500 hover:text-zinc-700 hover:underline disabled:opacity-60"
+                className="text-xs text-muted-foreground hover:text-foreground hover:underline disabled:opacity-60"
               >
                 Re-invite instead
               </button>
@@ -290,7 +290,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             type="button"
             onClick={() => sendInvite(row, false)}
             disabled={busy || !state.email}
-            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+            className="rounded-md bg-brand-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
           >
             {state.status === "sending" ? "Sending..." : "Send invite"}
           </button>
@@ -313,12 +313,12 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             type="button"
             onClick={() => setArchived(row, false)}
             disabled={busy}
-            className="rounded-md border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60"
+            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-60"
           >
             {busy ? "Working..." : "Restore"}
           </button>
           {state.confirmingDelete ? (
-            <div className="flex items-center gap-2 text-xs text-zinc-600">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>Permanently delete?</span>
               <button
                 type="button"
@@ -331,7 +331,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               <button
                 type="button"
                 onClick={() => patchRow(row.id, { confirmingDelete: false })}
-                className="text-zinc-500 hover:underline"
+                className="text-muted-foreground hover:underline"
               >
                 Cancel
               </button>
@@ -356,7 +356,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
     return (
       <div className="flex flex-col items-start gap-1.5">
         {state.confirmingArchive ? (
-          <div className="flex items-center gap-2 text-xs text-zinc-600">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>Archive &amp; revoke login?</span>
             <button
               type="button"
@@ -369,7 +369,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             <button
               type="button"
               onClick={() => patchRow(row.id, { confirmingArchive: false })}
-              className="text-zinc-500 hover:underline"
+              className="text-muted-foreground hover:underline"
             >
               Cancel
             </button>
@@ -379,14 +379,14 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             type="button"
             onClick={() => patchRow(row.id, { confirmingArchive: true, lifecycleError: undefined })}
             disabled={busy}
-            className="text-xs text-zinc-500 hover:text-zinc-700 hover:underline disabled:opacity-60"
+            className="text-xs text-muted-foreground hover:text-foreground hover:underline disabled:opacity-60"
           >
             Archive
           </button>
         )}
 
         {state.confirmingDelete ? (
-          <div className="flex items-center gap-2 text-xs text-zinc-600">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>Not an instructor -- delete for good?</span>
             <button
               type="button"
@@ -399,7 +399,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             <button
               type="button"
               onClick={() => patchRow(row.id, { confirmingDelete: false })}
-              className="text-zinc-500 hover:underline"
+              className="text-muted-foreground hover:underline"
             >
               Cancel
             </button>
@@ -415,7 +415,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
           </button>
         )}
 
-        {busy && <p className="mt-1 text-xs text-zinc-500">Working...</p>}
+        {busy && <p className="mt-1 text-xs text-muted-foreground">Working...</p>}
         {state.lifecycleStatus === "error" && (
           <p className="mt-1 text-xs text-red-600">{state.lifecycleError}</p>
         )}
@@ -429,13 +429,13 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
 
     return (
       <tr key={row.id} className="border-b align-top">
-        <td className="p-3 font-medium text-zinc-950">
+        <td className="p-3 font-medium text-foreground">
           {row.display_name}
           {/* Mindbody's own EmploymentEnd-derived flag -- a quick signal for
               which non-archived rows are actually separated/inactive and
               worth archiving, not a status this page otherwise acts on. */}
           {!row.active && !row.archived_at && (
-            <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-normal text-zinc-500">
+            <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
               Inactive in Mindbody
             </span>
           )}
@@ -445,7 +445,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             value={state.role}
             onChange={(event) => updateRole(row.id, event.target.value)}
             disabled={state.roleStatus === "saving" || Boolean(row.archived_at)}
-            className="rounded-md border border-zinc-200 px-2 py-1.5 text-sm capitalize"
+            className="rounded-md border border-border px-2 py-1.5 text-sm capitalize"
           >
             <option value="instructor">Instructor</option>
             <option value="admin">Admin</option>
@@ -456,11 +456,11 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
         </td>
         <td className="p-3">
           {row.mindbody_staff_id != null ? (
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-700">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
               Synced
             </span>
           ) : (
-            <span className="text-xs text-zinc-400">Software only</span>
+            <span className="text-xs text-muted-foreground">Software only</span>
           )}
         </td>
         <td className="p-3">
@@ -481,10 +481,10 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             onChange={(event) => updateEmail(row.id, event.target.value)}
             placeholder="staff@email.com"
             disabled={busy || Boolean(row.archived_at)}
-            className="w-56 rounded-md border border-zinc-200 px-2 py-1.5 text-sm disabled:bg-zinc-50"
+            className="w-56 rounded-md border border-border px-2 py-1.5 text-sm disabled:bg-muted/50"
           />
         </td>
-        <td className="p-3">{row.archived_at ? <span className="text-xs text-zinc-400">Archived</span> : renderActionCell(row, state, busy)}</td>
+        <td className="p-3">{row.archived_at ? <span className="text-xs text-muted-foreground">Archived</span> : renderActionCell(row, state, busy)}</td>
         <td className="p-3">{renderLifecycleCell(row, state)}</td>
       </tr>
     );
@@ -492,10 +492,10 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
 
   return (
     <div className="space-y-6">
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
+            <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
               <th className="p-3 text-left">Name</th>
               <th className="p-3 text-left">Role</th>
               <th className="p-3 text-left">Mindbody</th>
@@ -508,7 +508,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
           <tbody>
             {activeStaff.length === 0 ? (
               <tr>
-                <td className="p-6 text-center text-sm text-zinc-500" colSpan={7}>
+                <td className="p-6 text-center text-sm text-muted-foreground" colSpan={7}>
                   No staff synced yet.
                 </td>
               </tr>
@@ -521,13 +521,13 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
 
       {archivedStaff.length > 0 && (
         <details className="rounded-lg border">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-zinc-700">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">
             Archived ({archivedStaff.length})
           </summary>
           <div className="overflow-x-auto border-t">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
+                <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="p-3 text-left">Name</th>
                   <th className="p-3 text-left">Role</th>
                   <th className="p-3 text-left">Mindbody</th>

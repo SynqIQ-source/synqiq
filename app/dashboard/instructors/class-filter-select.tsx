@@ -1,6 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+// Radix Select can't use "" as an item value, so "no filter" is a sentinel.
+const ALL = "__all__";
 
 type ClassFilterSelectProps = {
   departments: { id: string; name: string }[];
@@ -44,39 +48,40 @@ export function ClassFilterSelect({
     : allClassNames;
 
   return (
-    <div>
-      <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        Class type
-      </span>
-      <div className="mt-1 flex flex-wrap items-center gap-3">
-        <select
-          value={selectedDepartmentId}
-          onChange={(event) =>
-            updateParams({ department: event.target.value || undefined, class: undefined })
-          }
-          className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950"
-        >
-          <option value="">All departments</option>
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        value={selectedDepartmentId || ALL}
+        onValueChange={(value) => updateParams({ department: value === ALL ? undefined : value, class: undefined })}
+      >
+        <SelectTrigger aria-label="Department" className="min-w-[170px] bg-card">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>All departments</SelectItem>
           {departments.map((department) => (
-            <option key={department.id} value={department.id}>
+            <SelectItem key={department.id} value={department.id}>
               {department.name}
-            </option>
+            </SelectItem>
           ))}
-        </select>
+        </SelectContent>
+      </Select>
 
-        <select
-          value={selectedClassName}
-          onChange={(event) => updateParams({ class: event.target.value || undefined })}
-          className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950"
-        >
-          <option value="">All classes</option>
+      <Select
+        value={selectedClassName || ALL}
+        onValueChange={(value) => updateParams({ class: value === ALL ? undefined : value })}
+      >
+        <SelectTrigger aria-label="Class" className="min-w-[170px] bg-card">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>All classes</SelectItem>
           {classOptions.map((className) => (
-            <option key={className} value={className}>
+            <SelectItem key={className} value={className}>
               {className}
-            </option>
+            </SelectItem>
           ))}
-        </select>
-      </div>
+        </SelectContent>
+      </Select>
     </div>
   );
 }

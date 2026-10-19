@@ -40,26 +40,26 @@ export function ReminderPreferenceToggle({ initialOptOut }: { initialOptOut: boo
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-6">
-      <h2 className="text-sm font-semibold text-zinc-950">Substitution reminder emails</h2>
-      <p className="text-sm text-zinc-500">
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-6">
+      <h2 className="text-sm font-semibold text-foreground">Substitution reminder emails</h2>
+      <p className="text-sm text-muted-foreground">
         You&apos;ll always get an email the moment a class you&apos;re eligible to cover needs a
         substitute. If it&apos;s still open after 4 days, a reminder goes out too -- unless you
         opt out here.
       </p>
 
-      <label className="inline-flex w-fit items-center gap-2 text-sm text-zinc-700">
+      <label className="inline-flex w-fit items-center gap-2 text-sm text-foreground">
         <input
           type="checkbox"
           checked={!optOut}
           disabled={status === "saving"}
           onChange={(event) => handleChange(!event.target.checked)}
-          className="h-4 w-4 rounded border-zinc-300"
+          className="h-4 w-4 rounded border-border"
         />
         Send me reminder emails for open requests I haven&apos;t responded to
       </label>
 
-      {status === "saving" && <p className="text-xs text-zinc-500">Saving...</p>}
+      {status === "saving" && <p className="text-xs text-muted-foreground">Saving...</p>}
       {status === "error" && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );

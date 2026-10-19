@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { RoomSelect } from "./room-select";
@@ -150,7 +151,6 @@ function formatTimeLabel(time: string) {
 const TRAFFIC_RED = "#D5502A";
 const TRAFFIC_YELLOW = "#D9A404";
 const TRAFFIC_GREEN = "#0E9488";
-const NO_DATA_COLOR = "#e1e0d9";
 
 function trafficLightColor(percent: number) {
   if (percent < 25) return TRAFFIC_RED;
@@ -225,7 +225,7 @@ export default async function HeatmapPage({
         title="Heat Map"
         description="Actual fill rate by day and start time, per room."
       >
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted-foreground">
           No rooms synced yet -- nothing to facet a heat map by.
         </p>
       </DashboardShell>
@@ -238,9 +238,13 @@ export default async function HeatmapPage({
   const now = DateTime.now().setZone(timezone);
   const currentWeekStart = now.minus({ days: now.weekday - 1 }).startOf("day");
 
+  // With no ?week=, show the last FULL week: the current week is mostly
+  // not-yet-happened early on, so it opened as a grid of empty cells.
+  const defaultWeekStart = currentWeekStart.minus({ days: 7 });
+
   // Snapped to Monday regardless of what's in the URL, so a hand-edited or
   // stale ?week= value can't land the page on a mid-week boundary.
-  let weekStart = currentWeekStart;
+  let weekStart = defaultWeekStart;
   if (params.week) {
     const parsedWeek = DateTime.fromISO(params.week, { zone: timezone });
     if (parsedWeek.isValid) {
@@ -279,142 +283,132 @@ export default async function HeatmapPage({
   return (
     <DashboardShell
       title="Heat Map"
-      description="Actual fill rate (signed-in / capacity) by day and start time, per room. This week vs a comparison window, both from classes that have already occurred."
+      description="How full each room is by day and start time, compared with its recent average."
+      actions={
+        <RangeSelect comparisonWindow={comparisonWindow} comparisonStart={comparisonStart} comparisonEnd={comparisonEnd} />
+      }
     >
-      <div className="flex flex-wrap items-start justify-between gap-6">
-        <RoomSelect rooms={rooms} selectedRoomId={selectedRoomId} />
-        <RangeSelect
-          comparisonWindow={comparisonWindow}
-          comparisonStart={comparisonStart}
-          comparisonEnd={comparisonEnd}
-        />
-      </div>
-
-      <div className="mt-4">
-        <WeekNav
-          weekStartIso={weekStart.toISODate() ?? ""}
-          prevWeekStartIso={weekStart.minus({ days: 7 }).toISODate() ?? ""}
-          nextWeekStartIso={weekStart.plus({ days: 7 }).toISODate() ?? ""}
-          currentWeekStartIso={currentWeekStart.toISODate() ?? ""}
-          weekLabel={weekLabel}
-        />
-      </div>
-
-      <div className="mb-2 mt-6 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-        <span>{weekStart.hasSame(currentWeekStart, "day") ? "This week's" : `Week of ${weekLabel}`} fill rate:</span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: TRAFFIC_RED }} />
-          Under 25%
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: TRAFFIC_YELLOW }} />
-          25–50%
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-3 w-3 rounded" style={{ backgroundColor: TRAFFIC_GREEN }} />
-          50%+
-        </span>
-        <span className="ml-2 flex items-center gap-1 text-xs">
-          <span className="inline-block h-3 w-3 rounded border border-zinc-300" style={{ backgroundColor: NO_DATA_COLOR }} />
-          No class this week
-        </span>
-      </div>
-
-      {times.length === 0 ? (
-        <p className="text-sm text-zinc-500">
-          No classes have occurred in {selectedRoom.name} in the week of {weekLabel} or the
-          comparison window.
-        </p>
-      ) : (
-        // inline-block + max-w-full, not a plain block div: a block element
-        // stretches to its parent's full width regardless of how much real
-        // content is inside it, which was making every room's grid render at
-        // the same oversized footprint -- a sparse room (e.g. Cycling, few
-        // distinct start times) got the same box as a packed one, just with
-        // emptier-looking cells. inline-block lets the border hug the actual
-        // table; max-w-full plus overflow-x-auto still caps it at the
-        // available width and scrolls internally on narrow viewports.
-        <div className="inline-block max-w-full overflow-x-auto rounded-lg border">
-          <table className="text-sm">
-            <thead>
-              <tr>
-                <th className="sticky left-0 bg-white p-2 text-left text-xs font-medium text-zinc-500">
-                  Time
-                </th>
-                {DAY_LABELS.map((dayLabel) => (
-                  <th key={dayLabel} className="p-2 text-center text-xs font-medium text-zinc-500">
-                    {dayLabel}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {times.map((time) => (
-                <tr key={time}>
-                  <td className="sticky left-0 bg-white p-2 text-xs font-medium text-zinc-500">
-                    {formatTimeLabel(time)}
-                  </td>
-                  {DAY_LABELS.map((dayLabel, dayIndex) => {
-                    const key = cellKey(dayIndex, time);
-                    const thisWeek = thisWeekCells.get(key);
-                    const comparison = comparisonCells.get(key);
-
-                    if (!thisWeek && !comparison) {
-                      return (
-                        <td key={dayLabel} className="p-2 text-center text-xs text-zinc-400" style={{ backgroundColor: NO_DATA_COLOR }}>
-                          &ndash;
-                        </td>
-                      );
-                    }
-
-                    const comparisonAvg = comparison ? comparison.sum / comparison.count : null;
-
-                    if (!thisWeek) {
-                      // Historical data exists at this slot but nothing has
-                      // happened here yet this week -- not colored by the
-                      // traffic light, since that's specifically a
-                      // this-week status signal with nothing to report yet.
-                      return (
-                        <td
-                          key={dayLabel}
-                          className="p-2 text-center text-xs text-zinc-400"
-                          style={{ backgroundColor: NO_DATA_COLOR }}
-                          title={`${selectedRoom.name} · ${dayLabel} ${formatTimeLabel(time)} · no class this week · ${comparisonAvg?.toFixed(0)}% avg over comparison window (n=${comparison?.count})`}
-                        >
-                          No class
-                          <br />
-                          this week
-                        </td>
-                      );
-                    }
-
-                    const thisWeekAvg = thisWeek.sum / thisWeek.count;
-                    const background = trafficLightColor(thisWeekAvg);
-                    const foreground = textColorForBackground(background);
-                    const diff = comparisonAvg !== null ? thisWeekAvg - comparisonAvg : null;
-                    const arrow = diff !== null && diff >= 4 ? "▲" : diff !== null && diff <= -4 ? "▼" : null;
-
-                    return (
-                      <td
-                        key={dayLabel}
-                        className="p-1.5 text-center"
-                        style={{ backgroundColor: background, color: foreground }}
-                        title={`${selectedRoom.name} · ${dayLabel} ${formatTimeLabel(time)} · this week ${thisWeekAvg.toFixed(0)}% (n=${thisWeek.count})${comparisonAvg !== null ? ` · comparison window avg ${comparisonAvg.toFixed(0)}% (n=${comparison?.count})` : ""}`}
-                      >
-                        <span className="block text-xs font-bold">{thisWeekAvg.toFixed(0)}%</span>
-                        <span className="mt-0.5 flex items-center justify-center gap-0.5 text-[0.65rem] font-medium opacity-90">
-                          {arrow ? <span>{arrow}</span> : null}
-                          {comparisonAvg !== null ? `${comparisonAvg.toFixed(0)}%` : "N/A"}
-                        </span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <RoomSelect rooms={rooms} selectedRoomId={selectedRoomId} />
+          <WeekNav
+            weekStartIso={weekStart.toISODate() ?? ""}
+            prevWeekStartIso={weekStart.minus({ days: 7 }).toISODate() ?? ""}
+            nextWeekStartIso={weekStart.plus({ days: 7 }).toISODate() ?? ""}
+            currentWeekStartIso={currentWeekStart.toISODate() ?? ""}
+            defaultWeekStartIso={defaultWeekStart.toISODate() ?? ""}
+            weekLabel={weekLabel}
+          />
         </div>
-      )}
+
+        <Card className="gap-4">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>{selectedRoom.name}</CardTitle>
+              <CardDescription>
+                {weekStart.hasSame(currentWeekStart, "day") ? "This week so far" : `Week of ${weekLabel}`}. Small number =
+                average over the comparison window.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <LegendSwatch color={TRAFFIC_RED} label="Under 25%" />
+              <LegendSwatch color={TRAFFIC_YELLOW} label="25–50%" />
+              <LegendSwatch color={TRAFFIC_GREEN} label="50%+" />
+              <span className="flex items-center gap-1.5">
+                <span className="text-sm leading-none">–</span>
+                No class
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {times.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No classes have happened in {selectedRoom.name} in the week of {weekLabel} or the comparison window.
+              </p>
+            ) : (
+              <div className="max-w-full overflow-x-auto">
+                <table className="w-full border-separate border-spacing-1 text-sm">
+                  <thead>
+                    <tr>
+                      <th className="sticky left-0 z-10 w-20 bg-card p-1 text-left text-xs font-medium text-muted-foreground">
+                        Time
+                      </th>
+                      {DAY_LABELS.map((dayLabel) => (
+                        <th key={dayLabel} className="min-w-[64px] p-1 text-center text-xs font-medium text-muted-foreground">
+                          {dayLabel}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {times.map((time) => (
+                      <tr key={time}>
+                        <td className="sticky left-0 z-10 bg-card p-1 text-xs font-medium whitespace-nowrap text-muted-foreground tabular-nums">
+                          {formatTimeLabel(time)}
+                        </td>
+                        {DAY_LABELS.map((dayLabel, dayIndex) => {
+                          const key = cellKey(dayIndex, time);
+                          const thisWeek = thisWeekCells.get(key);
+                          const comparison = comparisonCells.get(key);
+                          const comparisonAvg = comparison ? comparison.sum / comparison.count : null;
+
+                          if (!thisWeek) {
+                            // Nothing here this week. If the slot has history,
+                            // say so in the tooltip and show its usual average.
+                            return (
+                              <td
+                                key={dayLabel}
+                                className="h-12 rounded-md bg-muted/40 text-center text-xs text-muted-foreground"
+                                title={
+                                  comparison
+                                    ? `${selectedRoom.name} · ${dayLabel} ${formatTimeLabel(time)} · no class this week · usually ${comparisonAvg?.toFixed(0)}% (n=${comparison.count})`
+                                    : undefined
+                                }
+                              >
+                                {comparison ? <span className="text-[0.65rem] tabular-nums">–<br />{comparisonAvg?.toFixed(0)}%</span> : "–"}
+                              </td>
+                            );
+                          }
+
+                          const thisWeekAvg = thisWeek.sum / thisWeek.count;
+                          const background = trafficLightColor(thisWeekAvg);
+                          const foreground = textColorForBackground(background);
+                          const diff = comparisonAvg !== null ? thisWeekAvg - comparisonAvg : null;
+                          const arrow = diff !== null && diff >= 4 ? "▲" : diff !== null && diff <= -4 ? "▼" : null;
+
+                          return (
+                            <td
+                              key={dayLabel}
+                              className="h-12 rounded-md text-center"
+                              style={{ backgroundColor: background, color: foreground }}
+                              title={`${selectedRoom.name} · ${dayLabel} ${formatTimeLabel(time)} · this week ${thisWeekAvg.toFixed(0)}% (n=${thisWeek.count})${comparisonAvg !== null ? ` · usually ${comparisonAvg.toFixed(0)}% (n=${comparison?.count})` : ""}`}
+                            >
+                              <span className="block text-xs font-bold tabular-nums">{thisWeekAvg.toFixed(0)}%</span>
+                              <span className="flex items-center justify-center gap-0.5 text-[0.65rem] font-medium tabular-nums opacity-90">
+                                {arrow ? <span>{arrow}</span> : null}
+                                {comparisonAvg !== null ? `${comparisonAvg.toFixed(0)}%` : "new"}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </DashboardShell>
+  );
+}
+
+function LegendSwatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: color }} />
+      {label}
+    </span>
   );
 }

@@ -19,15 +19,15 @@ export function CurrentUserBanner({ displayName, role }: CurrentUserBannerProps)
   }
 
   return (
-    <div className="flex items-center gap-3 text-sm text-zinc-700">
+    <div className="flex items-center gap-3 text-sm text-foreground">
       <span>
-        Logged in as <span className="font-medium text-zinc-950">{displayName}</span>{" "}
-        <span className="text-zinc-500">({role})</span>
+        Logged in as <span className="font-medium text-foreground">{displayName}</span>{" "}
+        <span className="text-muted-foreground">({role})</span>
       </span>
       <button
         type="button"
         onClick={handleLogout}
-        className="rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+        className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
       >
         Log out
       </button>

@@ -38,7 +38,7 @@ function SortHeader({
       <button
         type="button"
         onClick={() => onSort(sortKeyName)}
-        className={`flex items-center gap-1 font-medium ${active ? "text-zinc-950" : "text-zinc-500"}`}
+        className={`flex items-center gap-1 font-medium ${active ? "text-foreground" : "text-muted-foreground"}`}
       >
         {label}
         <span className="text-xs">{active ? (dir === "asc" ? "↑" : "↓") : ""}</span>
@@ -100,7 +100,7 @@ export function CompAuditTable({ rows }: { rows: CompRow[] }) {
 
   if (rows.length === 0) {
     return (
-      <p className="rounded-lg border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+      <p className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
         No $0-on-a-capped-package rows found -- nothing to review here.
       </p>
     );
@@ -108,13 +108,13 @@ export function CompAuditTable({ rows }: { rows: CompRow[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end gap-4 rounded-lg border border-zinc-200 bg-white p-4">
-        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+      <div className="flex flex-wrap items-end gap-4 rounded-xl border border-border bg-card p-4">
+        <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
           Staff
           <select
             value={staffFilter}
             onChange={(event) => setStaffFilter(event.target.value)}
-            className="rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="rounded-md border border-border px-2 py-1.5 text-sm"
           >
             <option value="all">All staff</option>
             {staffOptions.map((name) => (
@@ -125,26 +125,26 @@ export function CompAuditTable({ rows }: { rows: CompRow[] }) {
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+        <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
           Client
           <input
             type="text"
             value={clientFilter}
             onChange={(event) => setClientFilter(event.target.value)}
             placeholder="Search client name..."
-            className="rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="rounded-md border border-border px-2 py-1.5 text-sm"
           />
         </label>
 
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted-foreground">
           Showing {sortedRows.length} of {rows.length} row(s)
         </p>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
+            <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
               <SortHeader label="Date" sortKeyName="dateOfService" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
               <SortHeader label="Staff" sortKeyName="staffName" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
               <SortHeader label="Client" sortKeyName="clientName" activeKey={sortKey} dir={sortDir} onSort={handleSort} />
@@ -164,7 +164,7 @@ export function CompAuditTable({ rows }: { rows: CompRow[] }) {
               const clientRepeatCount = clientCounts.get(row.clientName) ?? 1;
               return (
                 <tr key={row.id} className="border-b">
-                  <td className="p-3 text-zinc-600">{row.dateOfService}</td>
+                  <td className="p-3 text-muted-foreground">{row.dateOfService}</td>
                   <td className="p-3">
                     {row.staffName}
                     {staffRepeatCount > 1 && (
@@ -181,8 +181,8 @@ export function CompAuditTable({ rows }: { rows: CompRow[] }) {
                       </span>
                     )}
                   </td>
-                  <td className="p-3 text-zinc-600">{row.pricingOption ?? "--"}</td>
-                  <td className="p-3 text-zinc-600">{row.className ?? "--"}</td>
+                  <td className="p-3 text-muted-foreground">{row.pricingOption ?? "--"}</td>
+                  <td className="p-3 text-muted-foreground">{row.className ?? "--"}</td>
                 </tr>
               );
             })}
@@ -190,8 +190,8 @@ export function CompAuditTable({ rows }: { rows: CompRow[] }) {
         </table>
       </div>
 
-      <p className="text-xs leading-5 text-zinc-500">
-        A <span className="font-medium text-zinc-600">×N</span> badge means that staff member or
+      <p className="text-xs leading-5 text-muted-foreground">
+        A <span className="font-medium text-muted-foreground">×N</span> badge means that staff member or
         client appears in N of the {rows.length} total $0 rows on record (not just the current
         filter) -- a repeated pattern worth a closer look.
       </p>

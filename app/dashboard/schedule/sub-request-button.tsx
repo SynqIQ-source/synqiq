@@ -69,7 +69,7 @@ export function SubRequestButton({
 
   if (status === "success") {
     return (
-      <span className="inline-flex items-center rounded-md bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
+      <span className="inline-flex items-center rounded-md bg-brand-accent-subtle px-3 py-2 text-sm font-medium text-brand-accent">
         Request submitted
       </span>
     );
@@ -80,42 +80,42 @@ export function SubRequestButton({
       <button
         type="button"
         onClick={openModal}
-        className="w-full rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+        className="w-full rounded-md bg-brand-accent px-3 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover"
       >
         Create Sub Request
       </button>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 px-4">
-          <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-6 shadow-lg">
-            <h2 className="text-base font-semibold text-zinc-950">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg">
+            <h2 className="text-base font-semibold text-foreground">
               Request a Substitute
             </h2>
-            <dl className="mt-4 space-y-1 text-sm text-zinc-600">
+            <dl className="mt-4 space-y-1 text-sm text-muted-foreground">
               <div className="flex justify-between gap-4">
-                <dt className="text-zinc-500">Class</dt>
-                <dd className="text-right text-zinc-950">{className}</dd>
+                <dt className="text-muted-foreground">Class</dt>
+                <dd className="text-right text-foreground">{className}</dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-zinc-500">Time</dt>
-                <dd className="text-right text-zinc-950">{timeFormatted}</dd>
+                <dt className="text-muted-foreground">Time</dt>
+                <dd className="text-right text-foreground">{timeFormatted}</dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-zinc-500">Room</dt>
-                <dd className="text-right text-zinc-950">{roomName}</dd>
+                <dt className="text-muted-foreground">Room</dt>
+                <dd className="text-right text-foreground">{roomName}</dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-zinc-500">Instructor</dt>
-                <dd className="text-right text-zinc-950">
+                <dt className="text-muted-foreground">Instructor</dt>
+                <dd className="text-right text-foreground">
                   {staffDisplayName}
                 </dd>
               </div>
             </dl>
 
             <form onSubmit={handleSubmit} className="mt-5">
-              <label className="block text-sm font-medium text-zinc-700">
+              <label className="block text-sm font-medium text-foreground">
                 Reason{" "}
-                <span className="font-normal text-zinc-500">
+                <span className="font-normal text-muted-foreground">
                   (visible to managers only)
                 </span>
                 <textarea
@@ -123,7 +123,7 @@ export function SubRequestButton({
                   onChange={(event) => setReason(event.target.value)}
                   rows={3}
                   placeholder="Optional"
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-950"
+                  className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
 
@@ -135,14 +135,14 @@ export function SubRequestButton({
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+                  className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={status === "submitting"}
-                  className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                  className="rounded-md bg-brand-accent px-3 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
                 >
                   {status === "submitting" ? "Submitting..." : "Submit Request"}
                 </button>

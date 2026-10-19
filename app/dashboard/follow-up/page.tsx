@@ -1,5 +1,4 @@
 import { DateTime } from "luxon";
-import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
@@ -153,31 +152,30 @@ export default async function FollowUpPage() {
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <CurrentUserBanner displayName={currentStaff.displayName} role={currentStaff.role} />
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted-foreground">
           Checked in during the last {ROSTER_WINDOW_DAYS} days
         </p>
       </div>
 
       <div className="mt-6">
         {prospects.length === 0 ? (
-          <section className="rounded-lg border border-zinc-200 bg-white p-6">
-            <h2 className="text-base font-semibold text-zinc-950">No one to follow up with yet</h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-600">
+          <section className="rounded-xl border border-border bg-card p-6">
+            <h2 className="text-base font-semibold text-foreground">No one to follow up with yet</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               Members show up here once they&apos;ve checked in to one of your classes and we have
               an email address on file for them.
             </p>
           </section>
         ) : (
-          <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 bg-white">
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
             {prospects.map((prospect) => (
               <li
                 key={prospect.clientId}
                 className="flex flex-wrap items-center justify-between gap-3 p-4"
               >
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-zinc-950">{prospect.name}</p>
-                  <p className="mt-0.5 text-sm text-zinc-500">
+                  <p className="text-sm font-semibold text-foreground">{prospect.name}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
                     Last checked in to {prospect.lastClassName}
                     {prospect.lastClassAt
                       ? ` on ${DateTime.fromISO(prospect.lastClassAt, { zone: "utc" })

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getOrgBranding } from "@/lib/org-branding";
 import { FONT_VARIABLE_CLASS_NAMES, FONT_CSS_VAR_BY_NAME, isAllowedFont } from "@/lib/fonts";
@@ -77,25 +78,24 @@ export default async function RootLayout({
 
   const bodyStyle: Record<string, string> = {};
   if (branding) {
-    // Literal color-mix() strings with the hex baked in directly, not
-    // var(--color-primary) references -- these are plain inline style
-    // values, not @theme tokens, so there's no build-time-flattening trap
-    // here, but baking the hex in directly keeps it unambiguous either way.
-    bodyStyle["--color-primary"] = branding.primary_color;
-    bodyStyle["--color-primary-hover"] =
-      `color-mix(in srgb, ${branding.primary_color} 85%, black)`;
-    bodyStyle["--color-primary-subtle"] =
-      `color-mix(in srgb, ${branding.primary_color} 12%, white)`;
-    bodyStyle["--color-accent"] = branding.accent_color;
-    bodyStyle["--color-accent-hover"] =
-      `color-mix(in srgb, ${branding.accent_color} 85%, black)`;
-    bodyStyle["--color-accent-subtle"] =
-      `color-mix(in srgb, ${branding.accent_color} 12%, white)`;
-    bodyStyle["--color-secondary"] = branding.secondary_color;
-    bodyStyle["--color-secondary-hover"] =
-      `color-mix(in srgb, ${branding.secondary_color} 85%, black)`;
-    bodyStyle["--color-secondary-subtle"] =
-      `color-mix(in srgb, ${branding.secondary_color} 12%, white)`;
+    // Raw token variables (not --color-*): globals.css maps them through
+    // `@theme inline`, so every utility reads var(--primary) etc. at runtime
+    // and these overrides take effect. Hover/subtle shades are literal
+    // color-mix() strings with the hex baked in. --ring and --chart-1 are
+    // re-set here too: in :root they're var(--primary), but a custom
+    // property's var() resolves where it's declared, so a <body>-level
+    // --primary override alone wouldn't reach them.
+    bodyStyle["--primary"] = branding.primary_color;
+    bodyStyle["--primary-hover"] = `color-mix(in srgb, ${branding.primary_color} 85%, black)`;
+    bodyStyle["--primary-subtle"] = `color-mix(in srgb, ${branding.primary_color} 12%, white)`;
+    bodyStyle["--ring"] = branding.primary_color;
+    bodyStyle["--chart-1"] = branding.primary_color;
+    bodyStyle["--brand-accent"] = branding.accent_color;
+    bodyStyle["--brand-accent-hover"] = `color-mix(in srgb, ${branding.accent_color} 85%, black)`;
+    bodyStyle["--brand-accent-subtle"] = `color-mix(in srgb, ${branding.accent_color} 12%, white)`;
+    bodyStyle["--brand-secondary"] = branding.secondary_color;
+    bodyStyle["--brand-secondary-hover"] = `color-mix(in srgb, ${branding.secondary_color} 85%, black)`;
+    bodyStyle["--brand-secondary-subtle"] = `color-mix(in srgb, ${branding.secondary_color} 12%, white)`;
     if (isAllowedFont(branding.font_family)) {
       bodyStyle["--font-body"] = FONT_CSS_VAR_BY_NAME[branding.font_family];
     }
@@ -104,7 +104,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className={FONT_VARIABLE_CLASS_NAMES} style={bodyStyle as React.CSSProperties}>
-        {children}
+        <TooltipProvider>{children}</TooltipProvider>
       </body>
     </html>
   );

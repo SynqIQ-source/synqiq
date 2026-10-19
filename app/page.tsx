@@ -56,7 +56,7 @@ export default async function HomePage() {
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <Link
               href="/login"
-              className="inline-flex h-11 items-center rounded-md bg-accent px-5 text-sm font-medium text-white hover:bg-accent-hover"
+              className="inline-flex h-11 items-center rounded-md bg-brand-accent px-5 text-sm font-medium text-white hover:bg-brand-accent-hover"
             >
               Log in
             </Link>

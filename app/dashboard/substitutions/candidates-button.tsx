@@ -25,9 +25,9 @@ type SelectStatus = "idle" | "selecting" | "error";
 type CancelStatus = "idle" | "cancelling" | "error";
 
 const STATUS_STYLES: Record<Interest["status"], string> = {
-  interested: "bg-accent-subtle text-accent",
+  interested: "bg-brand-accent-subtle text-brand-accent",
   no_response: "bg-amber-50 text-amber-700",
-  declined: "bg-zinc-100 text-zinc-600",
+  declined: "bg-muted text-muted-foreground",
 };
 
 const STATUS_LABELS: Record<Interest["status"], string> = {
@@ -159,23 +159,23 @@ export function CandidatesButton({
       <button
         type="button"
         onClick={openModal}
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-secondary hover:bg-zinc-50"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-brand-secondary hover:bg-accent"
       >
         View Candidates
       </button>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 px-4">
-          <div className="w-full max-w-lg rounded-lg border border-zinc-200 bg-white p-6 shadow-lg">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-lg">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-base font-semibold text-zinc-950">
+                <h2 className="text-base font-semibold text-foreground">
                   Candidates
                 </h2>
-                <p className="mt-1 text-sm text-zinc-600">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {className} &middot; {startFormatted}
                 </p>
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-muted-foreground">
                   {roomName} &middot; requested by {requestedByName}
                 </p>
               </div>
@@ -183,7 +183,7 @@ export function CandidatesButton({
                 type="button"
                 onClick={closeModal}
                 aria-label="Close"
-                className="rounded-md px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100"
+                className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-accent"
               >
                 &times;
               </button>
@@ -191,15 +191,15 @@ export function CandidatesButton({
 
             <div className="mt-5">
               {fetchStatus === "loading" ? (
-                <p className="text-sm text-zinc-500">Loading candidates...</p>
+                <p className="text-sm text-muted-foreground">Loading candidates...</p>
               ) : fetchStatus === "error" ? (
                 <p className="text-sm text-red-600">{fetchError}</p>
               ) : interests.length === 0 ? (
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-muted-foreground">
                   No qualified instructors found for this class.
                 </p>
               ) : (
-                <ul className="divide-y divide-zinc-200">
+                <ul className="divide-y divide-border">
                   {interests.map((interest) => {
                     const isInterested = interest.status === "interested";
 
@@ -209,11 +209,11 @@ export function CandidatesButton({
                         className="flex items-center justify-between gap-4 py-3"
                       >
                         <div>
-                          <p className="text-sm font-medium text-zinc-950">
+                          <p className="text-sm font-medium text-foreground">
                             {interest.displayName ?? "Unknown staff"}
                           </p>
                           {interest.email ? (
-                            <p className="text-xs text-zinc-500">{interest.email}</p>
+                            <p className="text-xs text-muted-foreground">{interest.email}</p>
                           ) : null}
                         </div>
                         <div className="flex items-center gap-3">
@@ -227,7 +227,7 @@ export function CandidatesButton({
                               type="button"
                               onClick={() => handleSelect(interest.staffId)}
                               disabled={selectStatus === "selecting"}
-                              className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                              className="rounded-md bg-brand-accent px-3 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
                             >
                               {selectStatus === "selecting" &&
                               selectingStaffId === interest.staffId
@@ -262,7 +262,7 @@ export function CandidatesButton({
               <button
                 type="button"
                 onClick={closeModal}
-                className="rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+                className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
               >
                 Close
               </button>

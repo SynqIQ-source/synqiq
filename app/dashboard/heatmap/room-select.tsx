@@ -21,27 +21,23 @@ export function RoomSelect({ rooms, selectedRoomId }: RoomSelectProps) {
   }
 
   return (
-    <div>
-      <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        Room
-      </span>
-      <div className="mt-1 flex flex-wrap gap-1.5">
-        {rooms.map((room) => (
+    <div role="group" aria-label="Room" className="flex max-w-full flex-wrap gap-0.5 rounded-lg bg-muted p-1">
+      {rooms.map((room) => {
+        const active = room.id === selectedRoomId;
+        return (
           <button
             key={room.id}
             type="button"
             onClick={() => selectRoom(room.id)}
-            aria-pressed={room.id === selectedRoomId}
-            className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
-              room.id === selectedRoomId
-                ? "border-primary bg-primary text-white"
-                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100"
+            aria-pressed={active}
+            className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${
+              active ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
             }`}
           >
             {room.name}
           </button>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }

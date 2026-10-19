@@ -21,7 +21,7 @@ export function MarketingHeader() {
           </Link>
           <Link
             href="/login"
-            className="rounded-md bg-accent px-4 py-2 text-white hover:bg-accent-hover"
+            className="rounded-md bg-brand-accent px-4 py-2 text-white hover:bg-brand-accent-hover"
           >
             Log in
           </Link>

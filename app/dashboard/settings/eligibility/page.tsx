@@ -66,19 +66,19 @@ export default async function EligibilitySettingsPage() {
       <EligibilityTable departments={eligibleDepartments} />
 
       <section className="mt-8">
-        <h2 className="text-base font-semibold text-zinc-950">Opted out of reminder emails</h2>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h2 className="text-base font-semibold text-foreground">Opted out of reminder emails</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           These instructors still get the immediate email when a request opens, but have turned off
           the every-4-days reminder for requests they haven&apos;t responded to yet. Set by each
           instructor from their own Notifications page -- not editable here.
         </p>
 
         {optedOut.length === 0 ? (
-          <p className="mt-3 text-sm text-zinc-500">No one has opted out.</p>
+          <p className="mt-3 text-sm text-muted-foreground">No one has opted out.</p>
         ) : (
-          <ul className="mt-3 max-w-md divide-y rounded-lg border border-zinc-200 bg-white text-sm">
+          <ul className="mt-3 max-w-md divide-y rounded-xl border border-border bg-card text-sm">
             {optedOut.map((instructor) => (
-              <li key={instructor.id} className="p-3 text-zinc-950">
+              <li key={instructor.id} className="p-3 text-foreground">
                 {instructor.display_name}
               </li>
             ))}

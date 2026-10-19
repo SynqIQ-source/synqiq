@@ -2,6 +2,10 @@
 
 import { DateTime } from "luxon";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DATE_INPUT_CLASS } from "@/components/dashboard/preset-range-select";
+import { cn } from "@/lib/utils";
 
 type ViewMode = "day" | "week";
 
@@ -82,65 +86,52 @@ export function PeriodNav({ viewMode, date, today }: PeriodNavProps) {
             : `${anchor.toFormat("MMM d")} – ${weekEnd.toFormat("MMM d, yyyy")}`;
         })();
 
+  const toggleClass = (active: boolean) =>
+    cn(
+      "rounded-[5px] px-2.5 py-1 text-sm font-medium transition-colors",
+      active ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
+    );
+
   return (
-    <div>
-      <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        {viewMode === "day" ? "Day" : "Week"}
-      </span>
-      <div className="mt-1 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="icon"
           onClick={() => shiftPeriod(-1)}
           aria-label={viewMode === "day" ? "Previous day" : "Previous week"}
-          className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
         >
-          &lsaquo;
-        </button>
-        <span className="min-w-[11rem] text-center text-sm font-medium text-zinc-950">
-          {label}
-        </span>
-        <div className="flex rounded-md border border-zinc-200 bg-white p-0.5">
-          <button
-            type="button"
-            onClick={switchToDay}
-            aria-pressed={viewMode === "day"}
-            className={`rounded px-2 py-1 text-sm font-medium ${
-              viewMode === "day" ? "bg-secondary-subtle text-secondary" : "text-zinc-700 hover:bg-zinc-100"
-            }`}
-          >
-            Day
-          </button>
-          <button
-            type="button"
-            onClick={switchToWeek}
-            aria-pressed={viewMode === "week"}
-            className={`rounded px-2 py-1 text-sm font-medium ${
-              viewMode === "week" ? "bg-secondary-subtle text-secondary" : "text-zinc-700 hover:bg-zinc-100"
-            }`}
-          >
-            Week
-          </button>
-        </div>
-        <button
-          type="button"
+          <ChevronLeft />
+        </Button>
+        <span className="min-w-[10.5rem] text-center text-sm font-semibold text-foreground">{label}</span>
+        <Button
+          variant="outline"
+          size="icon"
           onClick={() => shiftPeriod(1)}
           aria-label={viewMode === "day" ? "Next day" : "Next week"}
-          className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
         >
-          &rsaquo;
-        </button>
-        <input
-          type="date"
-          value={date}
-          onChange={(event) => {
-            if (event.target.value) {
-              jumpToDate(event.target.value);
-            }
-          }}
-          aria-label={viewMode === "day" ? "Jump to date" : "Jump to week containing date"}
-          className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950"
-        />
+          <ChevronRight />
+        </Button>
       </div>
+      <div className="flex rounded-md bg-muted p-0.5">
+        <button type="button" onClick={switchToDay} aria-pressed={viewMode === "day"} className={toggleClass(viewMode === "day")}>
+          Day
+        </button>
+        <button type="button" onClick={switchToWeek} aria-pressed={viewMode === "week"} className={toggleClass(viewMode === "week")}>
+          Week
+        </button>
+      </div>
+      <input
+        type="date"
+        value={date}
+        onChange={(event) => {
+          if (event.target.value) {
+            jumpToDate(event.target.value);
+          }
+        }}
+        aria-label={viewMode === "day" ? "Jump to date" : "Jump to week containing date"}
+        className={DATE_INPUT_CLASS}
+      />
     </div>
   );
 }

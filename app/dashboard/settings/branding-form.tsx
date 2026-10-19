@@ -93,74 +93,74 @@ export function BrandingForm({ organization }: { organization: Organization }) {
     <div className="flex flex-col gap-8">
       <form
         onSubmit={handleColorFontSave}
-        className="flex flex-col gap-5 rounded-lg border border-zinc-200 bg-white p-6"
+        className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6"
       >
-        <h2 className="text-sm font-semibold text-zinc-950">Colors &amp; font</h2>
+        <h2 className="text-sm font-semibold text-foreground">Colors &amp; font</h2>
 
         <div className="flex flex-wrap gap-6">
-          <label className="flex flex-col gap-2 text-sm font-medium text-zinc-700">
+          <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
             Primary color
             <div className="flex items-center gap-2">
               <input
                 type="color"
                 value={primaryColor}
                 onChange={(event) => setPrimaryColor(event.target.value)}
-                className="h-9 w-9 cursor-pointer rounded border border-zinc-200"
+                className="h-9 w-9 cursor-pointer rounded border border-border"
               />
               <input
                 type="text"
                 value={primaryColor}
                 onChange={(event) => setPrimaryColor(event.target.value)}
                 pattern="^#[0-9a-fA-F]{6}$"
-                className="w-28 rounded-md border border-zinc-200 px-2 py-1 text-sm"
+                className="w-28 rounded-md border border-border px-2 py-1 text-sm"
               />
             </div>
           </label>
 
-          <label className="flex flex-col gap-2 text-sm font-medium text-zinc-700">
+          <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
             Accent color
             <div className="flex items-center gap-2">
               <input
                 type="color"
                 value={accentColor}
                 onChange={(event) => setAccentColor(event.target.value)}
-                className="h-9 w-9 cursor-pointer rounded border border-zinc-200"
+                className="h-9 w-9 cursor-pointer rounded border border-border"
               />
               <input
                 type="text"
                 value={accentColor}
                 onChange={(event) => setAccentColor(event.target.value)}
                 pattern="^#[0-9a-fA-F]{6}$"
-                className="w-28 rounded-md border border-zinc-200 px-2 py-1 text-sm"
+                className="w-28 rounded-md border border-border px-2 py-1 text-sm"
               />
             </div>
           </label>
 
-          <label className="flex flex-col gap-2 text-sm font-medium text-zinc-700">
+          <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
             Secondary color
             <div className="flex items-center gap-2">
               <input
                 type="color"
                 value={secondaryColor}
                 onChange={(event) => setSecondaryColor(event.target.value)}
-                className="h-9 w-9 cursor-pointer rounded border border-zinc-200"
+                className="h-9 w-9 cursor-pointer rounded border border-border"
               />
               <input
                 type="text"
                 value={secondaryColor}
                 onChange={(event) => setSecondaryColor(event.target.value)}
                 pattern="^#[0-9a-fA-F]{6}$"
-                className="w-28 rounded-md border border-zinc-200 px-2 py-1 text-sm"
+                className="w-28 rounded-md border border-border px-2 py-1 text-sm"
               />
             </div>
           </label>
 
-          <label className="flex flex-col gap-2 text-sm font-medium text-zinc-700">
+          <label className="flex flex-col gap-2 text-sm font-medium text-foreground">
             Font
             <select
               value={fontFamily}
               onChange={(event) => setFontFamily(event.target.value)}
-              className="rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+              className="rounded-md border border-border px-2 py-1.5 text-sm"
             >
               {ALLOWED_FONTS.map((font) => (
                 <option key={font} value={font}>
@@ -176,14 +176,14 @@ export function BrandingForm({ organization }: { organization: Organization }) {
         <button
           type="submit"
           disabled={colorStatus === "saving"}
-          className="w-fit rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+          className="w-fit rounded-md bg-brand-accent px-4 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
         >
           {colorStatus === "saving" ? "Saving..." : "Save colors & font"}
         </button>
       </form>
 
-      <div className="flex flex-col gap-4 rounded-lg border border-zinc-200 bg-white p-6">
-        <h2 className="text-sm font-semibold text-zinc-950">Logo</h2>
+      <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6">
+        <h2 className="text-sm font-semibold text-foreground">Logo</h2>
 
         {logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- external Supabase Storage URL, not a local/optimizable asset
@@ -198,7 +198,7 @@ export function BrandingForm({ organization }: { organization: Organization }) {
             style={{ height: "4rem", width: "auto", objectFit: "contain" }}
           />
         ) : (
-          <p className="text-sm text-zinc-500">No logo uploaded yet.</p>
+          <p className="text-sm text-muted-foreground">No logo uploaded yet.</p>
         )}
 
         <input
@@ -210,7 +210,7 @@ export function BrandingForm({ organization }: { organization: Organization }) {
           className="text-sm"
         />
 
-        {logoStatus === "saving" && <p className="text-sm text-zinc-500">Uploading...</p>}
+        {logoStatus === "saving" && <p className="text-sm text-muted-foreground">Uploading...</p>}
         {logoError && <p className="text-sm text-red-600">{logoError}</p>}
       </div>
     </div>

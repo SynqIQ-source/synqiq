@@ -61,11 +61,11 @@ export default async function ImportsPage() {
         <ImportForm />
 
         <section>
-          <h2 className="text-sm font-semibold text-zinc-950">Recent imports</h2>
-          <div className="mt-3 overflow-x-auto rounded-lg border">
+          <h2 className="text-sm font-semibold text-foreground">Recent imports</h2>
+          <div className="mt-3 overflow-x-auto rounded-xl border bg-card">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-xs text-zinc-500">
+                <tr className="border-b text-xs text-muted-foreground">
                   <th className="p-3 text-left">Uploaded</th>
                   <th className="p-3 text-left">Report</th>
                   <th className="p-3 text-left">File</th>
@@ -80,7 +80,7 @@ export default async function ImportsPage() {
               <tbody>
                 {(batches ?? []).length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-6 text-center text-sm text-zinc-500">
+                    <td colSpan={9} className="p-6 text-center text-sm text-muted-foreground">
                       No imports yet.
                     </td>
                   </tr>
@@ -91,10 +91,10 @@ export default async function ImportsPage() {
 
                     return (
                       <tr key={batch.id} className="border-b">
-                        <td className="p-3 text-zinc-600">{new Date(batch.created_at).toLocaleString()}</td>
-                        <td className="p-3 text-zinc-950">{batch.report_type}</td>
-                        <td className="p-3 text-zinc-600">{batch.filename}</td>
-                        <td className="p-3 text-zinc-600">{uploaderName(batch.staff)}</td>
+                        <td className="p-3 text-muted-foreground">{new Date(batch.created_at).toLocaleString()}</td>
+                        <td className="p-3 text-foreground">{batch.report_type}</td>
+                        <td className="p-3 text-muted-foreground">{batch.filename}</td>
+                        <td className="p-3 text-muted-foreground">{uploaderName(batch.staff)}</td>
                         <td className="p-3 text-right">{batch.row_count}</td>
                         <td className="p-3 text-right">{batch.inserted_count}</td>
                         <td className="p-3 text-right">{batch.duplicate_count}</td>
@@ -118,11 +118,11 @@ export default async function ImportsPage() {
                               {zeroRevenueCappedCount} $0 comp{zeroRevenueCappedCount === 1 ? "" : "s"}
                             </Link>
                           ) : excludedUncappedCount > 0 ? (
-                            <span className="text-xs text-zinc-500">
+                            <span className="text-xs text-muted-foreground">
                               {excludedUncappedCount} excluded (uncapped)
                             </span>
                           ) : (
-                            <span className="text-xs text-zinc-400">--</span>
+                            <span className="text-xs text-muted-foreground">--</span>
                           )}
                         </td>
                       </tr>

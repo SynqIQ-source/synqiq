@@ -43,18 +43,18 @@ export function TrainerHealthSettingsForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="mt-8 flex flex-col gap-5 rounded-lg border border-zinc-200 bg-white p-6"
+      className="mt-8 flex flex-col gap-5 rounded-xl border border-border bg-card p-6"
     >
       <div>
-        <h2 className="text-sm font-semibold text-zinc-950">Trainer health benchmark</h2>
-        <p className="mt-1 text-sm text-zinc-600">
+        <h2 className="text-sm font-semibold text-foreground">Trainer health benchmark</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Expected revenue per session serviced -- used on the Trainer Health page to flag
           trainers whose credited sales fall below this benchmark. Adjust this periodically as
           real pricing changes; it isn&apos;t a fixed constant.
         </p>
       </div>
 
-      <label className="flex w-fit flex-col gap-2 text-sm font-medium text-zinc-700">
+      <label className="flex w-fit flex-col gap-2 text-sm font-medium text-foreground">
         Expected revenue per session ($)
         <input
           type="number"
@@ -62,7 +62,7 @@ export function TrainerHealthSettingsForm({
           step="0.01"
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          className="w-40 rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+          className="w-40 rounded-md border border-border px-2 py-1.5 text-sm"
         />
       </label>
 
@@ -71,7 +71,7 @@ export function TrainerHealthSettingsForm({
       <button
         type="submit"
         disabled={status === "saving"}
-        className="w-fit rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+        className="w-fit rounded-md bg-brand-accent px-4 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
       >
         {status === "saving" ? "Saving..." : "Save benchmark"}
       </button>

@@ -74,7 +74,7 @@ export default async function CompAuditPage() {
   return (
     <DashboardShell
       title="Comp Audit"
-      description="Every imported revenue row showing $0 on a package that should carry real value -- a real signal for an unapproved comp or trade, not just a data-quality note. Sort or filter by staff or client to spot a repeated pattern."
+      description="Paid packages that rang up at $0, a sign of an unapproved comp or trade. Sort or filter by staff or client to spot patterns."
     >
       <CompAuditTable rows={rows} />
     </DashboardShell>

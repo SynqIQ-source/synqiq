@@ -101,36 +101,36 @@ export function NotificationsForm() {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-6">
-      <h2 className="text-sm font-semibold text-zinc-950">Notifications on this device</h2>
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-6">
+      <h2 className="text-sm font-semibold text-foreground">Notifications on this device</h2>
 
       {status === "unsupported" && (
-        <p className="text-sm text-zinc-500">This browser doesn&apos;t support push notifications.</p>
+        <p className="text-sm text-muted-foreground">This browser doesn&apos;t support push notifications.</p>
       )}
-      {status === "checking" && <p className="text-sm text-zinc-500">Checking status...</p>}
+      {status === "checking" && <p className="text-sm text-muted-foreground">Checking status...</p>}
       {status === "denied" && (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted-foreground">
           Notifications are blocked for this site in your browser settings. Allow them there to enable this.
         </p>
       )}
       {status === "disabled" && (
         <>
-          <p className="text-sm text-zinc-500">Get notified here about open sub requests and new messages.</p>
+          <p className="text-sm text-muted-foreground">Get notified here about open sub requests and new messages.</p>
           <button
             onClick={handleEnable}
-            className="w-fit rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            className="w-fit rounded-md bg-brand-accent px-4 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover"
           >
             Enable notifications
           </button>
         </>
       )}
-      {status === "enabling" && <p className="text-sm text-zinc-500">Working...</p>}
+      {status === "enabling" && <p className="text-sm text-muted-foreground">Working...</p>}
       {status === "enabled" && (
         <>
           <p className="text-sm text-emerald-700">Notifications are enabled on this device.</p>
           <button
             onClick={handleDisable}
-            className="w-fit rounded-md border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            className="w-fit rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
           >
             Disable on this device
           </button>

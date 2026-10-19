@@ -1,5 +1,8 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { HandHelping, Percent, Send } from "lucide-react";
+import { KpiCard } from "@/components/dashboard/kpi-card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
@@ -404,65 +407,54 @@ export default async function InstructorsPage({
   return (
     <DashboardShell
       title="Instructors"
-      description="Coverage activity per instructor: what they release, what they teach, and what they pick up for others."
+      description="Who teaches the most, how full their classes are, and who releases or picks up classes."
+      actions={<RangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />}
     >
-      <div className="flex flex-wrap items-start gap-6">
-        <RangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />
-        <ClassFilterSelect
-          departments={classFilterOptions.departments}
-          classNamesByDepartment={classFilterOptions.classNamesByDepartment}
-          allClassNames={classFilterOptions.allClassNames}
-          selectedDepartmentId={selectedDepartmentId}
-          selectedClassName={selectedClassName}
-        />
-      </div>
-
-      <section className="mt-6">
-        <h2 className="text-base font-semibold text-zinc-950">
-          Studio-wide{isFiltered ? ` — ${filterLabel}` : ""}
-        </h2>
-        <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <StatCard label="Classes Released for Coverage" value={totalReleased.toString()} />
-          <StatCard label="Picked Up as a Sub" value={totalPickedUp.toString()} />
-          <StatCard
-            label="Org-wide Pickup Rate"
-            value={totalReleased > 0 ? `${((totalPickedUp / totalReleased) * 100).toFixed(0)}%` : "N/A"}
+      <div className="flex flex-col gap-6">
+        <section className="grid gap-4 sm:grid-cols-3">
+          <KpiCard
+            icon={Send}
+            label="Released for coverage"
+            value={totalReleased.toLocaleString()}
+            detail={isFiltered ? `For ${filterLabel}` : "Sub requests created"}
           />
-        </div>
-      </section>
+          <KpiCard
+            icon={HandHelping}
+            label="Picked up as a sub"
+            value={totalPickedUp.toLocaleString()}
+            detail="Approved and covered"
+          />
+          <KpiCard
+            icon={Percent}
+            label="Pickup rate"
+            value={totalReleased > 0 ? `${((totalPickedUp / totalReleased) * 100).toFixed(0)}%` : "—"}
+            detail="Released classes that got covered"
+          />
+        </section>
 
-      <section className="mt-10">
-        <h2 className="text-base font-semibold text-zinc-950">
-          By Instructor{isFiltered ? ` — ${filterLabel}` : ""}
-        </h2>
+        <Card className="gap-0 py-0">
+          <CardHeader className="flex flex-col gap-3 border-b py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>By instructor</CardTitle>
+              <CardDescription>{isFiltered ? `Filtered to ${filterLabel}` : "All departments and classes"}</CardDescription>
+            </div>
+            <ClassFilterSelect
+              departments={classFilterOptions.departments}
+              classNamesByDepartment={classFilterOptions.classNamesByDepartment}
+              allClassNames={classFilterOptions.allClassNames}
+              selectedDepartmentId={selectedDepartmentId}
+              selectedClassName={selectedClassName}
+            />
+          </CardHeader>
+          <InstructorTable rows={instructorStats} />
+        </Card>
 
-        <InstructorTable rows={instructorStats} />
-
-        <p className="mt-3 max-w-3xl text-xs leading-5 text-zinc-500">
-          <span className="font-medium text-zinc-600">Classes Scheduled</span> and{" "}
-          <span className="font-medium text-zinc-600">Avg Fill Rate</span> are scoped to the time
-          frame and class filter above, and only count classes that have already occurred.{" "}
-          <span className="font-medium text-zinc-600">Avg Fill Rate</span> is a true aggregate
-          (total signed-in ÷ total capacity across every matching class) so it benchmarks
-          instructors on one blended number
-          {isFiltered ? " for the selected class" : ", any department or class name"}, not one
-          that shifts occurrence-to-occurrence.{" "}
-          <span className="font-medium text-zinc-600">Released for Coverage</span> counts requests
-          created in the window; <span className="font-medium text-zinc-600">
-            Picked Up as Sub
-          </span>{" "}
-          counts approved requests resolved in the window.
+        <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
+          Classes taught and fill rate only count classes that have already happened. Fill rate is total
+          check-ins ÷ total capacity across every matching class. Released counts sub requests created in the
+          time frame; picked up counts requests approved in it.
         </p>
-      </section>
+      </div>
     </DashboardShell>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-6">
-      <p className="text-sm font-medium text-zinc-600">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-zinc-950">{value}</p>
-    </div>
   );
 }

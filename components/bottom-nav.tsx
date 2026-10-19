@@ -4,43 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { isActiveNavHref } from "@/lib/nav-active";
-import {
-  BookOpen,
-  Bell,
-  Calendar,
-  ClipboardList,
-  Flame,
-  KeyRound,
-  LayoutDashboard,
-  MessageSquare,
-  MoreHorizontal,
-  Repeat2,
-  Settings,
-  ShieldAlert,
-  TrendingUp,
-  Upload,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
+import { NAV_ICONS_BY_HREF } from "@/lib/nav-icons";
 
 export type NavItem = { href: string; label: string };
 
-const ICONS_BY_HREF: Record<string, LucideIcon> = {
-  "/dashboard": LayoutDashboard,
-  "/dashboard/classes": BookOpen,
-  "/dashboard/schedule": Calendar,
-  "/dashboard/sub-requests": Repeat2,
-  "/dashboard/messages": MessageSquare,
-  "/dashboard/notifications": Bell,
-  "/dashboard/heatmap": Flame,
-  "/dashboard/instructors": Users,
-  "/dashboard/trainer-health": TrendingUp,
-  "/dashboard/substitutions": ClipboardList,
-  "/dashboard/settings": Settings,
-  "/dashboard/settings/imports": Upload,
-  "/dashboard/settings/staff": KeyRound,
-  "/dashboard/comp-audit": ShieldAlert,
-};
 
 // Shorter labels than the desktop sidebar's -- these sit under a small
 // icon at ~78px tab width, where "My Schedule"/"Sub Requests"/"Message
@@ -53,7 +21,7 @@ const PRIMARY_LABEL_OVERRIDES: Record<string, string> = {
 };
 
 function TabIcon({ href, className }: { href: string; className: string }) {
-  const Icon = ICONS_BY_HREF[href];
+  const Icon = NAV_ICONS_BY_HREF[href];
   return Icon ? <Icon className={className} /> : null;
 }
 
@@ -71,7 +39,7 @@ export function BottomNav({
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 flex h-16 items-stretch bg-primary pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 flex h-16 items-stretch border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       aria-label="Primary"
     >
       {primaryItems.map((item) => {
@@ -82,10 +50,10 @@ export function BottomNav({
             href={item.href}
             onClick={() => setMoreOpen(false)}
             className={`relative flex flex-1 flex-col items-center justify-center gap-1 text-xs font-medium ${
-              active ? "text-white" : "text-white/70"
+              active ? "text-primary" : "text-muted-foreground"
             }`}
           >
-            {active && <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-white" />}
+            {active && <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />}
             <TabIcon href={item.href} className="h-5 w-5" />
             <span>{PRIMARY_LABEL_OVERRIDES[item.href] ?? item.label}</span>
           </Link>
@@ -100,18 +68,18 @@ export function BottomNav({
             aria-label={moreOpen ? "Close more menu" : "Open more menu"}
             aria-expanded={moreOpen}
             className={`relative flex flex-1 flex-col items-center justify-center gap-1 text-xs font-medium ${
-              moreOpen || moreIsActive ? "text-white" : "text-white/70"
+              moreOpen || moreIsActive ? "text-primary" : "text-muted-foreground"
             }`}
           >
             {(moreOpen || moreIsActive) && (
-              <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-white" />
+              <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />
             )}
             <MoreHorizontal className="h-5 w-5" />
             <span>More</span>
           </button>
 
           {moreOpen && (
-            <ul className="absolute bottom-full right-0 mb-2 w-56 rounded-md border border-zinc-200 bg-white p-2 shadow-lg">
+            <ul className="absolute bottom-full right-0 mb-2 w-56 rounded-lg border bg-popover p-1.5 text-popover-foreground shadow-lg">
               {moreItems.map((item) => {
                 const active = isActiveNavHref(pathname, item.href);
                 return (
@@ -120,7 +88,7 @@ export function BottomNav({
                       href={item.href}
                       onClick={() => setMoreOpen(false)}
                       className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium ${
-                        active ? "text-primary" : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950"
+                        active ? "bg-primary-subtle text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground"
                       }`}
                     >
                       <TabIcon href={item.href} className="h-4 w-4" />

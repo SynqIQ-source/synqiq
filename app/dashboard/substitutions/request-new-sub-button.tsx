@@ -74,40 +74,40 @@ export function RequestNewSubButton({
       <button
         type="button"
         onClick={openModal}
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-secondary hover:bg-zinc-50"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-brand-secondary hover:bg-accent"
       >
         Request New Sub
       </button>
 
       {isOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 px-4">
-          <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-6 shadow-lg">
-            <h2 className="text-base font-semibold text-zinc-950">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg">
+            <h2 className="text-base font-semibold text-foreground">
               Request a New Substitute
             </h2>
-            <p className="mt-2 text-sm text-zinc-600">
+            <p className="mt-2 text-sm text-muted-foreground">
               The previously approved substitute can no longer cover this
               class. This closes out that approval and opens a fresh request.
             </p>
-            <dl className="mt-4 space-y-1 text-sm text-zinc-600">
+            <dl className="mt-4 space-y-1 text-sm text-muted-foreground">
               <div className="flex justify-between gap-4">
-                <dt className="text-zinc-500">Class</dt>
-                <dd className="text-right text-zinc-950">{className}</dd>
+                <dt className="text-muted-foreground">Class</dt>
+                <dd className="text-right text-foreground">{className}</dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-zinc-500">Time</dt>
-                <dd className="text-right text-zinc-950">{startFormatted}</dd>
+                <dt className="text-muted-foreground">Time</dt>
+                <dd className="text-right text-foreground">{startFormatted}</dd>
               </div>
               <div className="flex justify-between gap-4">
-                <dt className="text-zinc-500">Room</dt>
-                <dd className="text-right text-zinc-950">{roomName}</dd>
+                <dt className="text-muted-foreground">Room</dt>
+                <dd className="text-right text-foreground">{roomName}</dd>
               </div>
             </dl>
 
             <form onSubmit={handleSubmit} className="mt-5">
-              <label className="block text-sm font-medium text-zinc-700">
+              <label className="block text-sm font-medium text-foreground">
                 Reason{" "}
-                <span className="font-normal text-zinc-500">
+                <span className="font-normal text-muted-foreground">
                   (visible to managers only)
                 </span>
                 <textarea
@@ -115,7 +115,7 @@ export function RequestNewSubButton({
                   onChange={(event) => setReason(event.target.value)}
                   rows={3}
                   placeholder="Optional"
-                  className="mt-1 w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-950"
+                  className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm text-foreground"
                 />
               </label>
 
@@ -127,14 +127,14 @@ export function RequestNewSubButton({
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
+                  className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={status === "submitting"}
-                  className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                  className="rounded-md bg-brand-accent px-3 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
                 >
                   {status === "submitting" ? "Submitting..." : "Submit Request"}
                 </button>

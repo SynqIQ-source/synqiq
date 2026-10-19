@@ -4,6 +4,18 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { excludedDepartmentIds } from "@/lib/excluded-departments";
 import { OverviewRangeSelect } from "./overview-range-select";
+import {
+  DepartmentFillRateChart,
+  WeeklyFillRateChart,
+  type DepartmentPoint,
+  type WeeklyPoint,
+} from "./overview-charts";
+import { CalendarCheck, Gauge, UserCheck, Users } from "lucide-react";
+import { KpiCard } from "@/components/dashboard/kpi-card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type OverviewRow = {
   id: string;
@@ -625,151 +637,223 @@ export default async function DashboardPage({
     return { department, totalClients, uniqueClients, participationPct, frequency };
   });
 
+  const weeklyTrend = buildWeeklyTrend(rows, timezone, range === "all" ? 26 : null);
+  const departmentChartData: DepartmentPoint[] = departmentRows
+    .filter(({ summary }) => summary.totalClasses > 0 && summary.fillRatePct !== null)
+    .map(({ department, summary }) => ({
+      department: department.name,
+      fillRate: Number((summary.fillRatePct ?? 0).toFixed(1)),
+      classes: summary.totalClasses,
+    }))
+    .sort((a, b) => b.fillRate - a.fillRate);
+
+  const periodLabel = range === "all" ? "All synced history" : `${formatDate(rangeStart)} – ${formatDate(rangeEnd)}`;
+  const hasClasses = orgSummary.totalClasses > 0;
+
   return (
     <DashboardShell
       title="Overview"
-      description="Studio health at a glance, based on synced Mindbody class data."
+      description="Studio health at a glance, from your synced Mindbody classes."
+      actions={<OverviewRangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />}
     >
-      <OverviewRangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />
-
-      <section className="mt-6">
-        <h2 className="text-base font-semibold text-zinc-950">Studio-wide</h2>
-        <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total Classes" value={orgSummary.totalClasses.toString()} />
-          <StatCard
-            label="Avg Class Size"
-            value={orgSummary.totalClasses > 0 ? orgSummary.avgClassSize.toFixed(1) : "N/A"}
+      <div className="flex flex-col gap-6">
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            icon={CalendarCheck}
+            label="Classes held"
+            value={orgSummary.totalClasses.toLocaleString()}
+            detail={hasClasses ? `${orgSummary.emptyClasses.toLocaleString()} had no one check in` : periodLabel}
           />
-          <StatCard
-            label="Fill Rate"
-            value={orgSummary.fillRatePct !== null ? `${orgSummary.fillRatePct.toFixed(1)}%` : "N/A"}
+          <KpiCard
+            icon={Users}
+            label="Avg class size"
+            value={hasClasses ? orgSummary.avgClassSize.toFixed(1) : "—"}
+            detail="checked-in clients per class"
           />
-          <StatCard
+          <KpiCard
+            icon={Gauge}
+            label="Fill rate"
+            value={formatPercent(orgSummary.fillRatePct)}
+            detail="of class capacity used"
+          />
+          <KpiCard
+            icon={UserCheck}
             label="Attendance"
-            value={orgSummary.attendancePct !== null ? `${orgSummary.attendancePct.toFixed(1)}%` : "N/A"}
+            value={formatPercent(orgSummary.attendancePct)}
+            detail="of bookings that checked in"
           />
-        </div>
-      </section>
+        </section>
 
-      <section className="mt-10">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="text-base font-semibold text-zinc-950">By Department</h2>
-          <p className="text-sm text-zinc-500">
-            Sorted by total classes · this period ={" "}
-            {range === "all"
-              ? "all synced history to date"
-              : `${rangeStart} to ${rangeEnd}`}
-          </p>
-        </div>
+        <section className="grid gap-4 lg:grid-cols-5">
+          <Card className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle>Fill rate by week</CardTitle>
+              <CardDescription>{range === "all" ? "Last 26 weeks of synced history" : periodLabel}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {weeklyTrend.length > 1 ? (
+                <WeeklyFillRateChart data={weeklyTrend} />
+              ) : (
+                <EmptyState text="Not enough weeks in this period to show a trend." />
+              )}
+            </CardContent>
+          </Card>
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Fill rate by department</CardTitle>
+              <CardDescription>{periodLabel}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {departmentChartData.length > 0 ? (
+                <DepartmentFillRateChart data={departmentChartData} />
+              ) : (
+                <EmptyState text="No classes in this period yet." />
+              )}
+            </CardContent>
+          </Card>
+        </section>
 
-        <div className="mt-3 overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b">
-                <th className="p-3"></th>
-                <th className="border-l p-3 text-left text-xs font-semibold text-zinc-950" colSpan={4}>
-                  This period
-                </th>
-                <th className="border-l p-3 text-left text-xs font-semibold text-zinc-950" colSpan={4}>
-                  Client engagement
-                </th>
-                <th className="border-l p-3 text-left text-xs font-semibold text-zinc-950" colSpan={3}>
-                  Cost
-                </th>
-              </tr>
-              <tr className="border-b text-xs text-zinc-500">
-                <th className="p-3 text-left">Department</th>
-                <th className="border-l p-3 text-right">Classes</th>
-                <th className="p-3 text-right">Avg Size</th>
-                <th className="p-3 text-right">Empty</th>
-                <th className="p-3 text-right">Fill Rate</th>
-                <th className="border-l p-3 text-right">Total Clients</th>
-                <th className="p-3 text-right">Unique Clients</th>
-                <th className="p-3 text-right">Participation</th>
-                <th className="p-3 text-right">Frequency</th>
-                <th className="border-l p-3 text-right">Total Spend</th>
-                <th className="p-3 text-right">Avg / Class</th>
-                <th className="p-3 text-right">vs. Prior Period</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b bg-zinc-50 font-semibold">
-                <td className="p-3">All departments</td>
-                <td className="border-l p-3 text-right">{orgSummary.totalClasses}</td>
-                <td className="p-3 text-right">
-                  {orgSummary.totalClasses > 0 ? orgSummary.avgClassSize.toFixed(1) : "N/A"}
-                </td>
-                <td className="p-3 text-right">{orgSummary.emptyClasses}</td>
-                <td className="p-3 text-right">
-                  {orgSummary.fillRatePct !== null ? `${orgSummary.fillRatePct.toFixed(1)}%` : "N/A"}
-                </td>
-                <td className="border-l p-3 text-right">
-                  {orgSummary.totalClasses > 0 ? orgClientEngagement.totalClients : "N/A"}
-                </td>
-                <td className="p-3 text-right">
-                  {orgSummary.totalClasses > 0 ? orgClientEngagement.uniqueClients : "N/A"}
-                </td>
-                <td className="p-3 text-right">
-                  {orgClientEngagement.participationPct !== null
-                    ? `${orgClientEngagement.participationPct.toFixed(1)}%`
-                    : "N/A"}
-                </td>
-                <td className="p-3 text-right">
-                  {orgClientEngagement.frequency !== null ? orgClientEngagement.frequency.toFixed(1) : "N/A"}
-                </td>
-                <td className="border-l p-3 text-right">
-                  {orgSummary.totalClasses > 0 ? formatCurrency(allDepartmentsTotalSpend) : "N/A"}
-                </td>
-                <td className="p-3 text-right">
-                  {allDepartmentsAvgPerClass !== null ? formatCurrencyPerClass(allDepartmentsAvgPerClass) : "N/A"}
-                </td>
-                <td className="p-3 text-right">{formatVsPrior(allDepartmentsVsPriorPct)}</td>
-              </tr>
-              {departmentRows.map(({ department, summary }, index) => {
-                const cost = departmentCostRows[index];
-                const engagement = departmentClientRows[index];
-                return (
-                  <tr key={department.id} className="border-b">
-                    <td className="p-3 font-medium">{department.name}</td>
-                    <td className="border-l p-3 text-right">{summary.totalClasses}</td>
-                    <td className="p-3 text-right">
-                      {summary.totalClasses > 0 ? summary.avgClassSize.toFixed(1) : "N/A"}
-                    </td>
-                    <td className="p-3 text-right">{summary.totalClasses > 0 ? summary.emptyClasses : "N/A"}</td>
-                    <td className="p-3 text-right">
-                      {summary.fillRatePct !== null ? `${summary.fillRatePct.toFixed(1)}%` : "N/A"}
-                    </td>
-                    <td className="border-l p-3 text-right">{engagement.totalClients ?? "N/A"}</td>
-                    <td className="p-3 text-right">{engagement.uniqueClients ?? "N/A"}</td>
-                    <td className="p-3 text-right">
-                      {engagement.participationPct !== null ? `${engagement.participationPct.toFixed(1)}%` : "N/A"}
-                    </td>
-                    <td className="p-3 text-right">
-                      {engagement.frequency !== null ? engagement.frequency.toFixed(1) : "N/A"}
-                    </td>
-                    <td className="border-l p-3 text-right">
-                      {cost.totalSpend !== null ? formatCurrency(cost.totalSpend) : "N/A"}
-                    </td>
-                    <td className="p-3 text-right">
-                      {cost.avgPerClass !== null ? formatCurrencyPerClass(cost.avgPerClass) : "N/A"}
-                    </td>
-                    <td className="p-3 text-right">{formatVsPrior(cost.vsPriorPct)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        <p className="mt-3 max-w-3xl text-xs leading-5 text-zinc-500">
-          Every column on this table is real, computed from synced{" "}
-          <code>class_occurrences</code>/<code>class_visits</code>/<code>clients</code> and imported{" "}
-          <code>payroll_line_items</code>. Frequency is Total Clients ÷ Unique Clients; Participation
-          is Unique Clients ÷ studio-wide active members.
-        </p>
-      </section>
+        <Card>
+          <Tabs defaultValue="classes" className="gap-4">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle>By department</CardTitle>
+                <CardDescription>{periodLabel} · sorted by classes held</CardDescription>
+              </div>
+              <TabsList>
+                <TabsTrigger value="classes">Classes</TabsTrigger>
+                <TabsTrigger value="clients">Clients</TabsTrigger>
+                <TabsTrigger value="cost">Cost</TabsTrigger>
+              </TabsList>
+            </CardHeader>
+            <CardContent>
+              <TabsContent value="classes">
+                <DepartmentTable
+                  columns={["Classes", "Avg size", "Empty", "Fill rate"]}
+                  total={[
+                    orgSummary.totalClasses.toLocaleString(),
+                    hasClasses ? orgSummary.avgClassSize.toFixed(1) : "—",
+                    orgSummary.emptyClasses.toLocaleString(),
+                    formatPercent(orgSummary.fillRatePct),
+                  ]}
+                  rows={departmentRows.map(({ department, summary }) => ({
+                    id: department.id,
+                    name: department.name,
+                    inactive: summary.totalClasses === 0,
+                    cells: [
+                      summary.totalClasses.toLocaleString(),
+                      summary.totalClasses > 0 ? summary.avgClassSize.toFixed(1) : "—",
+                      summary.totalClasses > 0 ? summary.emptyClasses.toLocaleString() : "—",
+                      formatPercent(summary.fillRatePct),
+                    ],
+                  }))}
+                  footnote="Empty = classes where no one checked in. Fill rate = checked-in clients ÷ class capacity."
+                />
+              </TabsContent>
+              <TabsContent value="clients">
+                <DepartmentTable
+                  columns={["Visits", "Unique clients", "Participation", "Visits / client"]}
+                  total={[
+                    hasClasses ? orgClientEngagement.totalClients.toLocaleString() : "—",
+                    hasClasses ? orgClientEngagement.uniqueClients.toLocaleString() : "—",
+                    formatPercent(orgClientEngagement.participationPct),
+                    orgClientEngagement.frequency !== null ? orgClientEngagement.frequency.toFixed(1) : "—",
+                  ]}
+                  rows={departmentRows.map(({ department, summary }, index) => {
+                    const engagement = departmentClientRows[index];
+                    return {
+                      id: department.id,
+                      name: department.name,
+                      inactive: summary.totalClasses === 0,
+                      cells: [
+                        engagement.totalClients?.toLocaleString() ?? "—",
+                        engagement.uniqueClients?.toLocaleString() ?? "—",
+                        formatPercent(engagement.participationPct),
+                        engagement.frequency !== null ? engagement.frequency.toFixed(1) : "—",
+                      ],
+                    };
+                  })}
+                  footnote="Participation = share of active members who took at least one class in the department. Visits / client = visits ÷ unique clients."
+                />
+              </TabsContent>
+              <TabsContent value="cost">
+                <DepartmentTable
+                  columns={["Instructor pay", "Per class", "vs. prior period"]}
+                  total={[
+                    hasClasses ? formatCurrency(allDepartmentsTotalSpend) : "—",
+                    allDepartmentsAvgPerClass !== null ? formatCurrencyPerClass(allDepartmentsAvgPerClass) : "—",
+                    formatVsPrior(allDepartmentsVsPriorPct),
+                  ]}
+                  rows={departmentRows.map(({ department, summary }, index) => {
+                    const cost = departmentCostRows[index];
+                    return {
+                      id: department.id,
+                      name: department.name,
+                      inactive: summary.totalClasses === 0,
+                      cells: [
+                        cost.totalSpend !== null ? formatCurrency(cost.totalSpend) : "—",
+                        cost.avgPerClass !== null ? formatCurrencyPerClass(cost.avgPerClass) : "—",
+                        formatVsPrior(cost.vsPriorPct),
+                      ],
+                    };
+                  })}
+                  footnote={
+                    range === "all"
+                      ? "From imported payroll, matched to each class taught. Pick a time frame to compare against the prior period."
+                      : "From imported payroll, matched to each class taught. Compared with the same-length period just before."
+                  }
+                />
+              </TabsContent>
+            </CardContent>
+          </Tabs>
+        </Card>
+      </div>
     </DashboardShell>
   );
+}
+
+// Weekly fill rate (sum signed-in / sum capacity, the same true-aggregate
+// rule as summarize()) bucketed by org-local week start. maxWeeks trims the
+// "All synced history" view to recent weeks so the chart stays readable.
+// The current, still-in-progress week is left out: check-ins sync
+// overnight, so today's already-finished classes still show 0 signed in and
+// would drag that week's point toward 0%.
+function buildWeeklyTrend(rows: OverviewRow[], timezone: string, maxWeeks: number | null): WeeklyPoint[] {
+  const byWeek = new Map<string, { signedIn: number; capacity: number; classes: number }>();
+  const currentWeekStart = DateTime.now().setZone(timezone).startOf("week").toISODate() ?? "";
+
+  for (const row of rows) {
+    if (!row.start_datetime) {
+      continue;
+    }
+    const weekStart = DateTime.fromISO(row.start_datetime, { zone: "utc" }).setZone(timezone).startOf("week").toISODate();
+    if (!weekStart || weekStart >= currentWeekStart) {
+      continue;
+    }
+    const bucket = byWeek.get(weekStart) ?? { signedIn: 0, capacity: 0, classes: 0 };
+    bucket.signedIn += row.total_signed_in ?? 0;
+    bucket.capacity += row.max_capacity ?? 0;
+    bucket.classes += 1;
+    byWeek.set(weekStart, bucket);
+  }
+
+  const weeks = [...byWeek.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const trimmed = maxWeeks ? weeks.slice(-maxWeeks) : weeks;
+
+  return trimmed.map(([weekStart, bucket]) => ({
+    week: DateTime.fromISO(weekStart).toFormat("LLL d"),
+    fillRate: bucket.capacity > 0 ? Number(((bucket.signedIn / bucket.capacity) * 100).toFixed(1)) : null,
+    classes: bucket.classes,
+  }));
+}
+
+function formatDate(isoDate: string): string {
+  const parsed = DateTime.fromISO(isoDate);
+  return parsed.isValid ? parsed.toFormat("LLL d, yyyy") : isoDate;
+}
+
+function formatPercent(value: number | null): string {
+  return value !== null ? `${value.toFixed(1)}%` : "—";
 }
 
 function formatCurrency(value: number): string {
@@ -780,25 +864,87 @@ function formatCurrencyPerClass(value: number): string {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-// Plain black text by design, no arrows or red/green -- Cost is a finance
-// figure sitting next to the studio-health traffic-light color language used
-// elsewhere on this page (e.g. Heat Map), and conflating "cost went up" with
-// the same visual severity cue as "fill rate went down" would misrepresent
-// it: a cost increase isn't necessarily bad (more classes taught can raise
-// both spend and revenue together).
+// Plain text by design, no arrows or red/green -- Cost is a finance figure,
+// and a cost increase isn't necessarily bad (more classes taught can raise
+// both spend and revenue together), so it shouldn't borrow the same
+// severity cue as "fill rate went down".
 function formatVsPrior(pct: number | null): string {
   if (pct === null) {
-    return "N/A";
+    return "—";
   }
   const sign = pct < 0 ? "−" : "+";
   return `${sign}${Math.abs(pct).toFixed(1)}%`;
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
+function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-6">
-      <p className="text-sm font-medium text-zinc-600">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-zinc-950">{value}</p>
+    <div className="flex h-[160px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+      {text}
+    </div>
+  );
+}
+
+type DepartmentTableRow = { id: string; name: string; inactive: boolean; cells: string[] };
+
+function DepartmentTable({
+  columns,
+  total,
+  rows,
+  footnote,
+}: {
+  columns: string[];
+  total: string[];
+  rows: DepartmentTableRow[];
+  footnote?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
+              <TableHead className="pl-4">Department</TableHead>
+              {columns.map((column) => (
+                <TableHead key={column} className="text-right last:pr-4">
+                  {column}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id} className={row.inactive ? "text-muted-foreground" : undefined}>
+                <TableCell className="pl-4 font-medium">
+                  <span className="flex items-center gap-2">
+                    {row.name}
+                    {row.inactive ? (
+                      <Badge variant="outline" className="font-normal">
+                        No classes
+                      </Badge>
+                    ) : null}
+                  </span>
+                </TableCell>
+                {row.cells.map((cell, index) => (
+                  <TableCell key={columns[index]} className="text-right tabular-nums last:pr-4">
+                    {cell}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+          <TableFooter>
+            <TableRow>
+              <TableCell className="pl-4 font-semibold">All departments</TableCell>
+              {total.map((cell, index) => (
+                <TableCell key={columns[index]} className="text-right font-semibold tabular-nums last:pr-4">
+                  {cell}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </div>
+      {footnote ? <p className="text-xs leading-5 text-muted-foreground">{footnote}</p> : null}
     </div>
   );
 }

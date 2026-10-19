@@ -49,7 +49,7 @@ export function AccountMenu({ displayName, role, title, photoUrl }: AccountMenuP
         type="button"
         onClick={() => setIsOpen((open) => !open)}
         aria-label="Account menu"
-        className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-white/15 text-sm font-semibold text-white ring-2 ring-white/30 hover:ring-white/50"
+        className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-primary-subtle text-sm font-semibold text-primary ring-1 ring-border transition hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {photoUrl ? (
           // Avatar source is arbitrary per-user Storage content, not a
@@ -63,10 +63,10 @@ export function AccountMenu({ displayName, role, title, photoUrl }: AccountMenuP
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 mt-2 w-56 rounded-lg border border-zinc-200 bg-white py-2 shadow-lg">
-          <div className="border-b border-zinc-100 px-4 py-2">
-            <p className="truncate text-sm font-medium text-zinc-950">{displayName}</p>
-            <p className="truncate text-xs text-zinc-500">
+        <div className="absolute right-0 z-50 mt-2 w-56 rounded-lg border bg-popover py-1.5 text-popover-foreground shadow-lg">
+          <div className="border-b px-4 py-2">
+            <p className="truncate text-sm font-medium">{displayName}</p>
+            <p className="truncate text-xs text-muted-foreground">
               {title ? `${title} · ` : ""}
               {role === "admin" ? "Admin" : "Instructor"}
             </p>
@@ -74,14 +74,14 @@ export function AccountMenu({ displayName, role, title, photoUrl }: AccountMenuP
           <Link
             href="/dashboard/account"
             onClick={() => setIsOpen(false)}
-            className="block px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
+            className="block px-4 py-2 text-sm hover:bg-accent"
           >
             My Account
           </Link>
           <button
             type="button"
             onClick={handleLogout}
-            className="block w-full px-4 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
+            className="block w-full px-4 py-2 text-left text-sm hover:bg-accent"
           >
             Log out
           </button>

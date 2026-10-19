@@ -306,7 +306,7 @@ export default async function TrainerHealthPage() {
   return (
     <DashboardShell
       title="Trainer Health"
-      description={`Sessions serviced and sales credited per trainer, per month, benchmarked against $${org.expected_revenue_per_session.toFixed(2)}/session. Flags a trainer whose credited sales fall below ${(HEALTH_THRESHOLD * 100).toFixed(0)}% of that benchmark for ${CONSECUTIVE_MONTHS_TO_FLAG}+ consecutive months.`}
+      description={`Sessions and sales credited per trainer each month, against a $${org.expected_revenue_per_session.toFixed(2)}/session benchmark. Flagged after ${CONSECUTIVE_MONTHS_TO_FLAG}+ months under ${(HEALTH_THRESHOLD * 100).toFixed(0)}%.`}
     >
       <TrainerHealthTable
         // Luxon DateTime instances (bucket.start/end) aren't plain
@@ -320,13 +320,13 @@ export default async function TrainerHealthPage() {
         monthsShown={MONTHS_SHOWN}
       />
 
-      <p className="mt-3 max-w-3xl text-xs leading-5 text-zinc-500">
-        <span className="font-medium text-zinc-600">Sessions</span> counts appointments with status
-        Completed. <span className="font-medium text-zinc-600">Sales</span> is the total credited to
+      <p className="mt-3 max-w-3xl text-xs leading-5 text-muted-foreground">
+        <span className="font-medium text-muted-foreground">Sessions</span> counts appointments with status
+        Completed. <span className="font-medium text-muted-foreground">Sales</span> is the total credited to
         that trainer as sales rep (MindBody&apos;s SalesRepId), regardless of what was sold.{" "}
-        <span className="font-medium text-zinc-600">Ratio</span> is Sales ÷ (Sessions ×
+        <span className="font-medium text-muted-foreground">Ratio</span> is Sales ÷ (Sessions ×
         expected revenue per session, set in Settings) and reads N/A for a period with zero sessions
-        rather than a misleading 0%. <span className="font-medium text-zinc-600">Year to Date</span>{" "}
+        rather than a misleading 0%. <span className="font-medium text-muted-foreground">Year to Date</span>{" "}
         spans Jan 1 of the current year through today, independent of the {MONTHS_SHOWN}-month window
         shown per-month. Trainers with no activity in the last {MONTHS_SHOWN} months are omitted.
         Ranked worst-first by most recent month&apos;s ratio, with flagged trainers pinned to the top.

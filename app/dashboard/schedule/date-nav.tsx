@@ -2,12 +2,16 @@
 
 import { DateTime } from "luxon";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DATE_INPUT_CLASS } from "@/components/dashboard/preset-range-select";
 
 type DateNavProps = {
   date: string;
+  today: string;
 };
 
-export function DateNav({ date }: DateNavProps) {
+export function DateNav({ date, today }: DateNavProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -26,33 +30,29 @@ export function DateNav({ date }: DateNavProps) {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => shiftDate(-1)}
-        aria-label="Previous day"
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-      >
-        &lsaquo;
-      </button>
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1">
+        <Button variant="outline" size="icon" onClick={() => shiftDate(-1)} aria-label="Previous day">
+          <ChevronLeft />
+        </Button>
+        <Button variant="outline" onClick={() => navigate(today)} disabled={date === today}>
+          Today
+        </Button>
+        <Button variant="outline" size="icon" onClick={() => shiftDate(1)} aria-label="Next day">
+          <ChevronRight />
+        </Button>
+      </div>
       <input
         type="date"
         value={date}
+        aria-label="Jump to date"
         onChange={(event) => {
           if (event.target.value) {
             navigate(event.target.value);
           }
         }}
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-950"
+        className={DATE_INPUT_CLASS}
       />
-      <button
-        type="button"
-        onClick={() => shiftDate(1)}
-        aria-label="Next day"
-        className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100"
-      >
-        &rsaquo;
-      </button>
     </div>
   );
 }

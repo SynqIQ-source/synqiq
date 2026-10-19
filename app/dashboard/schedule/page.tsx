@@ -1,6 +1,8 @@
 import { DateTime } from "luxon";
-import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { CalendarX2, MapPin } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
@@ -10,7 +12,7 @@ import { SubRequestButton } from "./sub-request-button";
 
 const TITLE = "My Schedule";
 const DESCRIPTION =
-  "Your own class schedule, day by day -- request a substitute directly from a class card.";
+  "Your classes, day by day. Need cover? Request a sub right from the class.";
 
 type ScheduleOccurrenceRow = {
   id: string;
@@ -106,79 +108,80 @@ export default async function SchedulePage({
 
   const occurrences = await getScheduleForStaffOnDate(supabase, staffId, date, timezone);
 
+  const today = DateTime.now().setZone(timezone).toISODate() ?? "";
+  const dayLabel = date === today ? "Today" : DateTime.fromISO(date).toFormat("cccc");
+
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <CurrentUserBanner displayName={currentStaff.displayName} role={currentStaff.role} />
-        <DateNav date={date} />
-      </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-sm text-muted-foreground">{dayLabel}</p>
+            <h2 className="text-lg font-semibold tracking-tight">{DateTime.fromISO(date).toFormat("LLLL d, yyyy")}</h2>
+          </div>
+          <DateNav date={date} today={today} />
+        </div>
 
-      <div className="mt-6">
         {occurrences.length === 0 ? (
-          <section className="rounded-lg border border-zinc-200 bg-white p-6">
-            <h2 className="text-base font-semibold text-zinc-950">
-              No classes scheduled
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-zinc-600">
-              You have no classes on{" "}
-              {DateTime.fromISO(date).toFormat("EEE, MMM d")}.
-            </p>
-          </section>
+          <Card>
+            <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+              <CalendarX2 className="h-8 w-8 text-muted-foreground" />
+              <p className="font-medium">No classes scheduled</p>
+              <p className="text-sm text-muted-foreground">
+                You have nothing on {DateTime.fromISO(date).toFormat("cccc, LLL d")}.
+              </p>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              {occurrences.length} class{occurrences.length === 1 ? "" : "es"}
+            </p>
             {occurrences.map((occurrence) => {
-              const className = occurrence.class_name ?? "Unknown class";
-              const timeFormatted = formatClassTime(
-                occurrence.start_datetime,
-                occurrence.end_datetime,
-                timezone,
-              );
+              const className = occurrence.class_name?.trim() || "Unknown class";
+              const timeFormatted = formatClassTime(occurrence.start_datetime, occurrence.end_datetime, timezone);
               const roomName = occurrence.room?.name ?? "Not assigned";
               const staffDisplayName = occurrence.staff?.display_name ?? "";
               const isCovering = occurrence.substitute_staff_id === staffId;
+              const start = occurrence.start_datetime
+                ? DateTime.fromISO(occurrence.start_datetime, { zone: "utc" }).setZone(timezone)
+                : null;
+              const end = occurrence.end_datetime
+                ? DateTime.fromISO(occurrence.end_datetime, { zone: "utc" }).setZone(timezone)
+                : null;
 
               return (
-                <div
-                  key={occurrence.id}
-                  className="flex flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5"
-                >
-                  <div>
-                    <h3 className="text-base font-semibold text-zinc-950">
-                      {className}
-                    </h3>
-                    <dl className="mt-3 space-y-1 text-sm text-zinc-600">
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Time</dt>
-                        <dd className="text-right text-zinc-950">
-                          {timeFormatted}
-                        </dd>
+                <Card key={occurrence.id} className="py-0">
+                  <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+                    <div className="flex w-24 shrink-0 flex-col">
+                      <span className="text-lg font-semibold tabular-nums">{start ? start.toFormat("h:mm") : "—"}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {start ? start.toFormat("a") : ""}
+                        {end ? ` – ${end.toFormat("h:mm a")}` : ""}
+                      </span>
+                    </div>
+                    <div className="hidden w-px self-stretch bg-border sm:block" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-semibold">{className}</h3>
+                        {isCovering ? <Badge variant="secondary">Covering for {staffDisplayName}</Badge> : null}
                       </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Room</dt>
-                        <dd className="text-right text-zinc-950">
-                          {roomName}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Instructor</dt>
-                        <dd className="text-right text-zinc-950">
-                          {staffDisplayName}
-                          {isCovering ? " (you're covering)" : ""}
-                        </dd>
-                      </div>
-                    </dl>
+                      <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <MapPin className="h-3.5 w-3.5" />
+                        {roomName}
+                      </p>
+                    </div>
+                    <div className="sm:w-48">
+                      <SubRequestButton
+                        occurrenceId={occurrence.id}
+                        className={className}
+                        timeFormatted={timeFormatted}
+                        roomName={roomName}
+                        staffDisplayName={staffDisplayName}
+                      />
+                    </div>
                   </div>
-
-                  <div className="mt-5">
-                    <SubRequestButton
-                      occurrenceId={occurrence.id}
-                      className={className}
-                      timeFormatted={timeFormatted}
-                      roomName={roomName}
-                      staffDisplayName={staffDisplayName}
-                    />
-                  </div>
-                </div>
+                </Card>
               );
             })}
           </div>

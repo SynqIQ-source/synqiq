@@ -1,6 +1,9 @@
 import { DateTime } from "luxon";
-import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { CheckCircle2, Clock3 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
@@ -189,16 +192,6 @@ async function getOpenRequestsQualifiedFor(
   }));
 }
 
-function formatDateLabel(startDatetime: string | null, timezone: string | null) {
-  if (!startDatetime) {
-    return null;
-  }
-
-  return DateTime.fromISO(startDatetime, { zone: "utc" })
-    .setZone(timezone ?? "utc")
-    .toFormat("EEE, MMM d");
-}
-
 export default async function SubRequestsPage() {
   // middleware.ts already guarantees a real Supabase Auth session for
   // anything under /dashboard/* -- currentStaff can still be null here in
@@ -223,154 +216,148 @@ export default async function SubRequestsPage() {
 
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>
-      <CurrentUserBanner displayName={currentStaff.displayName} role={currentStaff.role} />
+      <Tabs defaultValue={rows.length === 0 && myRequests.length > 0 ? "mine" : "cover"} className="gap-4">
+        <TabsList>
+          <TabsTrigger value="cover">
+            You can cover
+            <CountPill count={rows.length} />
+          </TabsTrigger>
+          <TabsTrigger value="mine">
+            My requests
+            <CountPill count={myRequests.length} />
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="mt-6">
-        <h2 className="text-base font-semibold text-zinc-950">
-          My Requests
-        </h2>
-        {myRequests.length === 0 ? (
-          <p className="mt-2 text-sm text-zinc-600">
-            You have no open substitution requests.
-          </p>
-        ) : (
-          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {myRequests.map((request) => {
+        <TabsContent value="cover" className="flex flex-col gap-3">
+          {rows.length === 0 ? (
+            <EmptyCard
+              title="Nothing to cover right now"
+              text="When a class you're eligible to teach needs a sub, it shows up here."
+            />
+          ) : (
+            rows.map(({ request, myStatus }) => {
               const occurrence = request.occurrence;
-              const className = occurrence?.class_name ?? "Unknown class";
-              const dateLabel = formatDateLabel(
-                occurrence?.start_datetime ?? null,
-                occurrence?.organization?.timezone ?? null,
-              );
-              const timeRange = formatClassTime(
-                occurrence?.start_datetime ?? null,
-                occurrence?.end_datetime ?? null,
-                occurrence?.organization?.timezone ?? null,
-              );
-              const timeFormatted = dateLabel
-                ? `${dateLabel}, ${timeRange}`
-                : timeRange;
-              const roomName = occurrence?.room?.name ?? "Not assigned";
-
+              const timezone = occurrence?.organization?.timezone ?? null;
               return (
-                <div
+                <RequestRow
                   key={request.id}
-                  className="flex flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5"
-                >
-                  <div>
-                    <h3 className="text-base font-semibold text-zinc-950">
-                      {className}
-                    </h3>
-                    <dl className="mt-3 space-y-1 text-sm text-zinc-600">
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Time</dt>
-                        <dd className="text-right text-zinc-950">
-                          {timeFormatted}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Room</dt>
-                        <dd className="text-right text-zinc-950">
-                          {roomName}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
+                  startDatetime={occurrence?.start_datetime ?? null}
+                  timezone={timezone}
+                  className={occurrence?.class_name?.trim() || "Unknown class"}
+                  timeRange={formatClassTime(occurrence?.start_datetime ?? null, occurrence?.end_datetime ?? null, timezone)}
+                  roomName={occurrence?.room?.name ?? "No room"}
+                  detail={`For ${request.requestedByStaff?.display_name ?? "Unknown"}`}
+                  action={<ResponseButtons requestId={request.id} initialStatus={myStatus} />}
+                />
+              );
+            })
+          )}
+        </TabsContent>
 
-                  <div className="mt-5">
-                    {request.status === "approved" ? (
-                      <span className="inline-flex items-center rounded-full bg-accent-subtle px-3 py-2 text-sm font-medium text-accent">
-                        Approved — {occurrence?.substituteStaff?.display_name ?? "Unknown"}
-                      </span>
+        <TabsContent value="mine" className="flex flex-col gap-3">
+          {myRequests.length === 0 ? (
+            <EmptyCard
+              title="No open requests"
+              text="Need someone to cover a class? Request a sub from My Schedule."
+            />
+          ) : (
+            myRequests.map((request) => {
+              const occurrence = request.occurrence;
+              const timezone = occurrence?.organization?.timezone ?? null;
+              return (
+                <RequestRow
+                  key={request.id}
+                  startDatetime={occurrence?.start_datetime ?? null}
+                  timezone={timezone}
+                  className={occurrence?.class_name?.trim() || "Unknown class"}
+                  timeRange={formatClassTime(occurrence?.start_datetime ?? null, occurrence?.end_datetime ?? null, timezone)}
+                  roomName={occurrence?.room?.name ?? "No room"}
+                  action={
+                    request.status === "approved" ? (
+                      <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+                        <CheckCircle2 />
+                        Covered by {occurrence?.substituteStaff?.display_name ?? "Unknown"}
+                      </Badge>
                     ) : request.status === "open" ? (
-                      <CancelRequestButton requestId={request.id} />
+                      <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                        <Badge variant="outline">
+                          <Clock3 />
+                          Waiting for volunteers
+                        </Badge>
+                        <CancelRequestButton requestId={request.id} />
+                      </div>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
-                        Pending selection
-                      </span>
-                    )}
-                  </div>
-                </div>
+                      <Badge className="bg-amber-50 text-amber-700 hover:bg-amber-50">
+                        <Clock3 />
+                        Manager choosing a sub
+                      </Badge>
+                    )
+                  }
+                />
               );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-8">
-        <h2 className="text-base font-semibold text-zinc-950">
-          Requests You Can Cover
-        </h2>
-        {rows.length === 0 ? (
-          <section className="mt-3 rounded-lg border border-zinc-200 bg-white p-6">
-            <h3 className="text-base font-semibold text-zinc-950">
-              Nothing to cover right now
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-zinc-600">
-              No open requests currently match your class eligibility.
-            </p>
-          </section>
-        ) : (
-          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {rows.map(({ request, myStatus }) => {
-              const occurrence = request.occurrence;
-              const className = occurrence?.class_name ?? "Unknown class";
-              const dateLabel = formatDateLabel(
-                occurrence?.start_datetime ?? null,
-                occurrence?.organization?.timezone ?? null,
-              );
-              const timeRange = formatClassTime(
-                occurrence?.start_datetime ?? null,
-                occurrence?.end_datetime ?? null,
-                occurrence?.organization?.timezone ?? null,
-              );
-              const timeFormatted = dateLabel
-                ? `${dateLabel}, ${timeRange}`
-                : timeRange;
-              const roomName = occurrence?.room?.name ?? "Not assigned";
-              const requestedByName =
-                request.requestedByStaff?.display_name ?? "Unknown";
-
-              return (
-                <div
-                  key={request.id}
-                  className="flex flex-col justify-between rounded-lg border border-zinc-200 bg-white p-5"
-                >
-                  <div>
-                    <h3 className="text-base font-semibold text-zinc-950">
-                      {className}
-                    </h3>
-                    <dl className="mt-3 space-y-1 text-sm text-zinc-600">
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Time</dt>
-                        <dd className="text-right text-zinc-950">
-                          {timeFormatted}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Room</dt>
-                        <dd className="text-right text-zinc-950">
-                          {roomName}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-500">Needs coverage for</dt>
-                        <dd className="text-right text-zinc-950">
-                          {requestedByName}
-                        </dd>
-                      </div>
-                    </dl>
-                  </div>
-
-                  <div className="mt-5">
-                    <ResponseButtons requestId={request.id} initialStatus={myStatus} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+            })
+          )}
+        </TabsContent>
+      </Tabs>
     </DashboardShell>
+  );
+}
+
+function CountPill({ count }: { count: number }) {
+  return (
+    <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">
+      {count}
+    </span>
+  );
+}
+
+function EmptyCard({ title, text }: { title: string; text: string }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center gap-1 py-10 text-center">
+        <p className="font-medium">{title}</p>
+        <p className="text-sm text-muted-foreground">{text}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RequestRow({
+  startDatetime,
+  timezone,
+  className,
+  timeRange,
+  roomName,
+  detail,
+  action,
+}: {
+  startDatetime: string | null;
+  timezone: string | null;
+  className: string;
+  timeRange: string;
+  roomName: string;
+  detail?: string;
+  action: React.ReactNode;
+}) {
+  const start = startDatetime ? DateTime.fromISO(startDatetime, { zone: "utc" }).setZone(timezone ?? "utc") : null;
+
+  return (
+    <Card className="py-0">
+      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+        <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg bg-primary-subtle text-primary">
+          <span className="text-[11px] font-semibold uppercase">{start ? start.toFormat("ccc") : "—"}</span>
+          <span className="text-lg leading-none font-semibold tabular-nums">{start ? start.toFormat("d") : ""}</span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold">{className}</h3>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {start ? `${start.toFormat("LLL d")} · ` : ""}
+            {timeRange} · {roomName}
+          </p>
+          {detail ? <p className="mt-0.5 text-sm text-muted-foreground">{detail}</p> : null}
+        </div>
+        <div className="sm:max-w-[280px]">{action}</div>
+      </div>
+    </Card>
   );
 }

@@ -275,7 +275,7 @@ export function MessageBoardsClient({
 
           return (
             <div key={type}>
-              <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {BOARD_TYPE_LABELS[type]}
               </h3>
               <div className="mt-2 flex flex-col gap-1">
@@ -286,8 +286,8 @@ export function MessageBoardsClient({
                     onClick={() => setSelectedBoardId(board.id)}
                     className={`rounded-md px-3 py-2 text-left text-sm font-medium ${
                       board.id === selectedBoardId
-                        ? "bg-secondary-subtle text-secondary"
-                        : "text-zinc-700 hover:bg-zinc-100"
+                        ? "bg-brand-secondary-subtle text-brand-secondary"
+                        : "text-foreground hover:bg-accent"
                     }`}
                   >
                     {board.title}
@@ -299,46 +299,46 @@ export function MessageBoardsClient({
         })}
 
         {boards.length === 0 ? (
-          <p className="text-sm text-zinc-500">No boards available yet.</p>
+          <p className="text-sm text-muted-foreground">No boards available yet.</p>
         ) : null}
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white">
+      <div className="rounded-xl border border-border bg-card">
         {!selectedBoard ? (
-          <div className="p-6 text-sm text-zinc-500">
+          <div className="p-6 text-sm text-muted-foreground">
             {accessRevokedNotice
               ? "You no longer have access to this board."
               : "Select a board to view messages."}
           </div>
         ) : (
           <div className="flex h-[32rem] flex-col">
-            <div className="border-b border-zinc-200 p-4">
-              <h2 className="text-base font-semibold text-zinc-950">{selectedBoard.title}</h2>
+            <div className="border-b border-border p-4">
+              <h2 className="text-base font-semibold text-foreground">{selectedBoard.title}</h2>
             </div>
 
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {loadingMessages ? (
-                <p className="text-sm text-zinc-500">Loading...</p>
+                <p className="text-sm text-muted-foreground">Loading...</p>
               ) : messages.length === 0 ? (
-                <p className="text-sm text-zinc-500">No messages yet.</p>
+                <p className="text-sm text-muted-foreground">No messages yet.</p>
               ) : (
                 messages.map((message) => (
                   <div key={message.id}>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-zinc-950">
+                      <span className="text-sm font-medium text-foreground">
                         {nameById.get(message.author_staff_id) ?? "Unknown"}
                       </span>
-                      <span className="text-xs text-zinc-500">
+                      <span className="text-xs text-muted-foreground">
                         {DateTime.fromISO(message.created_at).toFormat("MMM d, h:mm a")}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-sm text-zinc-700">{message.body}</p>
+                    <p className="mt-0.5 text-sm text-foreground">{message.body}</p>
                   </div>
                 ))
               )}
             </div>
 
-            <div className="border-t border-zinc-200 p-4">
+            <div className="border-t border-border p-4">
               {canPost ? (
                 <div className="flex gap-2">
                   <input
@@ -352,19 +352,19 @@ export function MessageBoardsClient({
                       }
                     }}
                     placeholder="Write a message..."
-                    className="flex-1 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-950"
+                    className="flex-1 rounded-md border border-border px-3 py-2 text-sm text-foreground"
                   />
                   <button
                     type="button"
                     onClick={handleSend}
                     disabled={sending || !draft.trim()}
-                    className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
                   >
                     Send
                   </button>
                 </div>
               ) : (
-                <p className="text-xs text-zinc-500">Only admins can post announcements.</p>
+                <p className="text-xs text-muted-foreground">Only admins can post announcements.</p>
               )}
             </div>
           </div>

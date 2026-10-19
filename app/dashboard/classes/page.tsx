@@ -1,5 +1,10 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { Fragment } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { FillMeter, FillVsUsual } from "@/components/dashboard/fill-meter";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
@@ -125,16 +130,6 @@ function getFillRate(totalBooked = 0, maxCapacity = 0) {
   }
 
   return Math.round((totalBooked / maxCapacity) * 100);
-}
-
-function formatStartTime(startDatetime: string | null, timezone: string | null) {
-  if (!startDatetime) {
-    return "N/A";
-  }
-
-  return DateTime.fromISO(startDatetime, { zone: "utc" })
-    .setZone(timezone ?? "utc")
-    .toFormat("EEE, MMM d 'at' h:mm a ZZZZ");
 }
 
 // The grouping key for "same recurring slot": department + trimmed class
@@ -279,91 +274,121 @@ export default async function ClassesPage({
 
   const historicalAverageMap = buildHistoricalAverageMap(historicalOccurrences, timezone);
 
+  // Week view groups rows under a heading per day, so each row only needs
+  // its time -- the old single "Mon, Oct 19 at 6:05 AM CDT" cell wrapped onto
+  // three lines in a narrow column.
+  const dayGroups = new Map<string, typeof tableOccurrences>();
+  for (const occurrence of tableOccurrences) {
+    const zone = occurrence.organization?.timezone ?? timezone;
+    const dayKey = occurrence.start_datetime
+      ? (DateTime.fromISO(occurrence.start_datetime, { zone: "utc" }).setZone(zone).toISODate() ?? "unknown")
+      : "unknown";
+    const list = dayGroups.get(dayKey) ?? [];
+    list.push(occurrence);
+    dayGroups.set(dayKey, list);
+  }
+
   return (
     <DashboardShell
       title="Classes"
-      description="Live Mindbody class schedule data."
+      description="Every class on the schedule, with how full it is compared with its usual."
     >
-      <div className="flex flex-wrap items-start justify-between gap-6">
-        <PeriodNav viewMode={viewMode} date={displayStartIso} today={today} />
-        <HistoryWindowSelect
-          historyWindow={historyWindow}
-          historyStart={historyStart}
-          historyEnd={historyEnd}
-        />
-      </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PeriodNav viewMode={viewMode} date={displayStartIso} today={today} />
+          <HistoryWindowSelect historyWindow={historyWindow} historyStart={historyStart} historyEnd={historyEnd} />
+        </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b">
-              <th className="p-3 text-left">Occurrence ID</th>
-              <th className="p-3 text-left">Class</th>
-              <th className="p-3 text-left">Start Time</th>
-              <th className="p-3 text-left">Instructor</th>
-              <th className="p-3 text-left">Department</th>
-              <th className="p-3 text-left">Room</th>
-              <th className="p-3 text-right">Capacity</th>
-              <th className="p-3 text-right">Booked</th>
-              <th className="p-3 text-right">Fill Rate</th>
-              <th className="p-3 text-right">Historical Avg Fill Rate</th>
-              <th className="p-3 text-right">Classes Compared</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tableOccurrences.length === 0 ? (
-              <tr>
-                <td colSpan={11} className="p-6 text-center text-zinc-500">
-                  {viewMode === "day"
-                    ? "No classes scheduled for this day."
-                    : "No classes scheduled for this week."}
-                </td>
-              </tr>
-            ) : (
-              tableOccurrences.map((occurrence) => {
-                const capacity = occurrence.max_capacity ?? 0;
-                const booked = occurrence.total_booked ?? 0;
-                const fillRate = getFillRate(booked, capacity);
-                const instructor =
-                  occurrence.staff?.display_name ?? occurrence.instructor_name ?? "Unassigned";
-                const department = occurrence.department?.name ?? "Not assigned";
-                const room = occurrence.room?.name ?? "Not assigned";
-                const occurrenceTimezone = occurrence.organization?.timezone ?? timezone;
+        <Card className="py-0">
+          {tableOccurrences.length === 0 ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              {viewMode === "day" ? "No classes scheduled for this day." : "No classes scheduled for this week."}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="w-[90px] pl-4">Time</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Instructor</TableHead>
+                  <TableHead className="hidden lg:table-cell">Room</TableHead>
+                  <TableHead className="text-right">Booked</TableHead>
+                  <TableHead className="pr-4 text-right">Fill vs. usual</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...dayGroups.entries()].map(([dayKey, occurrences]) => (
+                  <Fragment key={dayKey}>
+                    {viewMode === "week" ? (
+                      <TableRow className="bg-muted/30 hover:bg-muted/30">
+                        <TableCell colSpan={6} className="pl-4 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                          {dayKey === "unknown" ? "Unscheduled" : DateTime.fromISO(dayKey).toFormat("cccc, LLL d")}
+                          <span className="ml-2 font-normal normal-case">
+                            {occurrences.length} class{occurrences.length === 1 ? "" : "es"}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                    {occurrences.map((occurrence) => {
+                      const capacity = occurrence.max_capacity ?? 0;
+                      const booked = occurrence.total_booked ?? 0;
+                      const fillRate = getFillRate(booked, capacity);
+                      const instructor = occurrence.staff?.display_name ?? occurrence.instructor_name ?? "Unassigned";
+                      const occurrenceTimezone = occurrence.organization?.timezone ?? timezone;
+                      const slotKey = getSlotKey(occurrence, occurrenceTimezone);
+                      const historical = slotKey ? historicalAverageMap.get(slotKey) : undefined;
+                      const usual =
+                        historical && historical.capacitySum > 0
+                          ? Math.round((historical.bookedSum / historical.capacitySum) * 100)
+                          : null;
 
-                const slotKey = getSlotKey(occurrence, occurrenceTimezone);
-                const historical = slotKey ? historicalAverageMap.get(slotKey) : undefined;
-                const historicalAvgLabel =
-                  historical && historical.capacitySum > 0
-                    ? `${Math.round((historical.bookedSum / historical.capacitySum) * 100)}%`
-                    : "N/A";
-                const classesComparedLabel = historical
-                  ? `${historical.count} class${historical.count === 1 ? "" : "es"}`
-                  : "—";
-
-                return (
-                  <tr key={occurrence.id} className="border-b">
-                    <td className="p-3 font-mono text-xs text-zinc-500">
-                      {occurrence.mindbody_occurrence_id}
-                    </td>
-                    <td className="p-3">{occurrence.class_name ?? "Unknown"}</td>
-                    <td className="p-3">
-                      {formatStartTime(occurrence.start_datetime, occurrenceTimezone)}
-                    </td>
-                    <td className="p-3">{instructor}</td>
-                    <td className="p-3">{department}</td>
-                    <td className="p-3">{room}</td>
-                    <td className="p-3 text-right">{capacity}</td>
-                    <td className="p-3 text-right">{booked}</td>
-                    <td className="p-3 text-right">{fillRate}%</td>
-                    <td className="p-3 text-right">{historicalAvgLabel}</td>
-                    <td className="p-3 text-right">{classesComparedLabel}</td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      return (
+                        <TableRow key={occurrence.id}>
+                          <TableCell className="pl-4 align-top text-sm font-medium tabular-nums">
+                            {formatTime(occurrence.start_datetime, occurrenceTimezone)}
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <div className="font-medium">{occurrence.class_name?.trim() ?? "Unknown"}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {occurrence.department?.name ?? "No department"}
+                              <span className="lg:hidden"> · {occurrence.room?.name ?? "No room"}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-top">
+                            {instructor === "Unassigned" ? (
+                              <Badge variant="outline" className="font-normal text-muted-foreground">
+                                Unassigned
+                              </Badge>
+                            ) : (
+                              instructor
+                            )}
+                          </TableCell>
+                          <TableCell className="hidden align-top text-muted-foreground lg:table-cell">
+                            {occurrence.room?.name ?? "—"}
+                          </TableCell>
+                          <TableCell className="align-top">
+                            <FillMeter value={booked} max={capacity} className="ml-auto" />
+                          </TableCell>
+                          <TableCell className="pr-4 align-top">
+                            <FillVsUsual current={fillRate} usual={usual} comparedCount={historical?.count ?? 0} />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </Fragment>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
       </div>
     </DashboardShell>
   );
+}
+
+function formatTime(startDatetime: string | null, timezone: string) {
+  if (!startDatetime) {
+    return "—";
+  }
+  return DateTime.fromISO(startDatetime, { zone: "utc" }).setZone(timezone).toFormat("h:mm a");
 }

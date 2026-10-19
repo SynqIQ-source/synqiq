@@ -69,19 +69,19 @@ export function ImportForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex flex-col gap-5 rounded-lg border border-zinc-200 bg-white p-6"
+      className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6"
     >
-      <h2 className="text-sm font-semibold text-zinc-950">Upload a report</h2>
+      <h2 className="text-sm font-semibold text-foreground">Upload a report</h2>
 
       <div className="flex flex-wrap gap-6">
         <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-zinc-700">Report type</legend>
+          <legend className="text-sm font-medium text-foreground">Report type</legend>
           <div className="flex flex-col gap-1.5">
             {REPORT_TYPES.map((type) => (
               <label
                 key={type.value}
                 className={`flex items-center gap-2 text-sm ${
-                  type.enabled ? "text-zinc-700" : "text-zinc-400"
+                  type.enabled ? "text-foreground" : "text-muted-foreground"
                 }`}
               >
                 <input
@@ -94,7 +94,7 @@ export function ImportForm() {
                 />
                 {type.label}
                 {!type.enabled && (
-                  <span className="rounded-full border border-dashed border-zinc-300 px-2 py-0.5 text-[0.65rem] font-medium text-zinc-400">
+                  <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
                     Coming soon
                   </span>
                 )}
@@ -104,7 +104,7 @@ export function ImportForm() {
         </fieldset>
 
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium text-zinc-700" htmlFor="import-file">
+          <label className="text-sm font-medium text-foreground" htmlFor="import-file">
             File (.xlsx, .xls, .csv)
           </label>
           <input
@@ -121,7 +121,7 @@ export function ImportForm() {
       <button
         type="submit"
         disabled={state.status === "uploading"}
-        className="w-fit rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+        className="w-fit rounded-md bg-brand-accent px-4 py-2 text-sm font-medium text-white hover:bg-brand-accent-hover disabled:opacity-60"
       >
         {state.status === "uploading" ? "Uploading..." : "Upload"}
       </button>
@@ -137,7 +137,7 @@ export function ImportForm() {
           </p>
 
           {state.summary.warnings && state.summary.warnings.excludedUncappedCount > 0 && (
-            <p className="text-sm text-zinc-600">
+            <p className="text-sm text-muted-foreground">
               {state.summary.warnings.excludedUncappedCount} row(s) were on an uncapped/unlimited
               plan and excluded from revenue attribution -- Rev. per Visit isn&apos;t a stable
               per-visit fact for those.

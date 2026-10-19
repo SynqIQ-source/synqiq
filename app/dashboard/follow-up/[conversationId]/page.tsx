@@ -85,15 +85,15 @@ export default async function FollowUpThreadPage({
   return (
     <DashboardShell title={TITLE} description={`Conversation with ${memberName}`}>
       <div className="mb-4">
-        <Link href="/dashboard/follow-up" className="text-sm text-accent hover:underline">
+        <Link href="/dashboard/follow-up" className="text-sm text-brand-accent hover:underline">
           &larr; Back to Follow Up
         </Link>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white">
-        <div className="border-b border-zinc-200 p-4">
-          <h2 className="text-base font-semibold text-zinc-950">{conversation.subject}</h2>
-          <p className="mt-0.5 text-sm text-zinc-500">
+      <div className="rounded-xl border border-border bg-card">
+        <div className="border-b border-border p-4">
+          <h2 className="text-base font-semibold text-foreground">{conversation.subject}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
             with {memberName} &middot; started{" "}
             {DateTime.fromISO(conversation.created_at, { zone: "utc" })
               .setZone(timezone)
@@ -103,7 +103,7 @@ export default async function FollowUpThreadPage({
 
         <ol className="space-y-4 p-4">
           {messages.length === 0 ? (
-            <li className="text-sm text-zinc-500">No messages yet.</li>
+            <li className="text-sm text-muted-foreground">No messages yet.</li>
           ) : (
             messages.map((message) => {
               const fromInstructor = message.direction === "outbound";
@@ -115,8 +115,8 @@ export default async function FollowUpThreadPage({
                   <div
                     className={
                       fromInstructor
-                        ? "max-w-[80%] rounded-lg bg-accent px-4 py-2 text-sm text-white"
-                        : "max-w-[80%] rounded-lg bg-zinc-100 px-4 py-2 text-sm text-zinc-950"
+                        ? "max-w-[80%] rounded-lg bg-brand-accent px-4 py-2 text-sm text-white"
+                        : "max-w-[80%] rounded-lg bg-muted px-4 py-2 text-sm text-foreground"
                     }
                   >
                     <p className="whitespace-pre-wrap break-words">{message.body_text}</p>
@@ -124,7 +124,7 @@ export default async function FollowUpThreadPage({
                       className={
                         fromInstructor
                           ? "mt-1 text-xs text-white/70"
-                          : "mt-1 text-xs text-zinc-500"
+                          : "mt-1 text-xs text-muted-foreground"
                       }
                     >
                       {fromInstructor ? "You" : memberName} &middot;{" "}
@@ -140,11 +140,11 @@ export default async function FollowUpThreadPage({
         </ol>
 
         {isOwn ? (
-          <div className="border-t border-zinc-200 p-4">
+          <div className="border-t border-border p-4">
             <ReplyBox conversationId={conversation.id} />
           </div>
         ) : (
-          <div className="border-t border-zinc-200 p-4 text-sm text-zinc-500">
+          <div className="border-t border-border p-4 text-sm text-muted-foreground">
             Only {memberName}&apos;s instructor can reply in this thread.
           </div>
         )}

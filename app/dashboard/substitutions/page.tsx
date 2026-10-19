@@ -1,5 +1,4 @@
 import { DateTime } from "luxon";
-import { CurrentUserBanner } from "@/components/current-user-banner";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
@@ -108,23 +107,17 @@ export default async function SubstitutionsPage() {
 
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>
-      <CurrentUserBanner displayName={currentStaff.displayName} role={currentStaff.role} />
-
-      <p className="mt-2 text-xs text-zinc-500">
-        Cancelling or re-requesting coverage checks that you&apos;re the original requester.
-      </p>
-
       {requests.length === 0 ? (
-        <section className="mt-6 rounded-lg border border-zinc-200 bg-white p-6">
-          <h2 className="text-base font-semibold text-zinc-950">
+        <section className="rounded-xl border border-border bg-card p-6">
+          <h2 className="text-base font-semibold text-foreground">
             Nothing active right now
           </h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-600">
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
             No open or upcoming approved substitution requests.
           </p>
         </section>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto rounded-xl border bg-card">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b">
@@ -154,12 +147,12 @@ export default async function SubstitutionsPage() {
                     <td className="p-3">{startFormatted}</td>
                     <td className="p-3">{roomName}</td>
                     <td className="p-3">{requestedByName}</td>
-                    <td className="max-w-xs p-3 text-zinc-600">
+                    <td className="max-w-xs p-3 text-muted-foreground">
                       {request.reason ?? "—"}
                     </td>
                     <td className="p-3">
                       {request.status === "approved" ? (
-                        <span className="inline-flex items-center rounded-full bg-accent-subtle px-2 py-1 text-xs font-medium text-accent">
+                        <span className="inline-flex items-center rounded-full bg-brand-accent-subtle px-2 py-1 text-xs font-medium text-brand-accent">
                           Approved — {request.occurrence?.substituteStaff?.display_name ?? "Unknown"}
                         </span>
                       ) : request.status === "pending_selection" ? (
@@ -186,7 +179,7 @@ export default async function SubstitutionsPage() {
                         // /select's own atomic claim is what actually
                         // prevents a second selection here; this is just
                         // not showing a button that would immediately 409.
-                        <span className="text-xs text-zinc-500">Resolving…</span>
+                        <span className="text-xs text-muted-foreground">Resolving…</span>
                       ) : (
                         <CandidatesButton
                           requestId={request.id}

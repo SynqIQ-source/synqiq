@@ -97,13 +97,13 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap gap-4 rounded-lg border border-zinc-200 bg-white p-4">
-        <label className="block text-sm font-medium text-zinc-700">
+      <div className="flex flex-wrap gap-4 rounded-xl border border-border bg-card p-4">
+        <label className="block text-sm font-medium text-foreground">
           Department
           <select
             value={departmentId}
             onChange={(event) => setDepartmentId(event.target.value)}
-            className="mt-1 block w-64 rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="mt-1 block w-64 rounded-md border border-border px-2 py-1.5 text-sm"
           >
             {departments.map((department) => (
               <option key={department.id} value={department.id}>
@@ -113,7 +113,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
           </select>
         </label>
 
-        <label className="block text-sm font-medium text-zinc-700">
+        <label className="block text-sm font-medium text-foreground">
           Class name
           <input
             list="eligibility-class-names"
@@ -121,7 +121,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
             onChange={(event) => setClassName(event.target.value)}
             disabled={loadStatus === "loading"}
             placeholder="Pick or type a class name"
-            className="mt-1 block w-64 rounded-md border border-zinc-200 px-2 py-1.5 text-sm"
+            className="mt-1 block w-64 rounded-md border border-border px-2 py-1.5 text-sm"
           />
           <datalist id="eligibility-class-names">
             {classNames.map((name) => (
@@ -131,18 +131,18 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
         </label>
       </div>
 
-      {loadStatus === "loading" && <p className="text-sm text-zinc-500">Loading...</p>}
+      {loadStatus === "loading" && <p className="text-sm text-muted-foreground">Loading...</p>}
       {loadStatus === "error" && <p className="text-sm text-red-600">{loadError}</p>}
 
       {loadStatus === "loaded" && !className && (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-muted-foreground">
           Pick or type a class name above to see and toggle who gets notified for it.
         </p>
       )}
 
       {loadStatus === "loaded" && className && (
-        <div className="overflow-x-auto rounded-lg border">
-          <div className="border-b bg-zinc-50 px-4 py-2 text-xs text-zinc-600">
+        <div className="overflow-x-auto rounded-xl border bg-card">
+          <div className="border-b bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
             {eligibleCount === 0 ? (
               <span className="font-medium text-amber-700">
                 No instructors are eligible for &quot;{className}&quot; in this department -- a substitution
@@ -156,7 +156,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
+              <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                 <th className="p-3 text-left">Instructor</th>
                 <th className="p-3 text-left">Eligible</th>
               </tr>
@@ -164,7 +164,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
             <tbody>
               {instructors.length === 0 ? (
                 <tr>
-                  <td className="p-6 text-center text-sm text-zinc-500" colSpan={2}>
+                  <td className="p-6 text-center text-sm text-muted-foreground" colSpan={2}>
                     No instructors found.
                   </td>
                 </tr>
@@ -175,7 +175,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
 
                   return (
                     <tr key={instructor.id} className="border-b">
-                      <td className="p-3 text-zinc-950">{instructor.display_name}</td>
+                      <td className="p-3 text-foreground">{instructor.display_name}</td>
                       <td className="p-3">
                         <label className="inline-flex items-center gap-2">
                           <input
@@ -183,10 +183,10 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
                             checked={enabled}
                             disabled={rowToggleState === "saving"}
                             onChange={(event) => toggle(instructor.id, event.target.checked)}
-                            className="h-4 w-4 rounded border-zinc-300"
+                            className="h-4 w-4 rounded border-border"
                           />
                           {rowToggleState === "saving" && (
-                            <span className="text-xs text-zinc-500">Saving...</span>
+                            <span className="text-xs text-muted-foreground">Saving...</span>
                           )}
                           {rowToggleState === "error" && (
                             <span className="text-xs text-red-600">{toggleState[instructor.id]?.error}</span>

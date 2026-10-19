@@ -1,67 +1,133 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* ---------------------------------------------------------------------------
+   Design tokens.
+
+   Two families live here:
+
+   1. shadcn/ui's standard tokens (background, card, muted, accent, border,
+      ring, chart-1..5, ...). "accent" and "secondary" in this family mean
+      shadcn's NEUTRAL hover/secondary surfaces -- not a brand color.
+
+   2. Per-org branding: primary (= shadcn's primary, the org's main brand
+      color), plus brand-accent and brand-secondary (the org's other two
+      branding colors -- renamed from the old bg-accent/bg-secondary
+      utilities so they don't collide with shadcn's neutral accent/secondary).
+      app/layout.tsx overrides the raw --primary / --brand-* variables per
+      request via an inline style on <body> once an org is known.
+
+   Everything is mapped with `@theme inline`, which makes each utility emit
+   var(--primary) etc. directly -- so those runtime <body> overrides actually
+   apply. (The old non-inline @theme block flattened values at build time,
+   which is why the previous setup had to override --color-* names instead.)
+   Defaults match the app's original teal so an org with no branding set
+   looks the same color-wise as before.
+   ------------------------------------------------------------------------- */
 
 :root {
-  --background: #f7f8fa;
-  --foreground: #15171a;
-  --muted: #5f6673;
-  --border: #dfe3e8;
-  --surface: #ffffff;
-  --accent: #0f766e;
-  --accent-foreground: #ffffff;
+  --radius: 0.625rem;
+
+  --background: oklch(0.985 0.002 197);
+  --foreground: oklch(0.21 0.01 250);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --muted: oklch(0.967 0.003 250);
+  --muted-foreground: oklch(0.52 0.015 250);
+  --accent: oklch(0.967 0.003 250);
+  --accent-foreground: var(--foreground);
+  --secondary: oklch(0.967 0.003 250);
+  --secondary-foreground: var(--foreground);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0.004 250);
+  --input: oklch(0.922 0.004 250);
+
+  /* Org branding (overridden per request in app/layout.tsx). */
+  --primary: #0f766e;
+  --primary-hover: #115e59;
+  --primary-subtle: #f0fdfa;
+  --primary-foreground: #ffffff;
+  --brand-accent: #0f766e;
+  --brand-accent-hover: #115e59;
+  --brand-accent-subtle: #f0fdfa;
+  --brand-secondary: #0f766e;
+  --brand-secondary-hover: #115e59;
+  --brand-secondary-subtle: #f0fdfa;
+  --ring: var(--primary);
+
+  /* Charts: brand first, then neutral-friendly companions. */
+  --chart-1: var(--primary);
+  --chart-2: oklch(0.7 0.11 200);
+  --chart-3: oklch(0.65 0.13 160);
+  --chart-4: oklch(0.75 0.12 85);
+  --chart-5: oklch(0.6 0.12 280);
+
+  /* Fixed SynqIQ marketing gold -- NOT per-org (public pages render with
+     no org in context). */
+  --gold: #c9a227;
+  --gold-hover: #a9841d;
+  --gold-subtle: #fbf3da;
+
   --font-body: Arial, Helvetica, sans-serif;
 }
 
-/* Per-org branding tokens. bg-primary/text-accent/etc. utilities below all
-   resolve through these five variables, which the root layout overrides per
-   request via an inline style on <body> once an org is known.
-   Defaults here match the app's original hardcoded teal-700/teal-800/teal-50,
-   so an org with no branding set renders identically to before this feature
-   existed.
+@theme inline {
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
 
-   IMPORTANT: these are literal hex values, not color-mix() expressions
-   referencing var(--color-primary) -- Tailwind v4's @theme block resolves
-   var() references at BUILD time (flattening them into their default value),
-   not at runtime, so a color-mix() referencing another theme token in here
-   would never actually track a later runtime override. The hover/subtle
-   shades ARE still derived with color-mix() -- just computed in
-   app/layout.tsx as literal per-request override strings on <body>, not
-   inside this block. */
-@theme {
-  --color-primary: #0f766e;
-  --color-primary-hover: #115e59;
-  --color-primary-subtle: #f0fdfa;
-  --color-accent: #0f766e;
-  --color-accent-hover: #115e59;
-  --color-accent-subtle: #f0fdfa;
-  --color-secondary: #0f766e;
-  --color-secondary-hover: #115e59;
-  --color-secondary-subtle: #f0fdfa;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
-  /* Fixed, NOT per-org-overridable -- unlike primary/accent/secondary above
-     (which app/layout.tsx rewrites per-request from an organization's own
-     branding row), gold is SynqIQ's own product brand color for its public
-     marketing pages (/, /about, /contact), which render for logged-out
-     visitors with no organization in context at all. Introduced for the
-     About/Contact build -- no gold existed anywhere in this codebase
-     before (confirmed: the app icon and every existing themed page are
-     teal + white only). */
-  --color-gold: #c9a227;
-  --color-gold-hover: #a9841d;
-  --color-gold-subtle: #fbf3da;
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-hover: var(--brand-accent-hover);
+  --color-brand-accent-subtle: var(--brand-accent-subtle);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-secondary-hover: var(--brand-secondary-hover);
+  --color-brand-secondary-subtle: var(--brand-secondary-subtle);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-gold: var(--gold);
+  --color-gold-hover: var(--gold-hover);
+  --color-gold-subtle: var(--gold-subtle);
 }
 
-/* @layer base, not unlayered -- Tailwind v4 (via @import "tailwindcss" above)
-   wraps its own utilities in @layer utilities. Per the CSS Cascade Layers
-   spec, unlayered rules always beat ANY layered rule regardless of
-   specificity, so an unlayered `a { color: inherit }` here was silently
-   overriding every Tailwind text-color utility applied to a <Link>/<a>
-   anywhere in the app (confirmed empirically: text-primary/text-white all
-   computed back to plain --foreground on real links, not their intended
-   color) -- @layer base puts these back in the same layer Tailwind's own
-   base styles use, so utilities correctly win again. */
+/* @layer base, not unlayered -- Tailwind v4 wraps its own utilities in
+   @layer utilities, and per the CSS Cascade Layers spec unlayered rules beat
+   ANY layered rule, so an unlayered `a { color: inherit }` here silently
+   overrode every text-color utility on a <Link>/<a>. Keeping these in the
+   base layer lets utilities win again. */
 @layer base {
   * {
     box-sizing: border-box;
+    @apply border-border outline-ring/50;
   }
 
   html {
@@ -74,6 +140,7 @@
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
   }
 
   a {
