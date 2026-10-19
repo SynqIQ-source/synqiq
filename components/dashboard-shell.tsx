@@ -38,6 +38,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/instructors", label: "Instructors", adminOnly: true },
       { href: "/dashboard/trainer-health", label: "Trainer Health", adminOnly: true },
       { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
+      { href: "/dashboard/follow-up-activity", label: "Follow-ups", adminOnly: true },
       { href: "/dashboard/comp-audit", label: "Comp Audit", adminOnly: true },
     ],
   },

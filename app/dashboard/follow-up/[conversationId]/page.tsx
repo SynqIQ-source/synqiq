@@ -63,7 +63,7 @@ export default async function FollowUpThreadPage({
     notFound();
   }
 
-  const [{ data: client }, { data: messageData }, timezone] = await Promise.all([
+  const [{ data: client }, { data: messageData }, timezone, { data: instructor }] = await Promise.all([
     supabase
       .from("clients")
       .select("first_name, last_name")
@@ -76,17 +76,27 @@ export default async function FollowUpThreadPage({
       .order("created_at", { ascending: true })
       .returns<MessageRow[]>(),
     getOrgTimezone(supabase),
+    supabase
+      .from("staff")
+      .select("display_name")
+      .eq("id", conversation.instructor_id)
+      .maybeSingle<{ display_name: string }>(),
   ]);
 
   const memberName = client ? `${client.first_name} ${client.last_name}`.trim() : "Member";
   const messages = messageData ?? [];
   const isOwn = conversation.instructor_id === currentStaff.id;
+  // An admin reading another instructor's thread (from Follow-ups) sees the
+  // instructor's name instead of "You", and goes back to that report.
+  const instructorLabel = isOwn ? "You" : (instructor?.display_name ?? "Instructor");
+  const backHref = isOwn ? "/dashboard/follow-up" : `/dashboard/follow-up-activity?instructor=${conversation.instructor_id}`;
+  const backLabel = isOwn ? "Back to Follow Up" : "Back to Follow-ups";
 
   return (
-    <DashboardShell title={TITLE} description={`Conversation with ${memberName}`}>
+    <DashboardShell title={TITLE} description={isOwn ? `Conversation with ${memberName}` : `${instructorLabel} and ${memberName}`}>
       <div className="mb-4">
-        <Link href="/dashboard/follow-up" className="text-sm text-brand-accent hover:underline">
-          &larr; Back to Follow Up
+        <Link href={backHref} className="text-sm text-brand-accent hover:underline">
+          &larr; {backLabel}
         </Link>
       </div>
 
@@ -127,7 +137,7 @@ export default async function FollowUpThreadPage({
                           : "mt-1 text-xs text-muted-foreground"
                       }
                     >
-                      {fromInstructor ? "You" : memberName} &middot;{" "}
+                      {fromInstructor ? instructorLabel : memberName} &middot;{" "}
                       {DateTime.fromISO(message.created_at, { zone: "utc" })
                         .setZone(timezone)
                         .toFormat("MMM d, h:mm a")}
@@ -145,7 +155,7 @@ export default async function FollowUpThreadPage({
           </div>
         ) : (
           <div className="border-t border-border p-4 text-sm text-muted-foreground">
-            Only {memberName}&apos;s instructor can reply in this thread.
+            Read-only. Only {instructor?.display_name ?? "the instructor"} can reply in this thread.
           </div>
         )}
       </div>
