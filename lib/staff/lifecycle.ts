@@ -132,7 +132,7 @@ export async function removeEligibility(admin: Admin, staffId: string): Promise<
 // still the real enforcement.
 const STAFF_REFERENCES: { table: string; columns: string[]; label: string }[] = [
   { table: "class_occurrences", columns: ["staff_id", "substitute_staff_id"], label: "classes" },
-  { table: "substitution_requests", columns: ["requested_by"], label: "substitution requests" },
+  { table: "substitution_requests", columns: ["requested_by", "approved_by", "approved_staff_id"], label: "substitution requests" },
   { table: "substitution_interests", columns: ["staff_id"], label: "substitution interests" },
   { table: "report_imports", columns: ["uploaded_by_staff_id"], label: "report imports" },
   { table: "instructor_reviews", columns: ["staff_id"], label: "instructor reviews" },
@@ -142,7 +142,6 @@ const STAFF_REFERENCES: { table: string; columns: string[]; label: string }[] = 
   { table: "sales", columns: ["sales_rep_staff_id"], label: "sales records" },
   { table: "board_members", columns: ["staff_id"], label: "message board membership" },
   { table: "board_messages", columns: ["author_staff_id"], label: "message board posts" },
-  { table: "message_boards", columns: ["updated_by"], label: "message board edits" },
   { table: "followup_conversations", columns: ["instructor_id"], label: "follow-up conversations" },
   { table: "push_subscriptions", columns: ["staff_id"], label: "device notifications" },
 ];

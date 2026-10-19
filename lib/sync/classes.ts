@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
 import { getEnv } from "@/lib/env";
 import { seedEligibilityForNewClassTypes } from "@/lib/eligibility/new-class-types";
+import { archivePastSubBoards } from "@/lib/message-boards/archive-past-sub-boards";
 import type { MindbodyClass, MindbodyStaffMember } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -573,7 +574,11 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
                 ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
                 : null,
             room_id: roomId,
-            substitute_staff_id: null,
+            // substitute_staff_id is deliberately NOT sent: it's
+            // SynqIQ-owned (set when an admin approves a sub), and sending
+            // null here wiped every approved sub on the next nightly sync.
+            // Omitted from the upsert, an existing row keeps its value and
+            // a new row gets the column default (null).
           };
         });
 
@@ -639,6 +644,18 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
       );
     }
 
+    // Sub-specific message boards are only useful until their class is
+    // over. Best-effort, same as the eligibility step above.
+    let archivedSubBoards = 0;
+    try {
+      archivedSubBoards = await archivePastSubBoards(supabase, org.id);
+    } catch (archiveError) {
+      console.error(
+        "[syncClasses] Failed to archive past sub boards:",
+        archiveError instanceof Error ? archiveError.message : archiveError,
+      );
+    }
+
     await supabase.from("sync_state").upsert(
       {
         organization_id: org.id,
@@ -647,7 +664,7 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
         last_success_at: syncedAt,
         last_status: "success",
         last_error: null,
-        last_result: { imported, total: totalClasses, newClassTypes },
+        last_result: { imported, total: totalClasses, newClassTypes, archivedSubBoards },
       },
       { onConflict: "organization_id,sync_name" },
     );

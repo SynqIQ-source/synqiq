@@ -185,7 +185,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       await withRetry(async () => {
         const { data: finalizedRows, error: updateRequestError } = await supabase
           .from("substitution_requests")
-          .update({ status: "approved", resolved_at: new Date().toISOString() })
+          // approved_by / approved_staff_id live on the request itself (not
+          // just class_occurrences.substitute_staff_id) because the request
+          // is SynqIQ-owned -- the Mindbody class sync never writes this
+          // table, so this record can't be lost on a re-sync.
+          .update({
+            status: "approved",
+            resolved_at: new Date().toISOString(),
+            approved_by: currentStaff.id,
+            approved_staff_id: staffId,
+          })
           .eq("id", requestId)
           .eq("status", "pending_selection")
           .select("id");

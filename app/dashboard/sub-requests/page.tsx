@@ -18,6 +18,8 @@ const DESCRIPTION = "Your own coverage requests, and open requests you're qualif
 type MyRequestRow = {
   id: string;
   status: "open" | "pending_selection" | "approved";
+  approvedBy: { display_name: string } | null;
+  approvedStaff: { display_name: string } | null;
   occurrence: {
     id: string;
     class_name: string | null;
@@ -38,7 +40,9 @@ async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string, hi
       `
       id,
       status,
-      occurrence:class_occurrences!substitution_requests_occurrence_id_fkey (
+      approvedBy:staff!substitution_requests_approved_by_fkey ( display_name ),
+      approvedStaff:staff!substitution_requests_approved_staff_id_fkey ( display_name ),
+      occurrence:class_occurrences!substitution_requests_occurrence_id_fkey!inner (
         id,
         class_name,
         start_datetime,
@@ -53,7 +57,9 @@ async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string, hi
     )
     .eq("requested_by", staffId)
     .in("status", ["open", "pending_selection", "approved"])
-    .order("created_at", { ascending: true })
+    // Upcoming classes only -- a past class's request is no longer
+    // actionable. !inner above makes this filter the parent rows.
+    .gt("occurrence.start_datetime", new Date().toISOString())
     .returns<MyRequestRow[]>();
 
   if (error) {
@@ -63,9 +69,18 @@ async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string, hi
   // Pool Lanes doesn't use the substitution system -- see
   // lib/excluded-departments.ts. New requests are already blocked at
   // creation; this only matters for any pre-existing row.
-  return (data ?? []).filter(
-    (row) => !row.occurrence?.department_id || !hiddenDepartmentIds.has(row.occurrence.department_id),
-  );
+  return (data ?? [])
+    .filter((row) => !row.occurrence?.department_id || !hiddenDepartmentIds.has(row.occurrence.department_id))
+    .sort(bySoonestClass);
+}
+
+// Soonest class first. Sorted in JS because PostgREST can't order parent
+// rows by an embedded column.
+function bySoonestClass(
+  a: { occurrence: { start_datetime: string | null } | null },
+  b: { occurrence: { start_datetime: string | null } | null },
+) {
+  return (a.occurrence?.start_datetime ?? "").localeCompare(b.occurrence?.start_datetime ?? "");
 }
 
 type OpenRequestRow = {
@@ -120,7 +135,7 @@ async function getOpenRequestsQualifiedFor(
       id,
       created_at,
       requestedByStaff:staff!substitution_requests_requested_by_fkey ( display_name ),
-      occurrence:class_occurrences!substitution_requests_occurrence_id_fkey (
+      occurrence:class_occurrences!substitution_requests_occurrence_id_fkey!inner (
         id,
         class_name,
         start_datetime,
@@ -133,14 +148,16 @@ async function getOpenRequestsQualifiedFor(
       `,
     )
     .eq("status", "open")
-    .order("created_at", { ascending: true })
+    // Only classes that haven't started -- an unfilled request for a class
+    // that already happened used to linger here.
+    .gt("occurrence.start_datetime", new Date().toISOString())
     .returns<OpenRequestRow[]>();
 
   if (requestsError) {
     throw new Error(`Failed to load substitution requests: ${requestsError.message}`);
   }
 
-  const qualifying = (requests ?? []).filter((request) => {
+  const qualifying = (requests ?? []).sort(bySoonestClass).filter((request) => {
     const occurrence = request.occurrence;
 
     if (!occurrence || !occurrence.department_id || !occurrence.class_name) {
@@ -276,7 +293,9 @@ export default async function SubRequestsPage() {
                     request.status === "approved" ? (
                       <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
                         <CheckCircle2 />
-                        Covered by {occurrence?.substituteStaff?.display_name ?? "Unknown"}
+                        Covered by{" "}
+                        {request.approvedStaff?.display_name ?? occurrence?.substituteStaff?.display_name ?? "Unknown"}
+                        {request.approvedBy ? ` · approved by ${request.approvedBy.display_name}` : ""}
                       </Badge>
                     ) : request.status === "open" ? (
                       <div className="flex flex-col items-stretch gap-2 sm:items-end">

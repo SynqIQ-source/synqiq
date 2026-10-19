@@ -8,7 +8,7 @@ import { CandidatesButton } from "./candidates-button";
 import { RequestNewSubButton } from "./request-new-sub-button";
 
 const TITLE = "Substitutions";
-const DESCRIPTION = "Open and upcoming coverage requests.";
+const DESCRIPTION = "Open and upcoming coverage requests, soonest class first.";
 
 type SubstitutionRequestRow = {
   id: string;
@@ -16,6 +16,8 @@ type SubstitutionRequestRow = {
   reason: string | null;
   created_at: string;
   requestedByStaff: { display_name: string } | null;
+  approvedBy: { display_name: string } | null;
+  approvedStaff: { display_name: string } | null;
   occurrence: {
     id: string;
     class_name: string | null;
@@ -47,6 +49,8 @@ async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient, hid
       reason,
       created_at,
       requestedByStaff:staff!substitution_requests_requested_by_fkey ( display_name ),
+      approvedBy:staff!substitution_requests_approved_by_fkey ( display_name ),
+      approvedStaff:staff!substitution_requests_approved_staff_id_fkey ( display_name ),
       occurrence:class_occurrences!substitution_requests_occurrence_id_fkey!inner (
         id,
         class_name,
@@ -61,7 +65,6 @@ async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient, hid
     )
     .in("status", ["open", "pending_selection", "approved"])
     .gt("occurrence.start_datetime", DateTime.utc().toISO())
-    .order("created_at", { ascending: true })
     .returns<SubstitutionRequestRow[]>();
 
   if (error) {
@@ -71,9 +74,12 @@ async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient, hid
   // Pool Lanes doesn't use the substitution system -- see
   // lib/excluded-departments.ts. New requests are already blocked at
   // creation; this only matters for any pre-existing row.
-  return (data ?? []).filter(
-    (row) => !row.occurrence?.department_id || !hiddenDepartmentIds.has(row.occurrence.department_id),
-  );
+  // Soonest class first, so whatever needs covering next is at the top.
+  // Sorted here because PostgREST can't order parent rows by an embedded
+  // column.
+  return (data ?? [])
+    .filter((row) => !row.occurrence?.department_id || !hiddenDepartmentIds.has(row.occurrence.department_id))
+    .sort((a, b) => (a.occurrence?.start_datetime ?? "").localeCompare(b.occurrence?.start_datetime ?? ""));
 }
 
 function formatStartTime(startDatetime: string | null, timezone: string | null) {
@@ -83,7 +89,7 @@ function formatStartTime(startDatetime: string | null, timezone: string | null) 
 
   return DateTime.fromISO(startDatetime, { zone: "utc" })
     .setZone(timezone ?? "utc")
-    .toFormat("EEE, MMM d 'at' h:mm a ZZZZ");
+    .toFormat("EEE, MMM d · h:mm a");
 }
 
 export default async function SubstitutionsPage() {
@@ -127,6 +133,7 @@ export default async function SubstitutionsPage() {
                 <th className="p-3 text-left">Requested By</th>
                 <th className="p-3 text-left">Reason</th>
                 <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">Approved by</th>
                 <th className="p-3 text-right">Action</th>
               </tr>
             </thead>
@@ -143,8 +150,8 @@ export default async function SubstitutionsPage() {
 
                 return (
                   <tr key={request.id} className="border-b align-top">
-                    <td className="p-3">{className}</td>
-                    <td className="p-3">{startFormatted}</td>
+                    <td className="p-3 font-medium">{className.trim()}</td>
+                    <td className="p-3 whitespace-nowrap">{startFormatted}</td>
                     <td className="p-3">{roomName}</td>
                     <td className="p-3">{requestedByName}</td>
                     <td className="max-w-xs p-3 text-muted-foreground">
@@ -153,7 +160,10 @@ export default async function SubstitutionsPage() {
                     <td className="p-3">
                       {request.status === "approved" ? (
                         <span className="inline-flex items-center rounded-full bg-brand-accent-subtle px-2 py-1 text-xs font-medium text-brand-accent">
-                          Approved — {request.occurrence?.substituteStaff?.display_name ?? "Unknown"}
+                          Covered by{" "}
+                          {request.approvedStaff?.display_name ??
+                            request.occurrence?.substituteStaff?.display_name ??
+                            "Unknown"}
                         </span>
                       ) : request.status === "pending_selection" ? (
                         <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
@@ -164,6 +174,9 @@ export default async function SubstitutionsPage() {
                           Open
                         </span>
                       )}
+                    </td>
+                    <td className="p-3 text-muted-foreground">
+                      {request.status === "approved" ? (request.approvedBy?.display_name ?? "—") : "—"}
                     </td>
                     <td className="p-3 text-right">
                       {request.status === "approved" ? (

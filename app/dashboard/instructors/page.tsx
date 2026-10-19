@@ -18,6 +18,9 @@ type SubstitutionRequestRow = {
   occurrence_id: string;
   created_at: string;
   resolved_at: string | null;
+  // Who covered it -- recorded on the request at approval time. Older
+  // approvals were backfilled from Mindbody's instructor of record.
+  approved_staff_id: string | null;
   department_id: string | null;
   class_name: string | null;
 };
@@ -58,7 +61,7 @@ async function getSubstitutionRequests(supabase: ScopedSupabaseClient): Promise<
   const { data, error } = await supabase
     .from("substitution_requests")
     .select(
-      "requested_by, status, occurrence_id, created_at, resolved_at, occurrence:class_occurrences!inner ( department_id, class_name )",
+      "requested_by, status, occurrence_id, created_at, resolved_at, approved_staff_id, occurrence:class_occurrences!inner ( department_id, class_name )",
     )
     .returns<
       Array<
@@ -78,6 +81,7 @@ async function getSubstitutionRequests(supabase: ScopedSupabaseClient): Promise<
     occurrence_id: row.occurrence_id,
     created_at: row.created_at,
     resolved_at: row.resolved_at,
+    approved_staff_id: row.approved_staff_id,
     department_id: row.occurrence?.department_id ?? null,
     class_name: row.occurrence?.class_name ?? null,
   }));
@@ -193,7 +197,7 @@ function buildInstructorStats(
     }
 
     if (request.status === "approved" && isWithinRange(request.resolved_at, rangeStart, rangeEnd)) {
-      const substituteStaffId = substituteByOccurrence.get(request.occurrence_id);
+      const substituteStaffId = request.approved_staff_id ?? substituteByOccurrence.get(request.occurrence_id);
       if (substituteStaffId) {
         pickedUpByStaff.set(substituteStaffId, (pickedUpByStaff.get(substituteStaffId) ?? 0) + 1);
       }
@@ -254,7 +258,7 @@ function summarizeSubstitutionActivity(
     (request) =>
       request.status === "approved" &&
       isWithinRange(request.resolved_at, rangeStart, rangeEnd) &&
-      substituteByOccurrence.get(request.occurrence_id),
+      (request.approved_staff_id ?? substituteByOccurrence.get(request.occurrence_id)),
   ).length;
 
   return { totalReleased, totalPickedUp };

@@ -54,6 +54,32 @@ export function MessageBoardsClient({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [accessRevokedNotice, setAccessRevokedNotice] = useState(false);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+
+  // Admin-only "delete" for a coverage chat -- archives it server-side (see
+  // app/api/message-boards/[id]/archive/route.ts), then drops it from the
+  // list and moves to the next board.
+  async function archiveBoard(boardId: string) {
+    setArchiving(true);
+    setArchiveError(null);
+    try {
+      const response = await fetch(`/api/message-boards/${boardId}/archive`, { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to delete the board.");
+      }
+      const remaining = boards.filter((board) => board.id !== boardId);
+      setBoards(remaining);
+      setSelectedBoardId(remaining[0]?.id ?? null);
+      setConfirmingArchive(false);
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : "Failed to delete the board.");
+    } finally {
+      setArchiving(false);
+    }
+  }
 
   // Lets the long-lived membership subscription below (subscribed once per
   // mount, not re-subscribed on every board switch) read whichever board is
@@ -283,7 +309,11 @@ export function MessageBoardsClient({
                   <button
                     key={board.id}
                     type="button"
-                    onClick={() => setSelectedBoardId(board.id)}
+                    onClick={() => {
+                      setSelectedBoardId(board.id);
+                      setConfirmingArchive(false);
+                      setArchiveError(null);
+                    }}
                     className={`rounded-md px-3 py-2 text-left text-sm font-medium ${
                       board.id === selectedBoardId
                         ? "bg-brand-secondary-subtle text-brand-secondary"
@@ -312,9 +342,41 @@ export function MessageBoardsClient({
           </div>
         ) : (
           <div className="flex h-[32rem] flex-col">
-            <div className="border-b border-border p-4">
+            <div className="flex items-center justify-between gap-3 border-b border-border p-4">
               <h2 className="text-base font-semibold text-foreground">{selectedBoard.title}</h2>
+              {currentStaffRole === "admin" && selectedBoard.board_type === "sub_specific" ? (
+                confirmingArchive ? (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="text-muted-foreground">Delete this coverage chat?</span>
+                    <button
+                      type="button"
+                      onClick={() => archiveBoard(selectedBoard.id)}
+                      disabled={archiving}
+                      className="rounded-md bg-destructive px-2.5 py-1 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60"
+                    >
+                      {archiving ? "Deleting..." : "Delete"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingArchive(false)}
+                      disabled={archiving}
+                      className="rounded-md px-2.5 py-1 text-sm font-medium text-muted-foreground hover:bg-accent"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingArchive(true)}
+                    className="rounded-md px-2.5 py-1 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-destructive"
+                  >
+                    Delete board
+                  </button>
+                )
+              ) : null}
             </div>
+            {archiveError ? <p className="border-b border-border px-4 py-2 text-sm text-destructive">{archiveError}</p> : null}
 
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {loadingMessages ? (
