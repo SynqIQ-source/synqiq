@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy Policy" updated="October 14, 2026">
+    <LegalPage title="Privacy Policy" updated="October 22, 2026">
       <p>
         SynqIQ is a staff scheduling and substitute-coverage tool used by fitness studios,
         operated by SynqIQ LLC (&quot;SynqIQ,&quot; &quot;we,&quot; or &quot;us&quot;). This
@@ -67,13 +67,15 @@ export default function PrivacyPage() {
 
       <h2>Cookies and tracking</h2>
       <p>
-        We use cookies only to keep you signed in. SynqIQ does not use advertising cookies or
-        third-party analytics trackers.
+        We use cookies only to keep you signed in. To understand how the site is used, we use
+        Vercel Web Analytics, which counts page views without cookies and without identifying
+        you. SynqIQ does not use advertising cookies or advertising trackers.
       </p>
 
       <h2>Service providers</h2>
       <p>
-        We rely on a small number of providers to host and operate SynqIQ: Vercel (hosting),
+        We rely on a small number of providers to host and operate SynqIQ: Vercel (hosting and
+        privacy-friendly site analytics),
         Supabase (database and sign-in), and Resend (email delivery). Studio data is read from
         the studio&apos;s own booking software with the studio&apos;s authorization. These
         providers only process data to provide their services to us.

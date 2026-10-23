@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getOrgBranding } from "@/lib/org-branding";
@@ -105,6 +106,9 @@ export default async function RootLayout({
     <html lang="en">
       <body className={FONT_VARIABLE_CLASS_NAMES} style={bodyStyle as React.CSSProperties}>
         <TooltipProvider>{children}</TooltipProvider>
+        {/* Vercel Web Analytics: cookieless, aggregate page views for every
+            page (public site + dashboard). Disclosed on /privacy. */}
+        <Analytics />
       </body>
     </html>
   );
