@@ -390,5 +390,9 @@ Add in Cloudflare under **DNS > Records > Add record**:
 | alphaMountain.ai | 2026-10-14 | 139078 | CLEARED 2026-10-14: rescanned and reclassified; partners update within 24h |
 | Lionic | 2026-10-14 | | Submitted via contact form (confirmation shown) |
 | SOCRadar | 2026-10-14 | 183702 | CLEARED 2026-10-14: added to allowlist, ticket solved |
+| CyRadar (www.synqiq.co, phishing) | 2026-10-22 | | Emailed virustotal@cyradar.com from info@synqiq.co |
+| Seclookup (www.synqiq.co, malicious) | 2026-10-22 | | Emailed info@seclookup.com from info@synqiq.co |
+| ESET follow-up (www.synqiq.co, suspicious) | 2026-10-22 | 6acfb513031f | Follow-up sent to samples@eset.com, subject "Domain whitelist www.synqiq.co" |
+| SOCRadar reopen (www.synqiq.co, suspicious) | 2026-10-22 | 183702 | Replied on ticket asking to allowlist www too |
 | DMARC record added | 2026-10-14 | n/a | Done, verified on 1.1.1.1 and 8.8.8.8 |
 | VirusTotal reanalyze | | n/a | |
