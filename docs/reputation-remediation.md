@@ -393,6 +393,6 @@ Add in Cloudflare under **DNS > Records > Add record**:
 | CyRadar (www.synqiq.co, phishing) | 2026-10-22 | | Emailed virustotal@cyradar.com from info@synqiq.co |
 | Seclookup (www.synqiq.co, malicious) | 2026-10-22 | | Emailed info@seclookup.com from info@synqiq.co |
 | ESET follow-up (www.synqiq.co, suspicious) | 2026-10-22 | 6acfb513031f | Follow-up sent to samples@eset.com, subject "Domain whitelist www.synqiq.co" |
-| SOCRadar reopen (www.synqiq.co, suspicious) | 2026-10-22 | 183702 | Replied on ticket asking to allowlist www too |
+| SOCRadar reopen (www.synqiq.co, suspicious) | 2026-10-22 | 183702 | CLEARED by 2026-10-27: no longer flags www.synqiq.co |
 | DMARC record added | 2026-10-14 | n/a | Done, verified on 1.1.1.1 and 8.8.8.8 |
 | VirusTotal reanalyze | | n/a | |
