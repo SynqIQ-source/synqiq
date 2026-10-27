@@ -15,6 +15,12 @@ type Board = {
   department_id: string | null;
   substitution_request_id: string | null;
   created_at: string;
+  // Coverage chats only (set server-side in page.tsx). Optional because a
+  // board that arrives live via the Realtime INSERT below won't have them
+  // until the next page load.
+  classDateLabel?: string | null;
+  classStart?: string | null;
+  classEnded?: boolean;
 };
 
 type Message = {
@@ -295,6 +301,11 @@ export function MessageBoardsClient({
       <div className="space-y-6">
         {BOARD_TYPE_ORDER.map((type) => {
           const boardsOfType = boards.filter((board) => board.board_type === type);
+          // Coverage chats in class-date order, so the soonest (and any
+          // already-past, deletable ones) are at the top.
+          if (type === "sub_specific") {
+            boardsOfType.sort((a, b) => (a.classStart ?? "").localeCompare(b.classStart ?? ""));
+          }
           if (boardsOfType.length === 0) {
             return null;
           }
@@ -320,7 +331,17 @@ export function MessageBoardsClient({
                         : "text-foreground hover:bg-accent"
                     }`}
                   >
-                    {board.title}
+                    <span className="block">{board.title}</span>
+                    {board.board_type === "sub_specific" && board.classDateLabel ? (
+                      <span className="mt-0.5 flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                        {board.classDateLabel}
+                        {board.classEnded ? (
+                          <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+                            Class ended
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -343,7 +364,15 @@ export function MessageBoardsClient({
         ) : (
           <div className="flex h-[32rem] flex-col">
             <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-              <h2 className="text-base font-semibold text-foreground">{selectedBoard.title}</h2>
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-foreground">{selectedBoard.title}</h2>
+                {selectedBoard.board_type === "sub_specific" && selectedBoard.classDateLabel ? (
+                  <p className="text-sm text-muted-foreground">
+                    Class: {selectedBoard.classDateLabel}
+                    {selectedBoard.classEnded ? " · class has ended, safe to delete" : ""}
+                  </p>
+                ) : null}
+              </div>
               {currentStaffRole === "admin" && selectedBoard.board_type === "sub_specific" ? (
                 confirmingArchive ? (
                   <div className="flex items-center gap-2 text-sm">

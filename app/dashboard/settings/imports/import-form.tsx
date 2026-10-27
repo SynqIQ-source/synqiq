@@ -113,7 +113,7 @@ export function ImportForm() {
             type="file"
             accept=".xlsx,.xls,.csv"
             disabled={state.status === "uploading"}
-            className="text-sm"
+            className="block w-full max-w-md cursor-pointer rounded-md border border-dashed border-input bg-card p-1.5 text-sm text-muted-foreground file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-primary file:px-3.5 file:py-2 file:text-sm file:font-medium file:text-primary-foreground hover:file:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
       </div>

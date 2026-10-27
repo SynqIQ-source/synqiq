@@ -248,7 +248,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         .insert({
           organization_id: occurrence.organization_id,
           board_type: "sub_specific",
-          title: `Coverage: ${occurrence.class_name ?? "class"}`,
+          title: `Coverage: ${occurrence.class_name?.trim() || "class"}`,
           substitution_request_id: requestId,
         })
         .select("id")
