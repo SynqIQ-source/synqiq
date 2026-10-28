@@ -60,6 +60,25 @@ const EMPTY_DETAILS = {
   postalCode: "",
 };
 
+const US_STATES: Record<string, string> = {
+  alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO",
+  connecticut: "CT", delaware: "DE", "district of columbia": "DC", florida: "FL", georgia: "GA",
+  hawaii: "HI", idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY",
+  louisiana: "LA", maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", minnesota: "MN",
+  mississippi: "MS", missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV", "new hampshire": "NH",
+  "new jersey": "NJ", "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND",
+  ohio: "OH", oklahoma: "OK", oregon: "OR", pennsylvania: "PA", "rhode island": "RI",
+  "south carolina": "SC", "south dakota": "SD", tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT",
+  virginia: "VA", washington: "WA", "west virginia": "WV", wisconsin: "WI", wyoming: "WY",
+};
+
+// "tx", "Tx", "Texas" -> "TX"; anything unrecognized -> null.
+function stateCode(raw: string): string | null {
+  const value = raw.trim().replace(/\./g, "").replace(/\s+/g, " ").toLowerCase();
+  if (/^[a-z]{2}$/.test(value) && Object.values(US_STATES).includes(value.toUpperCase())) return value.toUpperCase();
+  return US_STATES[value] ?? null;
+}
+
 const IDLE_RESET_MS = 120_000;
 const DONE_RESET_MS = 10_000;
 const NO_SELLER = "none";
@@ -318,14 +337,22 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
     }
   }
 
-  const contactReady =
-    details.firstName.trim() && details.lastName.trim() && details.phone.trim() && /.+@.+\..+/.test(details.email.trim());
-  const detailsReady =
-    details.dateOfBirth &&
-    details.addressLine1.trim() &&
-    details.city.trim() &&
-    /^[A-Za-z]{2}$/.test(details.state.trim()) &&
-    /^\d{5}(-\d{4})?$/.test(details.postalCode.trim());
+  // What's still missing on each form step, so the guest is told exactly
+  // which field to fix instead of facing a greyed-out button.
+  const contactProblems = [
+    !details.firstName.trim() && "first name",
+    !details.lastName.trim() && "last name",
+    details.phone.replace(/\D/g, "").length < 10 && "a mobile number (10 digits)",
+    !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(details.email.trim()) && "a valid email",
+  ].filter(Boolean) as string[];
+  const detailsProblems = [
+    !details.dateOfBirth && "date of birth",
+    !details.addressLine1.trim() && "street address",
+    !details.city.trim() && "city",
+    !stateCode(details.state) && "state (for example TX)",
+    !/^\d{5}(-\d{4})?$/.test(details.postalCode.trim()) && "ZIP code (5 digits)",
+  ].filter(Boolean) as string[];
+  const missingMessage = (problems: string[]) => `Please add ${problems.join(", ")}.`;
   const waiverReady =
     Boolean(config.waiver) &&
     agreed &&
@@ -394,6 +421,10 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
           className="space-y-6"
           onSubmit={(event) => {
             event.preventDefault();
+            if (contactProblems.length > 0) {
+              setError(missingMessage(contactProblems));
+              return;
+            }
             void checkContact();
           }}
         >
@@ -404,7 +435,7 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
             <Field id="phone" label="Mobile number" type="tel" inputMode="tel" value={details.phone} onChange={(e) => setDetail("phone", e.target.value)} autoComplete="off" maxLength={30} />
             <Field id="email" label="Email" type="email" inputMode="email" autoCapitalize="none" value={details.email} onChange={(e) => setDetail("email", e.target.value)} autoComplete="off" maxLength={254} />
           </div>
-          <Button type="submit" className="h-14 w-full text-lg" disabled={!contactReady || busy}>
+          <Button type="submit" className="h-14 w-full text-lg" disabled={busy}>
             {busy ? "One moment…" : "Continue"}
           </Button>
         </form>
@@ -465,6 +496,12 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
           className="space-y-6"
           onSubmit={(event) => {
             event.preventDefault();
+            if (detailsProblems.length > 0) {
+              setError(missingMessage(detailsProblems));
+              return;
+            }
+            setDetail("state", stateCode(details.state) ?? details.state);
+            setDetail("postalCode", details.postalCode.trim());
             go(afterDetails());
           }}
         >
@@ -481,7 +518,7 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
             />
             <Field id="street" label="Street address" value={details.addressLine1} onChange={(e) => setDetail("addressLine1", e.target.value)} autoComplete="off" maxLength={120} className="sm:col-span-6" />
             <Field id="city" label="City" value={details.city} onChange={(e) => setDetail("city", e.target.value)} autoComplete="off" maxLength={60} className="sm:col-span-3" />
-            <Field id="state" label="State" value={details.state} onChange={(e) => setDetail("state", e.target.value.toUpperCase())} autoComplete="off" maxLength={2} placeholder="TX" className="sm:col-span-1" />
+            <Field id="state" label="State" value={details.state} onChange={(e) => setDetail("state", e.target.value)} autoComplete="off" maxLength={20} placeholder="TX" className="sm:col-span-1" />
             <Field id="zip" label="ZIP" inputMode="numeric" value={details.postalCode} onChange={(e) => setDetail("postalCode", e.target.value)} autoComplete="off" maxLength={10} className="sm:col-span-2" />
           </div>
           {details.dateOfBirth && minor ? (
@@ -489,7 +526,7 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
               Guests under 18 need a parent or guardian to sign the waiver with them.
             </p>
           ) : null}
-          <Button type="submit" className="h-14 w-full text-lg" disabled={!detailsReady}>
+          <Button type="submit" className="h-14 w-full text-lg">
             Continue
           </Button>
         </form>
