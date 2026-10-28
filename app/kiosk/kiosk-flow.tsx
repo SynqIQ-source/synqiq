@@ -168,7 +168,7 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
   const [howHeard, setHowHeard] = useState<string[]>([]);
   const [sellerId, setSellerId] = useState<string>(NO_SELLER);
   const [photo, setPhoto] = useState<string | null>(null);
-  const [consent, setConsent] = useState({ email: false, sms: false, photo: false });
+  const [consent, setConsent] = useState({ email: false, sms: false });
   const [typedName, setTypedName] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
@@ -190,7 +190,7 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
     setHowHeard([]);
     setSellerId(NO_SELLER);
     setPhoto(null);
-    setConsent({ email: false, sms: false, photo: false });
+    setConsent({ email: false, sms: false });
     setTypedName("");
     setAgreed(false);
     setSignature(null);
@@ -616,12 +616,8 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
             <CheckRow id="consent-sms" checked={consent.sms} onChange={(sms) => setConsent((c) => ({ ...c, sms }))}>
               Text me appointment confirmations and updates. Message and data rates may apply. Reply STOP to opt out.
             </CheckRow>
-            <CheckRow id="consent-photo" checked={consent.photo} onChange={(value) => setConsent((c) => ({ ...c, photo: value }))}>
-              I agree that {config.organizationName} may keep the photo I just took on my guest profile so staff can
-              recognize me. It is not shared or used for marketing.
-            </CheckRow>
           </div>
-          <Button className="h-14 w-full text-lg" disabled={!consent.photo} onClick={() => go("waiver")}>
+          <Button className="h-14 w-full text-lg" onClick={() => go("waiver")}>
             Continue
           </Button>
         </div>

@@ -366,7 +366,6 @@ export async function POST(request: NextRequest) {
     const details = parseDetails(body.details);
     const howHeard = await validHowHeard(admin, device.organizationId, body.howHeard);
     const consent = (body.consent && typeof body.consent === "object" ? body.consent : {}) as Record<string, unknown>;
-    if (consent.photo !== true) throw new CheckInError("Tick the photo consent box to continue.");
     const photo = decodeJpeg(body.photo);
     if (!photo) throw new CheckInError("Please take your photo.");
 
@@ -433,6 +432,8 @@ export async function POST(request: NextRequest) {
       email_consent_at: consent.email === true ? now : null,
       sms_consent: consent.sms === true,
       sms_consent_at: consent.sms === true ? now : null,
+      // Photo consent is part of the waiver text the guest signs (from v2),
+      // not a separate checkbox, so it's recorded with the signature.
       photo_consent: true,
       photo_consent_at: now,
       possible_duplicate_of: pending?.candidateId ?? null,
