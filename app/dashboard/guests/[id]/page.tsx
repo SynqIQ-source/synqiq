@@ -22,6 +22,7 @@ import { getCrmOrg } from "@/lib/crm/org";
 import { signedPhotoUrls } from "@/lib/crm/photos";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { GuestAvatar } from "../guest-avatar";
+import { AddNoteForm, EditContactButton, SalespersonSelect, SendToMindbodyButton } from "./profile-actions";
 import { PendingMatchActions } from "../pending-match-actions";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,9 @@ type Contact = {
   email_check_result: { provider?: string; did_you_mean?: string | null; is_disposable?: boolean | null } | null;
   mindbody_client_id: string | null;
   mindbody_sync_status: string;
+  mindbody_sync_error: string | null;
+  mindbody_synced_at: string | null;
+  email_normalized: string | null;
   merged_into_id: string | null;
   created_at: string;
   referring_client: { first_name: string; last_name: string; mindbody_unique_id: number; status: string } | null;
@@ -82,7 +86,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, merged_into_id, created_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, merged_into_id, created_at,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
     .eq("id", id)
@@ -98,7 +102,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   const { data: mergedRows } = await supabase.from("crm_contacts").select("id").eq("merged_into_id", contact.id);
   const contactIds = [contact.id, ...(mergedRows ?? []).map((row) => row.id)];
 
-  const [visitsResult, signaturesResult, staffResult, matchesResult, photoUrls] = await Promise.all([
+  const [visitsResult, signaturesResult, staffResult, matchesResult, photoUrls, notesResult] = await Promise.all([
     supabase
       .from("guest_visits")
       .select("id, visit_at, visit_type, assigned_staff_id")
@@ -109,7 +113,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       .select("id, signed_at, template_version, is_minor, guardian_name")
       .in("contact_id", contactIds)
       .order("signed_at", { ascending: false }),
-    supabase.from("staff").select("id, display_name"),
+    supabase.from("staff").select("id, display_name, can_sell, role, archived_at").order("display_name"),
     supabase
       .from("crm_pending_matches")
       .select(
@@ -129,9 +133,25 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
         }[]
       >(),
     signedPhotoUrls(supabase, [contact.photo_path]),
+    supabase
+      .from("crm_notes")
+      .select("id, body, created_at, author_staff_id")
+      .in("contact_id", contactIds)
+      .order("created_at", { ascending: false }),
   ]);
 
-  const staffNames = new Map((staffResult.data ?? []).map((member) => [member.id, member.display_name as string]));
+  const staffRows = staffResult.data ?? [];
+  const staffNames = new Map(staffRows.map((member) => [member.id, member.display_name as string]));
+  // Salesperson choices: active sellers and admins, plus whoever is assigned now.
+  const salespeople = staffRows
+    .filter(
+      (member) =>
+        (!member.archived_at && (member.can_sell || member.role === "admin")) || member.id === contact.assigned_staff_id,
+    )
+    .map((member) => ({ id: member.id, name: member.display_name as string }));
+  const notes = notesResult.data ?? [];
+  const isAdmin = staff.role === "admin";
+  const mindbodyPending = contact.mindbody_sync_status === "pending";
   const visits = visitsResult.data ?? [];
   const signatures = signaturesResult.data ?? [];
   const matches = matchesResult.data ?? [];
@@ -152,11 +172,27 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       title={`${contact.first_name} ${contact.last_name}`}
       description={`${STATUS_LABELS[contact.status] ?? contact.status} · added ${local(contact.created_at, "LLL d, yyyy")}`}
       actions={
-        <Button asChild variant="outline" size="sm">
-          <Link href="/dashboard/guests">
-            <ArrowLeft /> Guests
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/guests">
+              <ArrowLeft /> Guests
+            </Link>
+          </Button>
+          <EditContactButton
+            contactId={contact.id}
+            initial={{
+              firstName: contact.first_name,
+              lastName: contact.last_name,
+              email: contact.email ?? "",
+              phone: formatPhoneForDisplay(contact.phone_e164),
+              dateOfBirth: contact.date_of_birth ?? "",
+              addressLine1: contact.address_line1 ?? "",
+              city: contact.city ?? "",
+              state: contact.state ?? "",
+              postalCode: contact.postal_code ?? "",
+            }}
+          />
+        </div>
       }
     >
       <div className="grid gap-6 lg:grid-cols-3">
@@ -258,7 +294,13 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                   ) : null}
                 </Item>
                 <Item label="Salesperson">
-                  {contact.assigned_staff_id ? (staffNames.get(contact.assigned_staff_id) ?? "—") : "Unassigned"}
+                  {isAdmin ? (
+                    <SalespersonSelect contactId={contact.id} current={contact.assigned_staff_id} options={salespeople} />
+                  ) : contact.assigned_staff_id ? (
+                    (staffNames.get(contact.assigned_staff_id) ?? "—")
+                  ) : (
+                    "Unassigned"
+                  )}
                 </Item>
               </dl>
             </CardContent>
@@ -280,6 +322,28 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                         {local(visit.visit_at)}
                         {visit.assigned_staff_id ? ` · with ${staffNames.get(visit.assigned_staff_id) ?? "—"}` : ""}
                       </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Notes</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <AddNoteForm contactId={contact.id} />
+              {notes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No notes yet.</p>
+              ) : (
+                <ul className="divide-y">
+                  {notes.map((note) => (
+                    <li key={note.id} className="space-y-1 py-3">
+                      <p className="text-xs text-muted-foreground">
+                        {staffNames.get(note.author_staff_id) ?? "Staff"} · {local(note.created_at)}
+                      </p>
+                      <p className="text-sm whitespace-pre-wrap">{note.body}</p>
                     </li>
                   ))}
                 </ul>
@@ -340,10 +404,20 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                 <Item label="Client ID">{contact.mindbody_client_id ?? "—"}</Item>
                 <Item label="Sync status">
                   {MINDBODY_SYNC_LABELS[contact.mindbody_sync_status] ?? contact.mindbody_sync_status}
+                  {contact.mindbody_synced_at ? (
+                    <span className="ml-2 text-xs text-muted-foreground">{local(contact.mindbody_synced_at, "LLL d, yyyy")}</span>
+                  ) : null}
                 </Item>
+                {contact.mindbody_sync_error ? (
+                  <p className="text-xs text-destructive">{contact.mindbody_sync_error}</p>
+                ) : null}
               </dl>
-              <Separator className="my-4" />
-              <p className="text-xs text-muted-foreground">Sending guests to Mindbody is coming in a later update.</p>
+              {!contact.mindbody_client_id && !mindbodyPending ? (
+                <>
+                  <Separator className="my-4" />
+                  <SendToMindbodyButton contactId={contact.id} />
+                </>
+              ) : null}
             </CardContent>
           </Card>
         </div>

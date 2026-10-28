@@ -170,6 +170,25 @@ export class MindbodyClient {
     });
   }
 
+  // Mindbody's client search matches name, email and phone. SearchText is a
+  // query parameter by Mindbody's design; this is a server-to-server call,
+  // and the value never appears in SynqIQ's own URLs or logs.
+  async searchClients(searchText: string, accessToken: string) {
+    return this.request("/client/clients", {
+      method: "GET",
+      accessToken,
+      searchParams: { SearchText: searchText, Limit: 25 },
+    });
+  }
+
+  async getRequiredClientFields(accessToken: string) {
+    return this.request("/client/requiredclientfields", { method: "GET", accessToken });
+  }
+
+  async addClient(client: Record<string, unknown>, accessToken: string) {
+    return this.request("/client/addclient", { method: "POST", accessToken, body: client });
+  }
+
   async getClassVisits(occurrenceId: MindbodyOccurrenceId, accessToken?: string) {
     return this.request("/class/classvisits", {
       method: "GET",

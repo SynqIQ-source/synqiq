@@ -2,11 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { checkEmail, EmailCheckRetryableError } from "@/lib/crm/email-check";
 import { logCrmError } from "@/lib/crm/http";
+import { MindbodyPushBlockedError, pushContactToMindbody, sanitizeMindbodyError } from "@/lib/crm/mindbody-push";
 
 // Background work for the CRM (crm_jobs). A job is queued when a contact is
 // created, attempted right after the response is sent, and retried by the
-// /api/crm/jobs cron with backoff, so a Mailgun (or later Mindbody) outage
-// never blocks the kiosk.
+// /api/crm/jobs cron with backoff, so an email-check or Mindbody outage
+// never blocks the kiosk. A finished email check queues the Mindbody push.
 
 const MAX_ATTEMPTS = 6;
 // Minutes to wait before attempt N+1.
@@ -20,6 +21,23 @@ export async function enqueueEmailCheck(admin: SupabaseClient, organizationId: s
     .single();
   if (error) throw error;
   return data.id as string;
+}
+
+// Queues sending a contact to Mindbody and marks it pending on the profile.
+export async function enqueueMindbodyPush(admin: SupabaseClient, organizationId: string, contactId: string) {
+  const { data, error } = await admin
+    .from("crm_jobs")
+    .insert({ organization_id: organizationId, kind: "mindbody_push", contact_id: contactId })
+    .select("id, organization_id, kind, contact_id, attempts")
+    .single();
+  if (error) throw error;
+  await admin
+    .from("crm_contacts")
+    .update({ mindbody_sync_status: "pending", mindbody_sync_error: null })
+    .eq("id", contactId)
+    .eq("organization_id", organizationId)
+    .is("mindbody_client_id", null);
+  return data as Job;
 }
 
 type Job = { id: string; organization_id: string; kind: string; contact_id: string; attempts: number };
@@ -36,7 +54,12 @@ async function claim(admin: SupabaseClient, job: Job): Promise<boolean> {
   return (data ?? []).length === 1;
 }
 
-async function finish(admin: SupabaseClient, job: Job, outcome: { ok: true } | { ok: false; error: string }) {
+// Returns true when the job won't run again (done, or out of attempts).
+async function finish(
+  admin: SupabaseClient,
+  job: Job,
+  outcome: { ok: true } | { ok: false; error: string },
+): Promise<boolean> {
   const attempts = job.attempts + 1;
   const now = Date.now();
   const update = outcome.ok
@@ -52,6 +75,7 @@ async function finish(admin: SupabaseClient, job: Job, outcome: { ok: true } | {
     .from("crm_jobs")
     .update({ ...update, updated_at: new Date(now).toISOString() })
     .eq("id", job.id);
+  return update.status !== "queued";
 }
 
 async function runEmailCheck(admin: SupabaseClient, job: Job) {
@@ -89,18 +113,64 @@ async function runEmailCheck(admin: SupabaseClient, job: Job) {
   if (updateError) throw updateError;
 }
 
+async function setMindbodyStatus(admin: SupabaseClient, job: Job, fields: Record<string, unknown>) {
+  await admin
+    .from("crm_contacts")
+    .update({ ...fields, updated_at: new Date().toISOString() })
+    .eq("id", job.contact_id)
+    .eq("organization_id", job.organization_id);
+}
+
+async function runMindbodyPush(admin: SupabaseClient, job: Job) {
+  const result = await pushContactToMindbody(admin, job.contact_id, job.organization_id);
+  if ("skipped" in result) {
+    await setMindbodyStatus(admin, job, { mindbody_sync_status: "not_synced", mindbody_sync_error: result.skipped });
+    return;
+  }
+  await setMindbodyStatus(admin, job, {
+    mindbody_client_id: result.clientId,
+    mindbody_sync_status: "synced",
+    mindbody_synced_at: new Date().toISOString(),
+    mindbody_sync_error: null,
+  });
+}
+
 async function runJob(admin: SupabaseClient, job: Job) {
-  // mindbody_push isn't built yet; those jobs stay queued untouched.
-  if (job.kind !== "email_check") return;
+  if (job.kind !== "email_check" && job.kind !== "mindbody_push") return;
   if (!(await claim(admin, job))) return;
+
+  if (job.kind === "email_check") {
+    try {
+      await runEmailCheck(admin, job);
+      await finish(admin, job, { ok: true });
+    } catch (error) {
+      if (!(error instanceof EmailCheckRetryableError)) logCrmError("job email_check", error);
+      // Error messages here never contain the address.
+      const message = error instanceof Error ? error.message.slice(0, 200) : "unknown error";
+      await finish(admin, job, { ok: false, error: message });
+      return;
+    }
+    // Email checked: send the contact to Mindbody next (a failed or risky
+    // check doesn't block the push; staff can fix the email afterwards).
+    const push = await enqueueMindbodyPush(admin, job.organization_id, job.contact_id);
+    await runJob(admin, push);
+    return;
+  }
+
   try {
-    await runEmailCheck(admin, job);
+    await runMindbodyPush(admin, job);
     await finish(admin, job, { ok: true });
   } catch (error) {
-    if (!(error instanceof EmailCheckRetryableError)) logCrmError(`job ${job.kind}`, error);
-    // Error messages here never contain the address.
-    const message = error instanceof Error ? error.message.slice(0, 200) : "unknown error";
-    await finish(admin, job, { ok: false, error: message });
+    const message = sanitizeMindbodyError(error);
+    if (error instanceof MindbodyPushBlockedError) {
+      // Needs a staff fix (a field Mindbody requires); retrying won't help.
+      await setMindbodyStatus(admin, job, { mindbody_sync_status: "failed", mindbody_sync_error: message });
+      await admin.from("crm_jobs").update({ status: "failed", last_error: message }).eq("id", job.id);
+      return;
+    }
+    logCrmError("job mindbody_push", error);
+    const final = await finish(admin, job, { ok: false, error: message });
+    if (final) await setMindbodyStatus(admin, job, { mindbody_sync_status: "failed", mindbody_sync_error: message });
   }
 }
 
@@ -131,7 +201,6 @@ export async function runDueJobs(limit = 50): Promise<{ ran: number }> {
     .from("crm_jobs")
     .select("id, organization_id, kind, contact_id, attempts")
     .eq("status", "queued")
-    .eq("kind", "email_check")
     .lte("next_run_at", now.toISOString())
     .order("next_run_at")
     .limit(limit);
