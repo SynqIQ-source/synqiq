@@ -360,3 +360,47 @@ export function SellersCard({ staff }: { staff: StaffRow[] }) {
     </Card>
   );
 }
+
+// --- Email check (Mailgun) -------------------------------------------------------
+
+export function EmailCheckCard() {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function test() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/crm/email-check-test", { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      setMessage(
+        result.success
+          ? { ok: true, text: `Mailgun is working: ${result.address} came back ${result.status} (${result.result}).` }
+          : { ok: false, text: result.error ?? "Mailgun test failed." },
+      );
+    } catch {
+      setMessage({ ok: false, text: "Couldn't reach SynqIQ." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Email check</CardTitle>
+        <CardDescription>
+          New guests&apos; email addresses are checked with Mailgun in the background. Test the connection here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <Button variant="outline" disabled={busy} onClick={() => void test()}>
+          {busy ? "Testing…" : "Test Mailgun"}
+        </Button>
+        {message ? (
+          <p className={message.ok ? "text-sm text-foreground" : "text-sm text-destructive"}>{message.text}</p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}

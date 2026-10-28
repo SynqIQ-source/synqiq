@@ -3,7 +3,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { requireCrmStaff } from "@/lib/crm/module";
 import { getCrmOrg } from "@/lib/crm/org";
 import { getScopedClient } from "@/lib/supabase/scoped";
-import { KioskDevicesCard, MarketingSourcesCard, SellersCard, WaiverCard } from "./crm-settings";
+import { EmailCheckCard, KioskDevicesCard, MarketingSourcesCard, SellersCard, WaiverCard } from "./crm-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +42,7 @@ export default async function CrmSettingsPage() {
         <WaiverCard waivers={waivers.data ?? []} timezone={org.timezone} />
         <MarketingSourcesCard sources={sources.data ?? []} />
         <SellersCard staff={staffRows.data ?? []} />
+        <EmailCheckCard />
       </div>
     </DashboardShell>
   );
