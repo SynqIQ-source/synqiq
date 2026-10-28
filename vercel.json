@@ -9,6 +9,7 @@
     { "path": "/api/sync/clients", "schedule": "30 6 * * *" },
     { "path": "/api/sync/clients", "schedule": "30 7 * * *" },
     { "path": "/api/sync/class-visits", "schedule": "40 6 * * *" },
-    { "path": "/api/sync/class-visits", "schedule": "40 7 * * *" }
+    { "path": "/api/sync/class-visits", "schedule": "40 7 * * *" },
+    { "path": "/api/crm/jobs", "schedule": "*/10 * * * *" }
   ]
 }

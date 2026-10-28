@@ -51,6 +51,7 @@ type Contact = {
   photo_consent: boolean;
   photo_consent_at: string | null;
   email_check_status: string;
+  email_check_result: { did_you_mean?: string | null; is_disposable?: boolean | null } | null;
   mindbody_client_id: string | null;
   mindbody_sync_status: string;
   merged_into_id: string | null;
@@ -81,7 +82,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, mindbody_client_id, mindbody_sync_status, merged_into_id, created_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, merged_into_id, created_at,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
     .eq("id", id)
@@ -216,9 +217,26 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                 <Item label="Email">
                   {contact.email ?? "—"}
                   {contact.email ? (
-                    <span className="ml-2 text-xs text-muted-foreground">
-                      ({EMAIL_CHECK_LABELS[contact.email_check_status] ?? contact.email_check_status})
+                    <Badge
+                      variant={
+                        contact.email_check_status === "undeliverable"
+                          ? "destructive"
+                          : contact.email_check_status === "deliverable"
+                            ? "secondary"
+                            : "outline"
+                      }
+                      className="ml-2"
+                    >
+                      {EMAIL_CHECK_LABELS[contact.email_check_status] ?? contact.email_check_status}
+                    </Badge>
+                  ) : null}
+                  {contact.email_check_result?.did_you_mean ? (
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      Did they mean {contact.email_check_result.did_you_mean}?
                     </span>
+                  ) : null}
+                  {contact.email_check_result?.is_disposable ? (
+                    <span className="mt-1 block text-xs text-muted-foreground">Disposable email address.</span>
                   ) : null}
                 </Item>
                 <Item label="Address">{address || "—"}</Item>

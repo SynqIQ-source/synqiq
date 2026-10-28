@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCrmStaffForApi } from "@/lib/crm/module";
 import { cleanText, normalizeEmail, normalizePhone } from "@/lib/crm/normalize";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
+import { enqueueEmailCheck, runJobById } from "@/lib/crm/jobs";
 
 const SOURCES = ["phone_in", "walk_in", "guest_of_member", "other"] as const;
 
@@ -102,6 +103,17 @@ export async function POST(request: NextRequest) {
         reason: "partial_match",
       });
       if (pendingError) throw pendingError;
+    }
+
+    if (email) {
+      const jobId = await enqueueEmailCheck(admin, staff.organizationId, created.id);
+      after(() => runJobById(jobId));
+    } else {
+      await admin
+        .from("crm_contacts")
+        .update({ email_check_status: "skipped" })
+        .eq("id", created.id)
+        .eq("organization_id", staff.organizationId);
     }
 
     return NextResponse.json({ success: true, id: created.id });

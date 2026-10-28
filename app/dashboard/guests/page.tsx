@@ -36,12 +36,13 @@ type ContactSummary = {
   assigned_staff_id: string | null;
   referrer_name_typed: string | null;
   referrer_unresolved: boolean;
+  email_check_status: string;
   referring_client: { first_name: string; last_name: string } | null;
   created_at: string;
 };
 
 const CONTACT_COLUMNS =
-  "id, first_name, last_name, status, source, photo_path, assigned_staff_id, referrer_name_typed, referrer_unresolved, created_at, referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name )";
+  "id, first_name, last_name, status, source, photo_path, assigned_staff_id, referrer_name_typed, referrer_unresolved, email_check_status, created_at, referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name )";
 
 type Row = {
   key: string;
@@ -258,6 +259,7 @@ export default async function GuestsPage({ searchParams }: { searchParams: Promi
                   const waiverSigned = signed.has(contact.id);
                   const action = nextAction({
                     hasOpenMatch: openMatchContacts.has(contact.id),
+                    emailUndeliverable: contact.email_check_status === "undeliverable",
                     referrerUnresolved: contact.referrer_unresolved,
                     waiverSigned,
                     assigned: Boolean(row.salespersonId),

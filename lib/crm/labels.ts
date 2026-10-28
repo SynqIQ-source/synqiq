@@ -46,11 +46,13 @@ export const EMAIL_CHECK_LABELS: Record<string, string> = {
 // The single most useful thing for staff to do next with a guest.
 export function nextAction(input: {
   hasOpenMatch: boolean;
+  emailUndeliverable: boolean;
   referrerUnresolved: boolean;
   waiverSigned: boolean;
   assigned: boolean;
 }): string {
   if (input.hasOpenMatch) return "Resolve possible duplicate";
+  if (input.emailUndeliverable) return "Fix email address";
   if (input.referrerUnresolved) return "Confirm referring member";
   if (!input.waiverSigned) return "Waiver needed";
   if (!input.assigned) return "Assign a salesperson";

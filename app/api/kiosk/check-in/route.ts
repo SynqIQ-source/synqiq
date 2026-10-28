@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { DateTime } from "luxon";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -20,6 +20,7 @@ import { getCrmOrg, type CrmOrg } from "@/lib/crm/org";
 import { decodeJpeg, decodePng } from "@/lib/crm/images";
 import { buildWaiverPdf } from "@/lib/crm/waiver-pdf";
 import { rateLimitAll } from "@/lib/crm/rate-limit";
+import { enqueueEmailCheck, runJobById } from "@/lib/crm/jobs";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 
 const BUCKET = "crm-private";
@@ -463,6 +464,11 @@ export async function POST(request: NextRequest) {
       });
       if (error) throw error;
     }
+
+    // Email deliverability check (Mailgun) runs after the response is sent;
+    // the cron retries it if this attempt fails.
+    const jobId = await enqueueEmailCheck(admin, device.organizationId, contactId);
+    after(() => runJobById(jobId));
 
     return NextResponse.json({ success: true });
   } catch (error) {
