@@ -375,7 +375,7 @@ export function EmailCheckCard() {
       const result = await response.json().catch(() => ({}));
       setMessage(
         result.success
-          ? { ok: true, text: `Mailgun is working: ${result.address} came back ${result.status} (${result.result}).` }
+          ? { ok: true, text: result.message }
           : { ok: false, text: result.error ?? "Mailgun test failed." },
       );
     } catch {
@@ -395,7 +395,7 @@ export function EmailCheckCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <Button variant="outline" disabled={busy} onClick={() => void test()}>
-          {busy ? "Testing…" : "Test Mailgun"}
+          {busy ? "Testing…" : "Test email check"}
         </Button>
         {message ? (
           <p className={message.ok ? "text-sm text-foreground" : "text-sm text-destructive"}>{message.text}</p>

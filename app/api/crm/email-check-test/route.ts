@@ -1,31 +1,48 @@
 import { NextResponse } from "next/server";
 import { getCrmStaffForApi } from "@/lib/crm/module";
-import { checkEmailWithMailgun } from "@/lib/crm/email-check";
+import { checkEmailWithDns, checkEmailWithMailgun, MailgunUnavailableError } from "@/lib/crm/email-check";
 import { jsonError, logCrmError } from "@/lib/crm/http";
 
-// Admin "Test Mailgun" button in CRM settings: checks the studio's own
-// SynqIQ address (never a guest's) to confirm the key works and email
-// validation is on the Mailgun plan.
+// Admin "Test email check" button in CRM settings: checks the studio's own
+// SynqIQ address (never a guest's) and reports whether Mailgun validation is
+// in use or the built-in fallback is.
 const TEST_ADDRESS = "info@synqiq.co";
+
+function unavailableReason(error: MailgunUnavailableError): string {
+  if (error.message.includes("not set")) return "MAILGUN_API_KEY isn't set in this deployment";
+  if (error.message.includes("401")) return "Mailgun rejected the key (check it's a private API key and the US/EU region)";
+  return "email validation isn't included on this Mailgun plan";
+}
 
 export async function POST() {
   const staff = await getCrmStaffForApi({ adminOnly: true });
   if (!staff) return jsonError("Not found.", 404);
 
-  if (!process.env.MAILGUN_API_KEY) {
-    return NextResponse.json({ success: false, error: "MAILGUN_API_KEY isn't set in this deployment." });
-  }
   try {
     const outcome = await checkEmailWithMailgun(TEST_ADDRESS);
-    return NextResponse.json({ success: true, address: TEST_ADDRESS, status: outcome.status, result: outcome.result.result });
+    return NextResponse.json({
+      success: true,
+      provider: "mailgun",
+      message: `Mailgun is working: ${TEST_ADDRESS} came back ${outcome.status} (${outcome.result.result}).`,
+    });
   } catch (error) {
+    if (error instanceof MailgunUnavailableError) {
+      const reason = unavailableReason(error);
+      try {
+        const outcome = await checkEmailWithDns(TEST_ADDRESS);
+        return NextResponse.json({
+          success: true,
+          provider: "dns",
+          message: `Using the built-in check because ${reason}. ${TEST_ADDRESS}: ${
+            outcome.result.result === "domain_accepts_mail" ? "domain accepts mail" : "domain can't receive mail"
+          }.`,
+        });
+      } catch {
+        return NextResponse.json({ success: false, error: `The built-in check failed too, and ${reason}.` });
+      }
+    }
     logCrmError("crm/email-check-test", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    const hint = /\b(401)\b/.test(message)
-      ? " The key was rejected; check it's a private API key and the region (US/EU) is right."
-      : /\b(403)\b/.test(message)
-        ? " Email validation probably isn't included on this Mailgun plan."
-        : "";
-    return NextResponse.json({ success: false, error: `${message}.${hint}` });
+    return NextResponse.json({ success: false, error: `${message}. Try again in a few minutes.` });
   }
 }

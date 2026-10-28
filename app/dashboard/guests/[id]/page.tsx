@@ -51,7 +51,7 @@ type Contact = {
   photo_consent: boolean;
   photo_consent_at: string | null;
   email_check_status: string;
-  email_check_result: { did_you_mean?: string | null; is_disposable?: boolean | null } | null;
+  email_check_result: { provider?: string; did_you_mean?: string | null; is_disposable?: boolean | null } | null;
   mindbody_client_id: string | null;
   mindbody_sync_status: string;
   merged_into_id: string | null;
@@ -227,7 +227,9 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                       }
                       className="ml-2"
                     >
-                      {EMAIL_CHECK_LABELS[contact.email_check_status] ?? contact.email_check_status}
+                      {contact.email_check_result?.provider === "dns" && contact.email_check_status === "unknown"
+                        ? "Domain accepts mail"
+                        : (EMAIL_CHECK_LABELS[contact.email_check_status] ?? contact.email_check_status)}
                     </Badge>
                   ) : null}
                   {contact.email_check_result?.did_you_mean ? (

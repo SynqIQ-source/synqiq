@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { checkEmailWithMailgun, EmailCheckRetryableError } from "@/lib/crm/email-check";
+import { checkEmail, EmailCheckRetryableError } from "@/lib/crm/email-check";
 import { logCrmError } from "@/lib/crm/http";
 
 // Background work for the CRM (crm_jobs). A job is queued when a contact is
@@ -73,7 +73,7 @@ async function runEmailCheck(admin: SupabaseClient, job: Job) {
     return;
   }
 
-  const outcome = await checkEmailWithMailgun(contact.email_normalized);
+  const outcome = await checkEmail(contact.email_normalized);
   const { error: updateError } = await admin
     .from("crm_contacts")
     .update({
