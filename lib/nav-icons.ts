@@ -11,6 +11,8 @@ import {
   MessageSquare,
   Repeat2,
   Settings,
+  Tablet,
+  UserRound,
   ShieldAlert,
   ShieldCheck,
   TrendingUp,
@@ -40,5 +42,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/settings/imports": Upload,
   "/dashboard/settings/staff": KeyRound,
   "/dashboard/settings/eligibility": ShieldCheck,
+  "/dashboard/guests": UserRound,
+  "/dashboard/settings/crm": Tablet,
   "/dashboard/comp-audit": ShieldAlert,
 };

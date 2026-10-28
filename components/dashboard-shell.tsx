@@ -4,8 +4,11 @@ import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { BottomNav, type NavItem } from "@/components/bottom-nav";
 import { SidebarNav, type NavGroup } from "@/components/sidebar-nav";
 import { AccountMenu } from "@/components/account-menu";
+import { canUseCrm, isCrmEnabled } from "@/lib/crm/module";
 
-type NavEntry = NavItem & { adminOnly: boolean };
+// crm: shown only when the org has the CRM module -- "staff" to admins and
+// sellers (can_sell), "admin" to admins only.
+type NavEntry = NavItem & { adminOnly: boolean; crm?: "staff" | "admin" };
 
 // Grouped so the sidebar reads as "what I do every day" / "how the studio is
 // doing" / "setup", instead of one flat list of 16 links.
@@ -32,6 +35,10 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     ],
   },
   {
+    label: "Sales",
+    items: [{ href: "/dashboard/guests", label: "Guests", adminOnly: false, crm: "staff" }],
+  },
+  {
     label: "Insights",
     items: [
       { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true },
@@ -49,6 +56,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/settings/staff", label: "Staff Logins", adminOnly: true },
       { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true },
       { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
+      { href: "/dashboard/settings/crm", label: "CRM", adminOnly: true, crm: "admin" },
     ],
   },
 ];
@@ -91,12 +99,15 @@ export async function DashboardShell({ children, title, description, actions }: 
   // No session (dropdown mode) is treated as instructor-level nav.
   const currentStaff = await getCurrentStaff();
   const isAdmin = currentStaff?.role === "admin";
+  const crmEnabled = currentStaff ? await isCrmEnabled(currentStaff.organizationId) : false;
+  const showCrm = (entry: NavEntry) =>
+    !entry.crm || (crmEnabled && currentStaff !== null && (entry.crm === "admin" ? isAdmin : canUseCrm(currentStaff)));
 
   const visibleGroups: NavGroup[] = navigation
     .map((group) => ({
       label: group.label,
       items: group.items
-        .filter((item) => !item.adminOnly || isAdmin)
+        .filter((item) => (!item.adminOnly || isAdmin) && showCrm(item))
         .map(({ href, label }) => ({ href, label })),
     }))
     .filter((group) => group.items.length > 0);

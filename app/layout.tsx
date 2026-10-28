@@ -3,8 +3,8 @@ import "./globals.css";
 import { Analytics } from "@vercel/analytics/next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { getCurrentStaff } from "@/lib/current-staff";
-import { getOrgBranding } from "@/lib/org-branding";
-import { FONT_VARIABLE_CLASS_NAMES, FONT_CSS_VAR_BY_NAME, isAllowedFont } from "@/lib/fonts";
+import { brandStyleVars, getOrgBranding } from "@/lib/org-branding";
+import { FONT_VARIABLE_CLASS_NAMES } from "@/lib/fonts";
 
 const DEFAULT_THEME_COLOR = "#0f766e";
 
@@ -77,30 +77,7 @@ export default async function RootLayout({
   const currentStaff = await getCurrentStaff();
   const branding = currentStaff ? await getOrgBranding(currentStaff.organizationId) : null;
 
-  const bodyStyle: Record<string, string> = {};
-  if (branding) {
-    // Raw token variables (not --color-*): globals.css maps them through
-    // `@theme inline`, so every utility reads var(--primary) etc. at runtime
-    // and these overrides take effect. Hover/subtle shades are literal
-    // color-mix() strings with the hex baked in. --ring and --chart-1 are
-    // re-set here too: in :root they're var(--primary), but a custom
-    // property's var() resolves where it's declared, so a <body>-level
-    // --primary override alone wouldn't reach them.
-    bodyStyle["--primary"] = branding.primary_color;
-    bodyStyle["--primary-hover"] = `color-mix(in srgb, ${branding.primary_color} 85%, black)`;
-    bodyStyle["--primary-subtle"] = `color-mix(in srgb, ${branding.primary_color} 12%, white)`;
-    bodyStyle["--ring"] = branding.primary_color;
-    bodyStyle["--chart-1"] = branding.primary_color;
-    bodyStyle["--brand-accent"] = branding.accent_color;
-    bodyStyle["--brand-accent-hover"] = `color-mix(in srgb, ${branding.accent_color} 85%, black)`;
-    bodyStyle["--brand-accent-subtle"] = `color-mix(in srgb, ${branding.accent_color} 12%, white)`;
-    bodyStyle["--brand-secondary"] = branding.secondary_color;
-    bodyStyle["--brand-secondary-hover"] = `color-mix(in srgb, ${branding.secondary_color} 85%, black)`;
-    bodyStyle["--brand-secondary-subtle"] = `color-mix(in srgb, ${branding.secondary_color} 12%, white)`;
-    if (isAllowedFont(branding.font_family)) {
-      bodyStyle["--font-body"] = FONT_CSS_VAR_BY_NAME[branding.font_family];
-    }
-  }
+  const bodyStyle = branding ? brandStyleVars(branding) : {};
 
   return (
     <html lang="en">
