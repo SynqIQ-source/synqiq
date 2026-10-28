@@ -9,6 +9,8 @@ export type CurrentStaff = {
   organizationId: string;
   title: string | null;
   photoUrl: string | null;
+  // Sells memberships: sees the CRM (Guests) and appears as a kiosk seller.
+  canSell: boolean;
 };
 
 // Wrapped in React's cache() (same pattern as getOrgBranding in
@@ -40,7 +42,7 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
   const adminSupabase = createSupabaseAdminClient();
   const { data: staff } = await adminSupabase
     .from("staff")
-    .select("id, display_name, role, organization_id, title, photo_url")
+    .select("id, display_name, role, organization_id, title, photo_url, can_sell")
     .eq("auth_user_id", user.id)
     .maybeSingle();
 
@@ -55,5 +57,6 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
     organizationId: staff.organization_id,
     title: staff.title,
     photoUrl: staff.photo_url,
+    canSell: staff.can_sell === true,
   };
 });
