@@ -3,6 +3,7 @@ import { getEnv } from "@/lib/env";
 import { verifyResendWebhook } from "@/lib/followup/verify-webhook";
 import { fetchReceivedEmail } from "@/lib/email/resend-inbound";
 import { handleInboundEmail } from "@/lib/followup/inbound";
+import { findGuestAlias, handleGuestEmailReply } from "@/lib/crm/inbound-email";
 
 // crypto (webhook verification) + the Receiving API fetch + several
 // sequential Supabase round trips + a Resend send per inbound mail.
@@ -52,6 +53,21 @@ export async function POST(request: NextRequest) {
     // The fetch layer already logged why. 500 so Resend retries -- a
     // transient Receiving API failure shouldn't lose the message.
     return NextResponse.json({ error: "could not fetch email content" }, { status: 500 });
+  }
+
+  // A guest replying to a CRM email (g-<token>@ alias) goes to their guest
+  // thread; everything else is an instructor follow-up conversation.
+  const guestAlias = findGuestAlias(received.to);
+  if (guestAlias) {
+    const guestResult = await handleGuestEmailReply({
+      alias: guestAlias,
+      from: received.from,
+      subject: received.subject,
+      text: received.text,
+      messageId: received.messageId,
+    });
+    if (guestResult.status === "dropped") console.warn(`[crm] guest email dropped: ${guestResult.reason}`);
+    return NextResponse.json(guestResult);
   }
 
   const result = await handleInboundEmail({

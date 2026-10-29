@@ -180,7 +180,7 @@ export default async function GuestsPage({
     .slice(0, ROW_LIMIT);
 
   const contactIds = [...new Set(rows.map((row) => row.contact.id))];
-  const [signaturesResult, pendingResult, staffResult, photoUrls, sourcesResult] = await Promise.all([
+  const [signaturesResult, pendingResult, staffResult, photoUrls, sourcesResult, unreadResult] = await Promise.all([
     contactIds.length
       ? supabase.from("waiver_signatures").select("contact_id").in("contact_id", contactIds)
       : Promise.resolve({ data: [] as { contact_id: string }[], error: null }),
@@ -200,12 +200,21 @@ export default async function GuestsPage({
       rows.map((row) => row.contact.photo_path),
     ),
     supabase.from("crm_marketing_sources").select("label").eq("active", true).order("sort_order"),
+    contactIds.length
+      ? supabase
+          .from("crm_messages")
+          .select("contact_id")
+          .in("contact_id", contactIds)
+          .eq("direction", "inbound")
+          .is("read_at", null)
+      : Promise.resolve({ data: [] as { contact_id: string }[], error: null }),
   ]);
   if (signaturesResult.error || pendingResult.error || staffResult.error) {
     throw new Error("Failed to load guest details.");
   }
 
   const signed = new Set((signaturesResult.data ?? []).map((row) => row.contact_id));
+  const unread = new Set((unreadResult.data ?? []).map((row) => row.contact_id));
   const pending = pendingResult.data ?? [];
   const openMatchContacts = new Set(pending.flatMap((match) => [match.submitted?.id, match.candidate?.id]));
   const staffRows = staffResult.data ?? [];
@@ -315,6 +324,7 @@ export default async function GuestsPage({
                     : contact.referrer_name_typed;
                   const waiverSigned = signed.has(contact.id);
                   const action = nextAction({
+                    hasUnreadMessage: unread.has(contact.id),
                     hasOpenMatch: openMatchContacts.has(contact.id),
                     emailUndeliverable: contact.email_check_status === "undeliverable",
                     referrerUnresolved: contact.referrer_unresolved,
@@ -331,6 +341,12 @@ export default async function GuestsPage({
                         />
                       </TableCell>
                       <TableCell className="font-medium">
+                        {unread.has(contact.id) ? (
+                          <span
+                            className="mr-1.5 inline-block h-2 w-2 rounded-full bg-primary align-middle"
+                            title="New message"
+                          />
+                        ) : null}
                         <Link href={`/dashboard/guests/${contact.id}`} className="hover:underline">
                           {contact.first_name} {contact.last_name}
                         </Link>

@@ -7,7 +7,8 @@ import { isActiveNavHref } from "@/lib/nav-active";
 import { MoreHorizontal } from "lucide-react";
 import { NAV_ICONS_BY_HREF } from "@/lib/nav-icons";
 
-export type NavItem = { href: string; label: string };
+// badge: an unread count shown next to the item (e.g. new guest messages).
+export type NavItem = { href: string; label: string; badge?: number };
 
 
 // Shorter labels than the desktop sidebar's -- these sit under a small
@@ -55,6 +56,7 @@ export function BottomNav({
           >
             {active && <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />}
             <TabIcon href={item.href} className="h-5 w-5" />
+            {item.badge ? <span className="absolute top-1.5 right-1/4 h-2 w-2 rounded-full bg-primary" /> : null}
             <span>{PRIMARY_LABEL_OVERRIDES[item.href] ?? item.label}</span>
           </Link>
         );
@@ -75,6 +77,9 @@ export function BottomNav({
               <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />
             )}
             <MoreHorizontal className="h-5 w-5" />
+            {moreItems.some((item) => item.badge) ? (
+              <span className="absolute top-1.5 right-1/4 h-2 w-2 rounded-full bg-primary" />
+            ) : null}
             <span>More</span>
           </button>
 
@@ -93,6 +98,7 @@ export function BottomNav({
                     >
                       <TabIcon href={item.href} className="h-4 w-4" />
                       {item.label}
+                      {item.badge ? <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-semibold text-primary-foreground tabular-nums">{item.badge > 99 ? "99+" : item.badge}</span> : null}
                     </Link>
                   </li>
                 );

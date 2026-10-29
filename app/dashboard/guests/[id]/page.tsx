@@ -22,6 +22,9 @@ import { getCrmOrg } from "@/lib/crm/org";
 import { signedPhotoUrls } from "@/lib/crm/photos";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { GuestAvatar } from "../guest-avatar";
+import { MessageThread, type ThreadMessage } from "./message-thread";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { smsConfigured } from "@/lib/crm/sms";
 import {
   AddNoteForm,
   AdminGuestActions,
@@ -69,6 +72,7 @@ type Contact = {
   referrer_set_at: string | null;
   referrer_set_by_staff_id: string | null;
   deleted_at: string | null;
+  sms_opted_out_at: string | null;
   merged_into_id: string | null;
   created_at: string;
   referring_client: { first_name: string; last_name: string; mindbody_unique_id: number; status: string } | null;
@@ -97,7 +101,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, merged_into_id, created_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, merged_into_id, created_at,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
     .eq("id", id)
@@ -113,7 +117,8 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   const { data: mergedRows } = await supabase.from("crm_contacts").select("id").eq("merged_into_id", contact.id);
   const contactIds = [contact.id, ...(mergedRows ?? []).map((row) => row.id)];
 
-  const [visitsResult, signaturesResult, staffResult, matchesResult, photoUrls, notesResult] = await Promise.all([
+  const [visitsResult, signaturesResult, staffResult, matchesResult, photoUrls, notesResult, messagesResult, smsNumberResult] =
+    await Promise.all([
     supabase
       .from("guest_visits")
       .select("id, visit_at, visit_type, assigned_staff_id")
@@ -149,6 +154,13 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       .select("id, body, created_at, author_staff_id")
       .in("contact_id", contactIds)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("crm_messages")
+      .select("id, channel, direction, body, subject, sent_by_staff_id, status, error, read_at, created_at")
+      .in("contact_id", contactIds)
+      .order("created_at", { ascending: true })
+      .limit(500),
+    supabase.from("organizations").select("crm_sms_number").eq("id", staff.organizationId).maybeSingle(),
   ]);
 
   const staffRows = staffResult.data ?? [];
@@ -163,6 +175,46 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   const notes = notesResult.data ?? [];
   const isAdmin = staff.role === "admin";
   const mindbodyPending = contact.mindbody_sync_status === "pending";
+
+  // Messages: opening the guest marks their unread texts/emails as read.
+  const rawMessages = messagesResult.data ?? [];
+  const unreadIds = rawMessages.filter((m) => m.direction === "inbound" && !m.read_at).map((m) => m.id);
+  if (unreadIds.length > 0) {
+    await createSupabaseAdminClient()
+      .from("crm_messages")
+      .update({ read_at: new Date().toISOString() })
+      .in("id", unreadIds)
+      .eq("organization_id", staff.organizationId);
+  }
+  const threadMessages: ThreadMessage[] = rawMessages.map((m) => ({
+    id: m.id,
+    channel: m.channel as "sms" | "email",
+    direction: m.direction as "outbound" | "inbound",
+    body: m.body,
+    subject: m.subject,
+    at: DateTime.fromISO(m.created_at).setZone(org.timezone).toFormat("LLL d, yyyy, h:mm a"),
+    sender:
+      m.direction === "inbound"
+        ? contact.first_name
+        : m.sent_by_staff_id
+          ? (staffNames.get(m.sent_by_staff_id) ?? "Staff")
+          : "Staff",
+    status: m.status,
+    error: m.error,
+  }));
+  const smsReady = smsConfigured() && Boolean(smsNumberResult.data?.crm_sms_number);
+  const smsState = !smsReady
+    ? { ok: false as const, reason: "Texting turns on once the studio's Twilio number is connected." }
+    : !contact.phone_e164
+      ? { ok: false as const, reason: "Add a mobile number to text this guest." }
+      : contact.sms_opted_out_at
+        ? { ok: false as const, reason: "This guest replied STOP, so they can't be texted." }
+        : !contact.sms_consent
+          ? { ok: false as const, reason: "This guest didn't agree to texts." }
+          : { ok: true as const };
+  const emailState = contact.email
+    ? { ok: true as const }
+    : { ok: false as const, reason: "Add an email address to email this guest." };
   const visits = visitsResult.data ?? [];
   const signatures = signaturesResult.data ?? [];
   const matches = matchesResult.data ?? [];
@@ -236,6 +288,15 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
               </CardContent>
             </Card>
           ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Messages</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MessageThread contactId={contact.id} messages={threadMessages} sms={smsState} email={emailState} />
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

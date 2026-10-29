@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { GuestMessagesFeed } from "@/components/crm/guest-messages-feed";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { excludedDepartmentIds } from "@/lib/excluded-departments";
@@ -657,6 +658,7 @@ export default async function DashboardPage({
       actions={<OverviewRangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />}
     >
       <div className="flex flex-col gap-6">
+        <GuestMessagesFeed />
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
             icon={CalendarCheck}

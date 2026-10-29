@@ -50,6 +50,7 @@ export function SidebarNav({ groups }: { groups: NavGroup[] }) {
               >
                 {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
                 <span className="truncate">{item.label}</span>
+                {item.badge ? <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-semibold text-primary-foreground tabular-nums">{item.badge > 99 ? "99+" : item.badge}</span> : null}
               </Link>
             );
           })}
