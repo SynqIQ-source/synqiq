@@ -17,6 +17,9 @@ import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 //     Appts closed    ...of those shows, sold in the period
 //   Lead sources      new people per "How did you hear about us?" answer
 //                     (multi-select, so these can add up to more than Leads)
+//   Contacts          calls logged, texts and emails sent in the period --
+//                     credited to the staff member who made them (not the
+//                     guest's salesperson); failed sends don't count
 //   Total guests      walk-ins + guests of members + appointment shows in the
 //                     period + returning guests (each person once)
 //   Enrolled          everyone sold in the period
@@ -33,6 +36,7 @@ export type Funnel = {
   leads: { total: number; contacted: number; appointments: number; shows: number; closed: number };
   // Largest first; "Not specified" for people with no answer.
   leadSources: { label: string; count: number }[];
+  activity: { calls: number; texts: number; emails: number };
   totals: { guests: number; enrolled: number };
 };
 
@@ -51,6 +55,8 @@ type ContactRef = {
 
 const CONTACT_FIELDS =
   "id, assigned_staff_id, closed_at, created_at, how_heard, source, referring_client_id, referrer_name_typed, deleted_at, merged_into_id";
+type OutboundRef = { channel: string; contact: ContactRef | null };
+
 const PAGE = 1000;
 
 async function all<T>(fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
@@ -90,7 +96,7 @@ export async function computeFunnel(
     return query.range(from, to).returns<ContactRef[]>();
   };
 
-  const [visits, createdContacts, closedContacts] = await Promise.all([
+  const [visits, createdContacts, closedContacts, outbound] = await Promise.all([
     all<{ visit_type: string; contact: ContactRef | null }>((from, to) =>
       supabase
         .from("guest_visits")
@@ -102,6 +108,17 @@ export async function computeFunnel(
     ),
     all<ContactRef>((from, to) => contactsIn("created_at", from, to)),
     all<ContactRef>((from, to) => contactsIn("closed_at", from, to)),
+    all<OutboundRef>((from, to) => {
+      let query = supabase
+        .from("crm_messages")
+        .select(`channel, contact:crm_contacts!crm_messages_contact_id_fkey ( ${CONTACT_FIELDS} )`)
+        .eq("direction", "outbound")
+        .neq("status", "failed")
+        .gte("created_at", fromIso)
+        .lte("created_at", toIso);
+      if (options.staffId) query = query.eq("sent_by_staff_id", options.staffId);
+      return query.range(from, to).returns<OutboundRef[]>();
+    }),
   ]);
   // The lead-type filter is applied here rather than in SQL ("referral" is
   // derived from the referring member).
@@ -161,6 +178,15 @@ export async function computeFunnel(
     .map(([label, count]) => ({ label, count }))
     .sort((a, b) => (a.label === "Not specified" ? 1 : b.label === "Not specified" ? -1 : b.count - a.count || a.label.localeCompare(b.label)));
 
+  const activity = { calls: 0, texts: 0, emails: 0 };
+  for (const message of outbound) {
+    const contact = message.contact;
+    if (!contact || (options.leadType && leadTypeOf(contact) !== options.leadType)) continue;
+    if (message.channel === "call") activity.calls += 1;
+    else if (message.channel === "sms") activity.texts += 1;
+    else if (message.channel === "email") activity.emails += 1;
+  }
+
   const everyone = new Set([...walkIns, ...guests, ...appointmentShows, ...returning.values()].map((contact) => contact.id));
 
   return {
@@ -175,6 +201,7 @@ export async function computeFunnel(
       closed: [...showed].filter((id) => soldLeadIds.has(id)).length,
     },
     leadSources,
+    activity,
     totals: { guests: everyone.size, enrolled: soldContacts.length },
   };
 }

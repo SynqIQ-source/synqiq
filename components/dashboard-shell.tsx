@@ -39,6 +39,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     label: "Sales",
     items: [
       { href: "/dashboard/sales", label: "Sales Dashboard", adminOnly: false, crm: "staff" },
+      { href: "/dashboard/sales/history", label: "Sales History", adminOnly: false, crm: "staff" },
       { href: "/dashboard/guests", label: "Guests", adminOnly: false, crm: "staff" },
     ],
   },
@@ -61,6 +62,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true },
       { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
       { href: "/dashboard/settings/crm", label: "CRM", adminOnly: true, crm: "admin" },
+      { href: "/dashboard/settings/sales-targets", label: "Sales Targets", adminOnly: true, crm: "admin" },
     ],
   },
 ];
