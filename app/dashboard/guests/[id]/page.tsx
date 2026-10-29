@@ -16,7 +16,8 @@ import {
   STATUS_LABELS,
   VISIT_TYPE_LABELS,
 } from "@/lib/crm/labels";
-import { requireCrmStaff } from "@/lib/crm/module";
+import { requireContactViewer } from "@/lib/crm/module";
+import { INTRO_LABELS, loadIntros } from "@/lib/crm/onboarding";
 import { formatPhoneForDisplay } from "@/lib/crm/normalize";
 import { getCrmOrg } from "@/lib/crm/org";
 import { signedPhotoUrls } from "@/lib/crm/photos";
@@ -38,6 +39,7 @@ import {
   SoldButton,
 } from "./profile-actions";
 import { PendingMatchActions } from "../pending-match-actions";
+import { TrainerSelect } from "./trainer-select";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +82,12 @@ type Contact = {
   close_source: string | null;
   merged_into_id: string | null;
   created_at: string;
+  member_enrolled_at: string | null;
+  membership_name: string | null;
+  membership_sold_by_staff_id: string | null;
+  enrollment_status: string | null;
+  trainer_staff_id: string | null;
+  trainer_assigned_at: string | null;
   referring_client: { first_name: string; last_name: string; mindbody_unique_id: number; status: string } | null;
 };
 
@@ -94,10 +102,13 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
 
 // Guest profile (requirement 11). Read through the staff session; RLS
 // returns nothing for another org's contact, which becomes a 404.
+// A trainer assigned to a new member gets this same page (`full` false):
+// messages, logged calls and notes, without edit, sell, assign, merge or
+// delete -- and RLS only lets them read their own members.
 export default async function GuestProfilePage({ params }: { params: Promise<{ id: string }> }) {
-  const staff = await requireCrmStaff();
   const { id } = await params;
   if (!isUuid(id)) notFound();
+  const { staff, full } = await requireContactViewer(id);
 
   const supabase = await getScopedClient(staff);
   const { data: contact, error } = await supabase
@@ -107,6 +118,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
        email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, close_source, merged_into_id, created_at,
+       member_enrolled_at, membership_name, membership_sold_by_staff_id, enrollment_status, trainer_staff_id, trainer_assigned_at,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
     .eq("id", id)
@@ -134,7 +146,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       .select("id, signed_at, template_version, is_minor, guardian_name")
       .in("contact_id", contactIds)
       .order("signed_at", { ascending: false }),
-    supabase.from("staff").select("id, display_name, can_sell, role, archived_at").order("display_name"),
+    supabase.from("staff").select("id, display_name, can_sell, role, archived_at, auth_user_id").order("display_name"),
     supabase
       .from("crm_pending_matches")
       .select(
@@ -184,6 +196,28 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
     .map((member) => ({ id: member.id, name: member.display_name as string }));
   const notes = notesResult.data ?? [];
   const isAdmin = staff.role === "admin";
+  // Anyone who can sign in can be a member's trainer.
+  const trainers = staffRows
+    .filter((member) => (!member.archived_at && member.auth_user_id) || member.id === contact.trainer_staff_id)
+    .map((member) => ({ id: member.id, name: member.display_name as string }));
+  let introLine: string | null = null;
+  if (contact.member_enrolled_at) {
+    const { data: orgRow } = await supabase
+      .from("organizations")
+      .select("crm_intro_session_type_id")
+      .eq("id", staff.organizationId)
+      .maybeSingle();
+    const intro = (
+      await loadIntros(supabase, (orgRow?.crm_intro_session_type_id as number | null) ?? null, [
+        { id: contact.id, mindbody_client_id: contact.mindbody_client_id, member_enrolled_at: contact.member_enrolled_at },
+      ])
+    ).get(contact.id);
+    introLine = intro
+      ? `${INTRO_LABELS[intro.status]} · ${DateTime.fromISO(intro.at!).setZone(org.timezone).toFormat("ccc, LLL d, h:mm a")}${
+          intro.trainerStaffId ? ` with ${staffNames.get(intro.trainerStaffId) ?? "staff"}` : ""
+        }`
+      : INTRO_LABELS.none;
+  }
   const mindbodyPending = contact.mindbody_sync_status === "pending";
 
   // Messages: opening the guest marks their unread texts/emails as read.
@@ -259,34 +293,38 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       actions={
         <div className="flex gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard/guests">
-              <ArrowLeft /> Guests
+            <Link href={full ? "/dashboard/guests" : "/dashboard/follow-up/new-members"}>
+              <ArrowLeft /> {full ? "Guests" : "New members"}
             </Link>
           </Button>
-          <SoldButton contactId={contact.id} sold={Boolean(contact.closed_at)} />
-          {contact.closed_at ? null : (
-            <InterestButton contactId={contact.id} notInterested={contact.status === "not_interested"} />
-          )}
-          <EditContactButton
-            contactId={contact.id}
-            initial={{
-              firstName: contact.first_name,
-              lastName: contact.last_name,
-              email: contact.email ?? "",
-              phone: formatPhoneForDisplay(contact.phone_e164),
-              dateOfBirth: contact.date_of_birth ?? "",
-              addressLine1: contact.address_line1 ?? "",
-              city: contact.city ?? "",
-              state: contact.state ?? "",
-              postalCode: contact.postal_code ?? "",
-            }}
-          />
+          {full ? (
+            <>
+              <SoldButton contactId={contact.id} sold={Boolean(contact.closed_at)} />
+              {contact.closed_at ? null : (
+                <InterestButton contactId={contact.id} notInterested={contact.status === "not_interested"} />
+              )}
+              <EditContactButton
+                contactId={contact.id}
+                initial={{
+                  firstName: contact.first_name,
+                  lastName: contact.last_name,
+                  email: contact.email ?? "",
+                  phone: formatPhoneForDisplay(contact.phone_e164),
+                  dateOfBirth: contact.date_of_birth ?? "",
+                  addressLine1: contact.address_line1 ?? "",
+                  city: contact.city ?? "",
+                  state: contact.state ?? "",
+                  postalCode: contact.postal_code ?? "",
+                }}
+              />
+            </>
+          ) : null}
         </div>
       }
     >
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
-          {matches.length > 0 ? (
+          {full && matches.length > 0 ? (
             <Card className="border-destructive/40">
               <CardHeader>
                 <CardTitle>Possible duplicate</CardTitle>
@@ -322,6 +360,45 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
               <MessageThread contactId={contact.id} messages={threadMessages} sms={smsState} email={emailState} />
             </CardContent>
           </Card>
+
+          {contact.member_enrolled_at ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Membership</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid gap-4 sm:grid-cols-2">
+                  <Item label="Enrolled">
+                    {local(contact.member_enrolled_at, "LLL d, yyyy")}
+                    {contact.enrollment_status === "pending" ? (
+                      <span className="mt-0.5 block text-xs text-muted-foreground">Checking the Mindbody contract…</span>
+                    ) : null}
+                  </Item>
+                  <Item label="Membership">{contact.membership_name ?? "—"}</Item>
+                  <Item label="Sold by">
+                    {contact.membership_sold_by_staff_id
+                      ? (staffNames.get(contact.membership_sold_by_staff_id) ?? "—")
+                      : "—"}
+                  </Item>
+                  <Item label="Trainer">
+                    {isAdmin ? (
+                      <TrainerSelect contactId={contact.id} current={contact.trainer_staff_id} options={trainers} />
+                    ) : contact.trainer_staff_id ? (
+                      (staffNames.get(contact.trainer_staff_id) ?? "—")
+                    ) : (
+                      "Unassigned"
+                    )}
+                    {contact.trainer_assigned_at ? (
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Assigned {local(contact.trainer_assigned_at, "LLL d, yyyy")}
+                      </span>
+                    ) : null}
+                  </Item>
+                  <Item label="Intro workout">{introLine ?? "—"}</Item>
+                </dl>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -398,9 +475,11 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                         : ""}
                     </span>
                   ) : null}
-                  <span className="mt-0.5 block">
-                    <ReferrerButton contactId={contact.id} hasReferrer={Boolean(referrer)} />
-                  </span>
+                  {full ? (
+                    <span className="mt-0.5 block">
+                      <ReferrerButton contactId={contact.id} hasReferrer={Boolean(referrer)} />
+                    </span>
+                  ) : null}
                 </Item>
                 <Item label="Salesperson">
                   {isAdmin ? (
@@ -415,19 +494,21 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Appointments</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Appointments
-                contactId={contact.id}
-                appointments={appointmentRows}
-                staffOptions={salespeople}
-                defaultStaffId={contact.assigned_staff_id ?? staff.id}
-              />
-            </CardContent>
-          </Card>
+          {full ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Appointments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Appointments
+                  contactId={contact.id}
+                  appointments={appointmentRows}
+                  staffOptions={salespeople}
+                  defaultStaffId={contact.assigned_staff_id ?? staff.id}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -535,7 +616,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                   <p className="text-xs text-destructive">{contact.mindbody_sync_error}</p>
                 ) : null}
               </dl>
-              {!contact.mindbody_client_id && !mindbodyPending ? (
+              {full && !contact.mindbody_client_id && !mindbodyPending ? (
                 <>
                   <Separator className="my-4" />
                   <SendToMindbodyButton contactId={contact.id} />

@@ -49,13 +49,14 @@ type ContactRef = {
   source: string;
   referring_client_id: string | null;
   referrer_name_typed: string | null;
+  trainer_staff_id: string | null;
   deleted_at: string | null;
   merged_into_id: string | null;
 };
 
 const CONTACT_FIELDS =
-  "id, assigned_staff_id, closed_at, created_at, how_heard, source, referring_client_id, referrer_name_typed, deleted_at, merged_into_id";
-type OutboundRef = { channel: string; contact: ContactRef | null };
+  "id, assigned_staff_id, closed_at, created_at, how_heard, source, referring_client_id, referrer_name_typed, trainer_staff_id, deleted_at, merged_into_id";
+type OutboundRef = { channel: string; sent_by_staff_id: string | null; contact: ContactRef | null };
 
 const PAGE = 1000;
 
@@ -80,6 +81,8 @@ export async function computeFunnel(
       contact &&
         !contact.deleted_at &&
         !contact.merged_into_id &&
+        // Members who joined without coming through the CRM aren't leads.
+        contact.source !== "member" &&
         (!options.staffId || contact.assigned_staff_id === options.staffId) &&
         (!options.leadType || leadTypeOf(contact) === options.leadType),
     );
@@ -111,7 +114,7 @@ export async function computeFunnel(
     all<OutboundRef>((from, to) => {
       let query = supabase
         .from("crm_messages")
-        .select(`channel, contact:crm_contacts!crm_messages_contact_id_fkey ( ${CONTACT_FIELDS} )`)
+        .select(`channel, sent_by_staff_id, contact:crm_contacts!crm_messages_contact_id_fkey ( ${CONTACT_FIELDS} )`)
         .eq("direction", "outbound")
         .neq("status", "failed")
         .gte("created_at", fromIso)
@@ -181,7 +184,10 @@ export async function computeFunnel(
   const activity = { calls: 0, texts: 0, emails: 0 };
   for (const message of outbound) {
     const contact = message.contact;
-    if (!contact || (options.leadType && leadTypeOf(contact) !== options.leadType)) continue;
+    // Trainers' outreach to new members isn't sales activity.
+    if (!contact || contact.source === "member") continue;
+    if (contact.trainer_staff_id && message.sent_by_staff_id === contact.trainer_staff_id) continue;
+    if (options.leadType && leadTypeOf(contact) !== options.leadType) continue;
     if (message.channel === "call") activity.calls += 1;
     else if (message.channel === "sms") activity.texts += 1;
     else if (message.channel === "email") activity.emails += 1;

@@ -39,3 +39,54 @@ export async function getCrmStaffForApi(options: { adminOnly?: boolean } = {}): 
   }
   return (await isCrmEnabled(staff.organizationId)) ? staff : null;
 }
+
+// Who may open one guest/member profile: full CRM staff (admins and
+// sellers), or the trainer assigned to that member -- who gets the same
+// page with fewer actions (message, call, note; no edit, assign, sell,
+// merge or delete). `full` says which.
+export type ContactViewer = { staff: CurrentStaff; full: boolean };
+
+async function isAssignedTrainer(staff: CurrentStaff, contactId: string): Promise<boolean> {
+  const admin = createSupabaseAdminClient();
+  const { data } = await admin
+    .from("crm_contacts")
+    .select("id, trainer_staff_id, merged_into_id")
+    .eq("id", contactId)
+    .eq("organization_id", staff.organizationId)
+    .maybeSingle();
+  if (!data) return false;
+  if (data.trainer_staff_id === staff.id) return true;
+  if (!data.merged_into_id) return false;
+  const { data: parent } = await admin
+    .from("crm_contacts")
+    .select("trainer_staff_id")
+    .eq("id", data.merged_into_id)
+    .maybeSingle();
+  return parent?.trainer_staff_id === staff.id;
+}
+
+// For a profile page: CRM staff, or the member's assigned trainer, in an
+// org with the module; else 404.
+export async function requireContactViewer(contactId: string): Promise<ContactViewer> {
+  const staff = await getCurrentStaff();
+  if (!staff || !(await isCrmEnabled(staff.organizationId))) notFound();
+  if (canUseCrm(staff)) return { staff, full: true };
+  if (await isAssignedTrainer(staff, contactId)) return { staff, full: false };
+  notFound();
+}
+
+// Same check for API routes on one contact; null when not allowed.
+export async function getContactViewerForApi(contactId: string): Promise<ContactViewer | null> {
+  const staff = await getCurrentStaff();
+  if (!staff || !(await isCrmEnabled(staff.organizationId))) return null;
+  if (canUseCrm(staff)) return { staff, full: true };
+  return (await isAssignedTrainer(staff, contactId)) ? { staff, full: false } : null;
+}
+
+// For trainer-facing CRM pages (Follow Up → New members): any signed-in
+// staff member in an org with the module.
+export async function requireCrmModuleStaff(): Promise<CurrentStaff> {
+  const staff = await getCurrentStaff();
+  if (!staff || !(await isCrmEnabled(staff.organizationId))) notFound();
+  return staff;
+}

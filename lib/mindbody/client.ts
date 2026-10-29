@@ -181,6 +181,16 @@ export class MindbodyClient {
     });
   }
 
+  // A client's contracts (memberships), for the enrollment date of a member
+  // who just turned Active. ClientId is Mindbody's client Id, not UniqueId.
+  async getClientContracts(clientId: string, accessToken: string) {
+    return this.request("/client/clientcontracts", {
+      method: "GET",
+      accessToken,
+      searchParams: { ClientId: clientId, Limit: 50 },
+    });
+  }
+
   async getRequiredClientFields(accessToken: string) {
     return this.request("/client/requiredclientfields", { method: "GET", accessToken });
   }

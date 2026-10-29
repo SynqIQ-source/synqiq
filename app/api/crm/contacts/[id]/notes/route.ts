@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmStaffForApi } from "@/lib/crm/module";
+import { getContactViewerForApi } from "@/lib/crm/module";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -9,11 +9,12 @@ type RouteParams = { params: Promise<{ id: string }> };
 // database); a correction is a new note.
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const staff = await getCrmStaffForApi();
-    if (!staff) return jsonError("Not found.", 404);
-
     const { id } = await params;
     if (!isUuid(id)) return jsonError("Guest not found.", 404);
+    // CRM staff, or the trainer assigned to this member.
+    const viewer = await getContactViewerForApi(id);
+    if (!viewer) return jsonError("Not found.", 404);
+    const { staff } = viewer;
     const body = await readJsonBody(request);
     const text = typeof body?.body === "string" ? body.body.replace(/\r\n?/g, "\n").trim() : "";
     if (!text) return jsonError("Write a note first.", 400);

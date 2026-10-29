@@ -109,7 +109,13 @@ export default async function GuestsPage({
   // Contacts that pass the salesperson/status filters (deleted and merged
   // guests never show).
   const filtered = () => {
-    let query = supabase.from("crm_contacts").select(CONTACT_COLUMNS).is("merged_into_id", null).is("deleted_at", null);
+    // Members who joined in Mindbody without being guests live on New Members.
+    let query = supabase
+      .from("crm_contacts")
+      .select(CONTACT_COLUMNS)
+      .is("merged_into_id", null)
+      .is("deleted_at", null)
+      .neq("source", "member");
     if (seller === "unassigned") query = query.is("assigned_staff_id", null);
     else if (seller !== "all") query = query.eq("assigned_staff_id", seller);
     if (status === "open") query = query.neq("status", "not_interested");

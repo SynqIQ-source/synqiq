@@ -128,6 +128,21 @@ export interface MindbodyClientRecord {
   // clients-visibility user token (same token the roster pull already
   // fetches). Persisted only for checked-in members -- see lib/sync/clients.ts.
   Email: string | null;
+  // Mindbody's client "Id" -- what appointments reference (ClientId). Not
+  // always equal to UniqueId for older clients.
+  Id?: string | number;
+  // Read only when a member newly turns Active (see lib/crm/onboarding.ts);
+  // never stored for the rest of the roster.
+  MobilePhone?: string | null;
+  SalesReps?: { Id?: number | null }[] | null;
+}
+
+// GET /client/clientcontracts (one client).
+export interface MindbodyClientContract {
+  ContractName?: string | null;
+  StartDate?: string | null;
+  AgreementDate?: string | null;
+  EndDate?: string | null;
 }
 
 export interface MindbodyClientsResponse {

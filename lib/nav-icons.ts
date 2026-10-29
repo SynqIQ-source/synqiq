@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   TrendingUp,
   Upload,
+  UserPlus,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -49,6 +50,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/sales/history": History,
   "/dashboard/settings/sales-targets": Goal,
   "/dashboard/guests": UserRound,
+  "/dashboard/sales/new-members": UserPlus,
   "/dashboard/settings/crm": Tablet,
   "/dashboard/comp-audit": ShieldAlert,
 };

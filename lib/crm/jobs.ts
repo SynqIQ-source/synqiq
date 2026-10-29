@@ -3,11 +3,14 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { checkEmail, EmailCheckRetryableError } from "@/lib/crm/email-check";
 import { logCrmError } from "@/lib/crm/http";
 import { MindbodyPushBlockedError, pushContactToMindbody, sanitizeMindbodyError } from "@/lib/crm/mindbody-push";
+import { runMemberContractLookup } from "@/lib/crm/onboarding";
 
 // Background work for the CRM (crm_jobs). A job is queued when a contact is
 // created, attempted right after the response is sent, and retried by the
 // /api/crm/jobs cron with backoff, so an email-check or Mindbody outage
 // never blocks the kiosk. A finished email check queues the Mindbody push.
+// "member_contract" looks up a newly enrolled member's contract start date
+// (see lib/crm/onboarding.ts).
 
 const MAX_ATTEMPTS = 6;
 // Minutes to wait before attempt N+1.
@@ -148,8 +151,27 @@ async function runMindbodyPush(admin: SupabaseClient, job: Job) {
 }
 
 async function runJob(admin: SupabaseClient, job: Job) {
-  if (job.kind !== "email_check" && job.kind !== "mindbody_push") return;
+  if (job.kind !== "email_check" && job.kind !== "mindbody_push" && job.kind !== "member_contract") return;
   if (!(await claim(admin, job))) return;
+
+  if (job.kind === "member_contract") {
+    try {
+      await runMemberContractLookup(admin, job.organization_id, job.contact_id);
+      await finish(admin, job, { ok: true });
+    } catch (error) {
+      logCrmError("job member_contract", error);
+      const final = await finish(admin, job, { ok: false, error: sanitizeMindbodyError(error) });
+      // Out of retries: keep the day Synq saw them turn Active.
+      if (final) {
+        await admin
+          .from("crm_contacts")
+          .update({ enrollment_status: "no_contract" })
+          .eq("id", job.contact_id)
+          .eq("enrollment_status", "pending");
+      }
+    }
+    return;
+  }
 
   if (job.kind === "email_check") {
     try {
@@ -245,17 +267,28 @@ async function detectMindbodyCloses(admin: SupabaseClient) {
     .filter((value) => Number.isInteger(value));
   if (ids.length === 0) return;
 
-  const { data: active, error: activeError } = await admin
-    .from("clients")
-    .select("organization_id, mindbody_unique_id")
-    .in("mindbody_unique_id", ids)
-    .eq("status", "Active");
-  if (activeError) throw activeError;
-  const activeKeys = new Set((active ?? []).map((row) => `${row.organization_id}:${row.mindbody_unique_id}`));
+  // A contact's mindbody_client_id is Mindbody's client Id, which for older
+  // clients isn't the UniqueId -- match on either.
+  const [byUnique, byClientId] = await Promise.all([
+    admin.from("clients").select("organization_id, mindbody_unique_id, mindbody_client_id").in("mindbody_unique_id", ids).eq("status", "Active"),
+    admin
+      .from("clients")
+      .select("organization_id, mindbody_unique_id, mindbody_client_id")
+      .in("mindbody_client_id", ids.map(String))
+      .eq("status", "Active"),
+  ]);
+  if (byUnique.error) throw byUnique.error;
+  if (byClientId.error) throw byClientId.error;
+  const activeKeys = new Set(
+    [...(byUnique.data ?? []), ...(byClientId.data ?? [])].flatMap((row) => [
+      `${row.organization_id}:${row.mindbody_unique_id}`,
+      ...(row.mindbody_client_id ? [`${row.organization_id}:${row.mindbody_client_id}`] : []),
+    ]),
+  );
 
   const now = new Date().toISOString();
   for (const contact of open ?? []) {
-    if (!activeKeys.has(`${contact.organization_id}:${Number(contact.mindbody_client_id)}`)) continue;
+    if (!activeKeys.has(`${contact.organization_id}:${contact.mindbody_client_id}`)) continue;
     await admin
       .from("crm_contacts")
       .update({ closed_at: now, close_source: "mindbody", status: "member", updated_at: now })

@@ -15,6 +15,11 @@ type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
 // ever counts already-Completed sessions, so there's nothing gained by
 // pulling appointments that haven't happened yet.
 const DEFAULT_LOOKBACK_DAYS = 7;
+// Also 21 days ahead, so a booked Intro Workout shows on New Members before
+// it happens (lib/crm/onboarding.ts). Trainer Health still only counts
+// Completed sessions, so future Booked rows don't change it. Future rows
+// in this window that Mindbody no longer returns (canceled) are removed.
+const DEFAULT_LOOKAHEAD_DAYS = 21;
 
 // Staff and Locations are synced by syncClasses, not here -- this just
 // looks up the ids that sync already produced. Reads the whole org
@@ -60,7 +65,9 @@ export type SyncAppointmentsResult =
 export async function syncAppointments(options: SyncAppointmentsOptions): Promise<SyncAppointmentsResult> {
   try {
     const startDate = options.startDate ?? DateTime.utc().minus({ days: DEFAULT_LOOKBACK_DAYS }).toISO();
-    const endDate = options.endDate ?? DateTime.utc().toISO();
+    const syncStartedAt = DateTime.utc();
+    const endDate = options.endDate ?? syncStartedAt.plus({ days: DEFAULT_LOOKAHEAD_DAYS }).toISO();
+    const seenAppointmentIds = new Set<number>();
 
     const mindbody = createMindbodyClient();
     const supabase = createSupabaseAdminClient();
@@ -166,6 +173,7 @@ export async function syncAppointments(options: SyncAppointmentsOptions): Promis
         } else {
           console.error(error);
         }
+        seenAppointmentIds.add(appointment.Id);
       }
 
       offset += appointments.length;
@@ -174,6 +182,30 @@ export async function syncAppointments(options: SyncAppointmentsOptions): Promis
       }
 
       await delay(300);
+    }
+
+    // Upcoming appointments in the window that Mindbody didn't return were
+    // canceled or moved out of it. Only on the nightly window, and only
+    // future rows -- past history is never deleted here. Skipped when the
+    // user token failed (Mindbody then returns no appointments at all).
+    if (!options.endDate && appointmentsAccessToken && seenAppointmentIds.size > 0) {
+      const { data: upcoming, error: upcomingError } = await supabase
+        .from("appointment_occurrences")
+        .select("id, mindbody_appointment_id")
+        .eq("organization_id", org.id)
+        .gt("start_datetime", syncStartedAt.toISO())
+        .lte("start_datetime", endDate);
+      if (upcomingError) {
+        console.error(upcomingError);
+      } else {
+        const stale = (upcoming ?? [])
+          .filter((row) => !seenAppointmentIds.has(Number(row.mindbody_appointment_id)))
+          .map((row) => row.id as string);
+        if (stale.length > 0) {
+          const { error: deleteError } = await supabase.from("appointment_occurrences").delete().in("id", stale);
+          if (deleteError) console.error(deleteError);
+        }
+      }
     }
 
     return { success: true, imported, total };

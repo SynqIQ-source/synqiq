@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmStaffForApi } from "@/lib/crm/module";
+import { getContactViewerForApi } from "@/lib/crm/module";
 import { MessageError, sendGuestMessage } from "@/lib/crm/messages";
 import { rateLimit } from "@/lib/crm/rate-limit";
 import { cleanText } from "@/lib/crm/normalize";
@@ -9,15 +9,16 @@ import { resolveRequestOrigin } from "@/lib/request-origin";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-// Sends a text or email to a guest from their profile thread (admins and
-// sellers). Texts respect SMS consent, STOP and 8 AM-9 PM quiet hours.
+// Sends a text or email to a guest from their profile thread (admins,
+// sellers, and a member's assigned trainer). Texts respect SMS consent, STOP and 8 AM-9 PM quiet hours.
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const staff = await getCrmStaffForApi();
-    if (!staff) return jsonError("Not found.", 404);
-
     const { id } = await params;
     if (!isUuid(id)) return jsonError("Guest not found.", 404);
+    // CRM staff, or the trainer assigned to this member.
+    const viewer = await getContactViewerForApi(id);
+    if (!viewer) return jsonError("Not found.", 404);
+    const { staff } = viewer;
     const body = await readJsonBody(request, 40_000);
     const channel =
       body?.channel === "sms" || body?.channel === "email" || body?.channel === "call" ? body.channel : null;

@@ -13,6 +13,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   phone_in: "Phone In",
   web: "Web",
   other: "Other",
+  member: "Joined as a member",
 };
 
 // How someone became a lead, for the Sales dashboard's "Lead type" filter.

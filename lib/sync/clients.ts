@@ -3,10 +3,12 @@ import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
 import { getEnv } from "@/lib/env";
+import { isCrmEnabled } from "@/lib/crm/module";
+import { recordEnrollments } from "@/lib/crm/onboarding";
 import type { MindbodyClientRecord } from "@/types/mindbody";
 
 export type SyncClientsResult =
-  | { success: true; imported: number; total: number }
+  | { success: true; imported: number; total: number; enrolled: number }
   | { success: false; error: string };
 
 const PAGE_LIMIT = 200;
@@ -63,6 +65,16 @@ export async function syncClients(): Promise<SyncClientsResult> {
 
     const syncedAt = DateTime.utc().toISO();
 
+    // New-member onboarding (CRM module only): members whose status turns
+    // Active between runs. Forward-only -- skipped on an org's very first
+    // sync, when every Active member would otherwise look new.
+    const { count: knownClients } = await supabase
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", org.id);
+    const detectEnrollments = (knownClients ?? 0) > 0 && (await isCrmEnabled(org.id));
+    const newlyActive: MindbodyClientRecord[] = [];
+
     let imported = 0;
     let total = 0;
     let offset = 0;
@@ -108,6 +120,22 @@ export async function syncClients(): Promise<SyncClientsResult> {
         }
       }
 
+      if (detectEnrollments && pageIds.length > 0) {
+        const { data: before, error: beforeError } = await supabase
+          .from("clients")
+          .select("mindbody_unique_id, status")
+          .eq("organization_id", org.id)
+          .in("mindbody_unique_id", pageIds);
+        if (beforeError) {
+          console.error(beforeError);
+        } else {
+          const previous = new Map((before ?? []).map((row) => [row.mindbody_unique_id as number, row.status as string]));
+          for (const client of clients) {
+            if (client.Status === "Active" && previous.get(client.UniqueId) !== "Active") newlyActive.push(client);
+          }
+        }
+      }
+
       // One upsert call per page (up to 200 rows), not one per client -- at
       // ~14.5k clients, a row-at-a-time loop (the convention
       // syncStaff/syncDepartments use, fine at their much smaller scale)
@@ -125,6 +153,7 @@ export async function syncClients(): Promise<SyncClientsResult> {
               status: client.Status,
               is_prospect: client.IsProspect,
               creation_date: client.CreationDate,
+              mindbody_client_id: client.Id != null ? String(client.Id) : null,
               email: checkedInIds.has(client.UniqueId) ? client.Email ?? null : null,
               synced_at: syncedAt,
             })),
@@ -147,7 +176,15 @@ export async function syncClients(): Promise<SyncClientsResult> {
       await delay(300);
     }
 
-    return { success: true, imported, total };
+    // After the roster is saved. Each gets a profile and a contract lookup.
+    let enrolled = 0;
+    try {
+      enrolled = await recordEnrollments(supabase, org.id, newlyActive);
+    } catch (enrollError) {
+      console.error("Failed to record new member enrollments:", enrollError);
+    }
+
+    return { success: true, imported, total, enrolled };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
   }

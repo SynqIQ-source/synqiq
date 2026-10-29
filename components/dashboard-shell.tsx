@@ -41,6 +41,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/sales", label: "Sales Dashboard", adminOnly: false, crm: "staff" },
       { href: "/dashboard/sales/history", label: "Sales History", adminOnly: false, crm: "staff" },
       { href: "/dashboard/guests", label: "Guests", adminOnly: false, crm: "staff" },
+      { href: "/dashboard/sales/new-members", label: "New Members", adminOnly: true, crm: "admin" },
     ],
   },
   {
@@ -106,9 +107,10 @@ export async function DashboardShell({ children, title, description, actions }: 
   const currentStaff = await getCurrentStaff();
   const isAdmin = currentStaff?.role === "admin";
   const crmEnabled = currentStaff ? await isCrmEnabled(currentStaff.organizationId) : false;
-  // Unread guest texts/emails, shown as a count on "Guests".
-  const guestUnread =
-    currentStaff && crmEnabled && canUseCrm(currentStaff) ? await unreadGuestMessageCount(currentStaff) : 0;
+  // Unread guest texts/emails, shown as a count on "Guests" -- or, for
+  // trainers (who work assigned new members), on "Follow Up".
+  const guestUnread = currentStaff && crmEnabled ? await unreadGuestMessageCount(currentStaff) : 0;
+  const unreadHref = currentStaff && canUseCrm(currentStaff) ? "/dashboard/guests" : "/dashboard/follow-up";
   const showCrm = (entry: NavEntry) =>
     !entry.crm || (crmEnabled && currentStaff !== null && (entry.crm === "admin" ? isAdmin : canUseCrm(currentStaff)));
 
@@ -117,7 +119,7 @@ export async function DashboardShell({ children, title, description, actions }: 
       label: group.label,
       items: group.items
         .filter((item) => (!item.adminOnly || isAdmin) && showCrm(item))
-        .map(({ href, label }) => ({ href, label, badge: href === "/dashboard/guests" ? guestUnread : undefined })),
+        .map(({ href, label }) => ({ href, label, badge: href === unreadHref ? guestUnread : undefined })),
     }))
     .filter((group) => group.items.length > 0);
 

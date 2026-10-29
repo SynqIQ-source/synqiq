@@ -134,16 +134,17 @@ export async function sendGuestMessage(
   return inserted.id as string;
 }
 
-// Who hears about a guest's new message: their salesperson, or every admin
-// when nobody's assigned.
+// Who hears about a guest's new message: a member's assigned trainer, else
+// their salesperson, or every admin when nobody's assigned.
 async function notifyStaff(admin: SupabaseClient, organizationId: string, contactId: string, channel: "sms" | "email") {
   const { data: contact } = await admin
     .from("crm_contacts")
-    .select("first_name, last_name, assigned_staff_id")
+    .select("first_name, last_name, assigned_staff_id, trainer_staff_id")
     .eq("id", contactId)
     .single();
   if (!contact) return;
-  let staffIds: string[] = contact.assigned_staff_id ? [contact.assigned_staff_id] : [];
+  const owner = contact.trainer_staff_id ?? contact.assigned_staff_id;
+  let staffIds: string[] = owner ? [owner] : [];
   if (staffIds.length === 0) {
     const { data: admins } = await admin
       .from("staff")

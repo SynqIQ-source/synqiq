@@ -4,6 +4,8 @@ import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { FollowUpComposer } from "./follow-up-composer";
+import { FollowUpTabs } from "@/components/crm/follow-up-tabs";
+import { isCrmEnabled } from "@/lib/crm/module";
 
 const TITLE = "Follow Up";
 const DESCRIPTION =
@@ -149,8 +151,41 @@ export default async function FollowUpPage() {
     }
   }
 
+  // With the CRM module, a second tab lists new members assigned to this
+  // trainer; the badge counts the ones they haven't reached out to yet.
+  const crmEnabled = await isCrmEnabled(currentStaff.organizationId);
+  let awaitingOutreach = 0;
+  if (crmEnabled) {
+    const { data: assigned } = await supabase
+      .from("crm_contacts")
+      .select("id, trainer_assigned_at")
+      .eq("trainer_staff_id", currentStaff.id)
+      .is("deleted_at", null)
+      .is("merged_into_id", null)
+      .limit(500);
+    if (assigned && assigned.length > 0) {
+      const { data: sent } = await supabase
+        .from("crm_messages")
+        .select("contact_id, created_at")
+        .eq("direction", "outbound")
+        .eq("sent_by_staff_id", currentStaff.id)
+        .in(
+          "contact_id",
+          assigned.map((row) => row.id),
+        );
+      awaitingOutreach = assigned.filter(
+        (row) =>
+          !(sent ?? []).some(
+            (message) =>
+              message.contact_id === row.id && (!row.trainer_assigned_at || message.created_at >= row.trainer_assigned_at),
+          ),
+      ).length;
+    }
+  }
+
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>
+      {crmEnabled ? <FollowUpTabs active="classes" newMembersBadge={awaitingOutreach} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           Checked in during the last {ROSTER_WINDOW_DAYS} days
