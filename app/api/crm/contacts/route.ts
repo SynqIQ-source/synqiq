@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       .select("id, first_name, last_name")
       .eq("organization_id", staff.organizationId)
       .is("merged_into_id", null)
+      .is("deleted_at", null)
       .or(filters.join(","))
       .order("created_at", { ascending: true })
       .limit(1);

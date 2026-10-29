@@ -28,12 +28,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const admin = createSupabaseAdminClient();
     const { data: contact, error } = await admin
       .from("crm_contacts")
-      .select("id, email_normalized, phone_e164, mindbody_client_id, mindbody_sync_status, merged_into_id")
+      .select("id, email_normalized, phone_e164, mindbody_client_id, mindbody_sync_status, merged_into_id, deleted_at")
       .eq("id", id)
       .eq("organization_id", staff.organizationId)
       .maybeSingle();
     if (error) throw error;
-    if (!contact || contact.merged_into_id) return jsonError("Guest not found.", 404);
+    if (!contact || contact.merged_into_id || contact.deleted_at) return jsonError("Guest not found.", 404);
 
     const updates: Record<string, unknown> = {};
     const text = (key: string, max: number, label: string, required = false) => {
@@ -117,6 +117,52 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       }
     }
 
+    // Referring member added or changed after check-in (admins and sellers):
+    // either a synced Active member picked from search, or a typed name staff
+    // couldn't find (flagged unresolved). Stamped with who and when.
+    if ("referringClientId" in body || "referrerNameTyped" in body) {
+      const clientId = body.referringClientId;
+      if (clientId) {
+        if (!isUuid(clientId)) return jsonError("Pick a member from the list.", 400);
+        const { data: member, error: memberError } = await admin
+          .from("clients")
+          .select("id, first_name, last_name")
+          .eq("id", clientId)
+          .eq("organization_id", staff.organizationId)
+          .maybeSingle();
+        if (memberError) throw memberError;
+        if (!member) return jsonError("Pick a member from the list.", 400);
+        updates.referring_client_id = member.id;
+        updates.referrer_name_typed = `${member.first_name} ${member.last_name}`;
+        updates.referrer_unresolved = false;
+      } else {
+        const typed = cleanText(body.referrerNameTyped, 120);
+        updates.referring_client_id = null;
+        updates.referrer_name_typed = typed;
+        updates.referrer_unresolved = Boolean(typed);
+      }
+      updates.referrer_set_at = new Date().toISOString();
+      updates.referrer_set_by_staff_id = staff.id;
+    }
+
+    // Not interested (admins and sellers), or back to an open lead. An
+    // optional reason is saved as a note.
+    let statusNote: string | null = null;
+    if ("status" in body) {
+      if (body.status === "not_interested") {
+        updates.status = "not_interested";
+        updates.not_interested_at = new Date().toISOString();
+        const reason = cleanText(body.reason, 1000);
+        statusNote = reason ? `Marked not interested: ${reason}` : "Marked not interested.";
+      } else if (body.status === "lead") {
+        updates.status = "lead";
+        updates.not_interested_at = null;
+        statusNote = "Reopened as a lead.";
+      } else {
+        return jsonError("Invalid status.", 400);
+      }
+    }
+
     if (Object.keys(updates).length === 0) return NextResponse.json({ success: true });
 
     const emailChanged = "email_normalized" in updates && updates.email_normalized !== contact.email_normalized;
@@ -133,7 +179,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .eq("organization_id", staff.organizationId);
     if (updateError) throw updateError;
 
-    const detailsChanged = Object.keys(updates).some((key) => key !== "assigned_staff_id");
+    if (statusNote) {
+      const { error: noteError } = await admin.from("crm_notes").insert({
+        organization_id: staff.organizationId,
+        contact_id: id,
+        author_staff_id: staff.id,
+        body: statusNote,
+      });
+      if (noteError) throw noteError;
+    }
+
+    const DETAIL_KEYS = ["first_name", "last_name", "email", "phone_e164", "date_of_birth", "address_line1", "city", "state", "postal_code"];
+    const detailsChanged = Object.keys(updates).some((key) => DETAIL_KEYS.includes(key));
     if (emailChanged && updates.email_normalized) {
       // The check queues the Mindbody push when it finishes.
       const jobId = await enqueueEmailCheck(admin, staff.organizationId, id);

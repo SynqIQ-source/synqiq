@@ -22,7 +22,15 @@ import { getCrmOrg } from "@/lib/crm/org";
 import { signedPhotoUrls } from "@/lib/crm/photos";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { GuestAvatar } from "../guest-avatar";
-import { AddNoteForm, EditContactButton, SalespersonSelect, SendToMindbodyButton } from "./profile-actions";
+import {
+  AddNoteForm,
+  AdminGuestActions,
+  EditContactButton,
+  InterestButton,
+  ReferrerButton,
+  SalespersonSelect,
+  SendToMindbodyButton,
+} from "./profile-actions";
 import { PendingMatchActions } from "../pending-match-actions";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +66,9 @@ type Contact = {
   mindbody_sync_error: string | null;
   mindbody_synced_at: string | null;
   email_normalized: string | null;
+  referrer_set_at: string | null;
+  referrer_set_by_staff_id: string | null;
+  deleted_at: string | null;
   merged_into_id: string | null;
   created_at: string;
   referring_client: { first_name: string; last_name: string; mindbody_unique_id: number; status: string } | null;
@@ -86,13 +97,13 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, merged_into_id, created_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, merged_into_id, created_at,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
     .eq("id", id)
     .maybeSingle<Contact>();
   if (error) throw new Error("Failed to load guest.");
-  if (!contact) notFound();
+  if (!contact || contact.deleted_at) notFound();
   if (contact.merged_into_id) redirect(`/dashboard/guests/${contact.merged_into_id}`);
 
   const org = await getCrmOrg(staff.organizationId);
@@ -178,6 +189,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
               <ArrowLeft /> Guests
             </Link>
           </Button>
+          <InterestButton contactId={contact.id} notInterested={contact.status === "not_interested"} />
           <EditContactButton
             contactId={contact.id}
             initial={{
@@ -217,7 +229,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                           "unknown"
                         )}
                       </p>
-                      <PendingMatchActions matchId={match.id} />
+                      <PendingMatchActions matchId={match.id} canMerge={staff.role === "admin"} />
                     </div>
                   );
                 })}
@@ -292,6 +304,17 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                       Unresolved
                     </Badge>
                   ) : null}
+                  {contact.referrer_set_at ? (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Added {local(contact.referrer_set_at)}
+                      {contact.referrer_set_by_staff_id
+                        ? ` by ${staffNames.get(contact.referrer_set_by_staff_id) ?? "staff"}`
+                        : ""}
+                    </span>
+                  ) : null}
+                  <span className="mt-0.5 block">
+                    <ReferrerButton contactId={contact.id} hasReferrer={Boolean(referrer)} />
+                  </span>
                 </Item>
                 <Item label="Salesperson">
                   {isAdmin ? (
@@ -420,6 +443,17 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
               ) : null}
             </CardContent>
           </Card>
+
+          {isAdmin ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Admin</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <AdminGuestActions contactId={contact.id} name={`${contact.first_name} ${contact.last_name}`} />
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
     </DashboardShell>

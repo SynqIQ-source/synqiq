@@ -2,7 +2,6 @@ import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireCrmStaff } from "@/lib/crm/module";
@@ -13,16 +12,14 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 import { cn } from "@/lib/utils";
 import { AddLeadButton } from "./add-lead-button";
 import { GuestAvatar } from "./guest-avatar";
+import { GuestFilters } from "./guest-filters";
 import { PendingMatchActions } from "./pending-match-actions";
 
 export const dynamic = "force-dynamic";
 
-const RANGES = [
-  { value: "today", label: "Today" },
-  { value: "7", label: "Last 7 days" },
-  { value: "all", label: "All" },
-] as const;
-type Range = (typeof RANGES)[number]["value"];
+const RANGES = ["today", "7", "month", "custom", "all"] as const;
+type Range = (typeof RANGES)[number];
+const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/;
 
 const ROW_LIMIT = 500;
 
@@ -47,9 +44,11 @@ const CONTACT_COLUMNS =
 type Row = {
   key: string;
   contact: ContactSummary;
+  // Latest kiosk visit in the window (or ever, for "All"), if any.
   signedInAt: string | null;
+  // When the row sorts: that visit, else when the contact was added.
+  activityAt: string;
   type: string;
-  salespersonId: string | null;
 };
 
 type PendingRow = {
@@ -60,75 +59,125 @@ type PendingRow = {
   candidate: { id: string; first_name: string; last_name: string } | null;
 };
 
+type Visit = { contact_id: string; visit_at: string; visit_type: string };
+
 // Guests (requirement 12). Everything is read through the staff member's
 // own session, so RLS (same org; admin or seller) is the access boundary.
-export default async function GuestsPage({ searchParams }: { searchParams: Promise<{ range?: string }> }) {
+//
+// Filters (all in the URL, none of them personal data): date range (today,
+// last 7 days, this month, picked dates, all), salesperson, and status. A
+// date range shows guests who checked in OR were added in it, so phone-in
+// leads appear too.
+export default async function GuestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string; start?: string; end?: string; seller?: string; status?: string }>;
+}) {
   const staff = await requireCrmStaff();
   const params = await searchParams;
-  const range: Range = RANGES.some((option) => option.value === params.range) ? (params.range as Range) : "today";
 
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);
   const now = DateTime.now().setZone(org.timezone);
-  const since = range === "today" ? now.startOf("day") : now.minus({ days: 6 }).startOf("day");
 
-  let rows: Row[];
+  let range: Range = RANGES.includes(params.range as Range) ? (params.range as Range) : "today";
+  const startParam = params.start && DATE_PARAM.test(params.start) ? params.start : now.toISODate()!;
+  const endParam = params.end && DATE_PARAM.test(params.end) ? params.end : now.toISODate()!;
+  let from = now.startOf("day");
+  let to = now.endOf("day");
+  if (range === "7") from = now.minus({ days: 6 }).startOf("day");
+  if (range === "month") from = now.startOf("month");
+  if (range === "custom") {
+    const customFrom = DateTime.fromISO(startParam, { zone: org.timezone }).startOf("day");
+    const customTo = DateTime.fromISO(endParam, { zone: org.timezone }).endOf("day");
+    if (customFrom.isValid && customTo.isValid && customFrom <= customTo) {
+      from = customFrom;
+      to = customTo;
+    } else {
+      range = "today";
+    }
+  }
+  const fromIso = from.toUTC().toISO()!;
+  const toIso = to.toUTC().toISO()!;
+
+  const seller = params.seller ?? "all";
+  const status = params.status === "not_interested" || params.status === "all" ? params.status : "open";
+
+  // Contacts that pass the salesperson/status filters (deleted and merged
+  // guests never show).
+  const filtered = () => {
+    let query = supabase.from("crm_contacts").select(CONTACT_COLUMNS).is("merged_into_id", null).is("deleted_at", null);
+    if (seller === "unassigned") query = query.is("assigned_staff_id", null);
+    else if (seller !== "all") query = query.eq("assigned_staff_id", seller);
+    if (status === "open") query = query.neq("status", "not_interested");
+    else if (status === "not_interested") query = query.eq("status", "not_interested");
+    return query;
+  };
+
+  let contacts: ContactSummary[];
+  const latestVisit = new Map<string, Visit>();
+
   if (range === "all") {
-    const { data, error } = await supabase
-      .from("crm_contacts")
-      .select(CONTACT_COLUMNS)
-      .is("merged_into_id", null)
+    const { data, error } = await filtered()
       .order("created_at", { ascending: false })
       .limit(ROW_LIMIT)
       .returns<ContactSummary[]>();
     if (error) throw new Error("Failed to load guests.");
-    const contacts = data ?? [];
-
-    // Latest visit per contact.
-    const latest = new Map<string, { visit_at: string; visit_type: string; assigned_staff_id: string | null }>();
+    contacts = data ?? [];
     if (contacts.length > 0) {
       const { data: visits, error: visitsError } = await supabase
         .from("guest_visits")
-        .select("contact_id, visit_at, visit_type, assigned_staff_id")
+        .select("contact_id, visit_at, visit_type")
         .in(
           "contact_id",
           contacts.map((contact) => contact.id),
         )
-        .order("visit_at", { ascending: false });
+        .order("visit_at", { ascending: false })
+        .returns<Visit[]>();
       if (visitsError) throw new Error("Failed to load visits.");
-      for (const visit of visits ?? []) {
-        if (!latest.has(visit.contact_id)) latest.set(visit.contact_id, visit);
-      }
+      for (const visit of visits ?? []) if (!latestVisit.has(visit.contact_id)) latestVisit.set(visit.contact_id, visit);
     }
-    rows = contacts.map((contact) => {
-      const visit = latest.get(contact.id);
+  } else {
+    const [visitsResult, addedResult] = await Promise.all([
+      supabase
+        .from("guest_visits")
+        .select("contact_id, visit_at, visit_type")
+        .gte("visit_at", fromIso)
+        .lte("visit_at", toIso)
+        .order("visit_at", { ascending: false })
+        .limit(2000)
+        .returns<Visit[]>(),
+      supabase.from("crm_contacts").select("id").gte("created_at", fromIso).lte("created_at", toIso).limit(2000),
+    ]);
+    if (visitsResult.error || addedResult.error) throw new Error("Failed to load guests.");
+    for (const visit of visitsResult.data ?? []) if (!latestVisit.has(visit.contact_id)) latestVisit.set(visit.contact_id, visit);
+    const ids = [...new Set([...latestVisit.keys(), ...(addedResult.data ?? []).map((row) => row.id)])];
+    if (ids.length === 0) {
+      contacts = [];
+    } else {
+      const { data, error } = await filtered().in("id", ids).limit(2000).returns<ContactSummary[]>();
+      if (error) throw new Error("Failed to load guests.");
+      contacts = data ?? [];
+    }
+  }
+
+  const rows: Row[] = contacts
+    .map((contact) => {
+      const visit = latestVisit.get(contact.id);
       return {
         key: contact.id,
         contact,
         signedInAt: visit?.visit_at ?? null,
-        type: visit ? (VISIT_TYPE_LABELS[visit.visit_type] ?? visit.visit_type) : "No visit yet",
-        salespersonId: visit?.assigned_staff_id ?? contact.assigned_staff_id,
+        activityAt: visit?.visit_at ?? contact.created_at,
+        type: visit
+          ? (VISIT_TYPE_LABELS[visit.visit_type] ?? visit.visit_type)
+          : contact.status === "lead"
+            ? "Lead added"
+            : "No visit yet",
       };
-    });
-  } else {
-    const { data, error } = await supabase
-      .from("guest_visits")
-      .select(`id, visit_at, visit_type, assigned_staff_id, contact:crm_contacts!guest_visits_contact_id_fkey ( ${CONTACT_COLUMNS} )`)
-      .gte("visit_at", since.toUTC().toISO()!)
-      .order("visit_at", { ascending: false })
-      .limit(ROW_LIMIT)
-      .returns<{ id: string; visit_at: string; visit_type: string; assigned_staff_id: string | null; contact: ContactSummary | null }[]>();
-    if (error) throw new Error("Failed to load guests.");
-    rows = (data ?? [])
-      .filter((visit) => visit.contact)
-      .map((visit) => ({
-        key: visit.id,
-        contact: visit.contact!,
-        signedInAt: visit.visit_at,
-        type: VISIT_TYPE_LABELS[visit.visit_type] ?? visit.visit_type,
-        salespersonId: visit.assigned_staff_id ?? visit.contact!.assigned_staff_id,
-      }));
-  }
+    })
+    .sort((a, b) => b.activityAt.localeCompare(a.activityAt))
+    .slice(0, ROW_LIMIT);
 
   const contactIds = [...new Set(rows.map((row) => row.contact.id))];
   const [signaturesResult, pendingResult, staffResult, photoUrls, sourcesResult] = await Promise.all([
@@ -145,7 +194,7 @@ export default async function GuestsPage({ searchParams }: { searchParams: Promi
       .eq("status", "open")
       .order("created_at", { ascending: true })
       .returns<PendingRow[]>(),
-    supabase.from("staff").select("id, display_name"),
+    supabase.from("staff").select("id, display_name, can_sell, role, archived_at").order("display_name"),
     signedPhotoUrls(
       supabase,
       rows.map((row) => row.contact.photo_path),
@@ -159,7 +208,11 @@ export default async function GuestsPage({ searchParams }: { searchParams: Promi
   const signed = new Set((signaturesResult.data ?? []).map((row) => row.contact_id));
   const pending = pendingResult.data ?? [];
   const openMatchContacts = new Set(pending.flatMap((match) => [match.submitted?.id, match.candidate?.id]));
-  const staffNames = new Map((staffResult.data ?? []).map((member) => [member.id, member.display_name as string]));
+  const staffRows = staffResult.data ?? [];
+  const staffNames = new Map(staffRows.map((member) => [member.id, member.display_name as string]));
+  const salespeople = staffRows
+    .filter((member) => (!member.archived_at && (member.can_sell || member.role === "admin")) || member.id === seller)
+    .map((member) => ({ id: member.id, name: member.display_name as string }));
 
   const formatTime = (iso: string) => {
     const time = DateTime.fromISO(iso).setZone(org.timezone);
@@ -211,21 +264,25 @@ export default async function GuestsPage({ searchParams }: { searchParams: Promi
                       {MATCH_REASON_LABELS[match.reason] ?? match.reason} · {formatTimeLong(match.created_at, org.timezone)}
                     </p>
                   </div>
-                  <PendingMatchActions matchId={match.id} />
+                  <PendingMatchActions matchId={match.id} canMerge={staff.role === "admin"} />
                 </div>
               ))}
             </CardContent>
           </Card>
         ) : null}
 
-        <div className="flex flex-wrap gap-2">
-          {RANGES.map((option) => (
-            <Button key={option.value} asChild variant={option.value === range ? "default" : "outline"} size="sm">
-              <Link href={option.value === "today" ? "/dashboard/guests" : `/dashboard/guests?range=${option.value}`}>
-                {option.label}
-              </Link>
-            </Button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <GuestFilters
+            range={range}
+            start={range === "custom" ? startParam : now.toISODate()!}
+            end={range === "custom" ? endParam : now.toISODate()!}
+            seller={seller}
+            status={status}
+            salespeople={salespeople}
+          />
+          <span className="text-sm text-muted-foreground">
+            {rows.length === 1 ? "1 guest" : `${rows.length} guests`}
+          </span>
         </div>
 
         <Card className="py-0">
@@ -262,7 +319,7 @@ export default async function GuestsPage({ searchParams }: { searchParams: Promi
                     emailUndeliverable: contact.email_check_status === "undeliverable",
                     referrerUnresolved: contact.referrer_unresolved,
                     waiverSigned,
-                    assigned: Boolean(row.salespersonId),
+                    assigned: Boolean(contact.assigned_staff_id),
                   });
                   return (
                     <TableRow key={row.key}>
@@ -281,6 +338,10 @@ export default async function GuestsPage({ searchParams }: { searchParams: Promi
                           <Badge variant="outline" className="ml-2">
                             Lead
                           </Badge>
+                        ) : contact.status === "not_interested" ? (
+                          <Badge variant="secondary" className="ml-2">
+                            Not interested
+                          </Badge>
                         ) : null}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -296,7 +357,7 @@ export default async function GuestsPage({ searchParams }: { searchParams: Promi
                           </Badge>
                         ) : null}
                       </TableCell>
-                      <TableCell>{row.salespersonId ? (staffNames.get(row.salespersonId) ?? "—") : "Unassigned"}</TableCell>
+                      <TableCell>{contact.assigned_staff_id ? (staffNames.get(contact.assigned_staff_id) ?? "—") : "Unassigned"}</TableCell>
                       <TableCell>
                         <Badge variant={waiverSigned ? "secondary" : "outline"}>{waiverSigned ? "Signed" : "Not signed"}</Badge>
                       </TableCell>

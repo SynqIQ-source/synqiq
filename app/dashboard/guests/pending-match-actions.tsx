@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
-export function PendingMatchActions({ matchId }: { matchId: string }) {
+export function PendingMatchActions({ matchId, canMerge }: { matchId: string; canMerge: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,9 +33,11 @@ export function PendingMatchActions({ matchId }: { matchId: string }) {
         <Button size="sm" variant="outline" disabled={busy} onClick={() => void resolve("keep_separate")}>
           Keep separate
         </Button>
-        <Button size="sm" disabled={busy} onClick={() => void resolve("merge")}>
-          Merge
-        </Button>
+        {canMerge ? (
+          <Button size="sm" disabled={busy} onClick={() => void resolve("merge")}>
+            Merge
+          </Button>
+        ) : null}
       </div>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>

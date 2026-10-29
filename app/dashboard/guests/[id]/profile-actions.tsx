@@ -263,3 +263,326 @@ export function SendToMindbodyButton({ contactId }: { contactId: string }) {
     </div>
   );
 }
+
+// --- Search picker (shared by referring member and merge) -------------------------
+
+type SearchResult = { id: string; name: string; detail?: string };
+
+function SearchPicker({
+  endpoint,
+  placeholder,
+  onPick,
+  mapResult,
+}: {
+  endpoint: string;
+  placeholder: string;
+  onPick: (result: SearchResult) => void;
+  mapResult: (row: Record<string, unknown>) => SearchResult;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function search(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q }),
+      });
+      const result = await response.json().catch(() => ({}));
+      setResults(result.success ? (result.results as Record<string, unknown>[]).map(mapResult) : []);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <form onSubmit={search} className="flex gap-2">
+        <Input value={q} placeholder={placeholder} autoComplete="off" onChange={(event) => setQ(event.target.value)} />
+        <Button type="submit" variant="outline" disabled={busy || q.trim().length < 2}>
+          {busy ? "Searching…" : "Search"}
+        </Button>
+      </form>
+      {results ? (
+        results.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No matches.</p>
+        ) : (
+          <ul className="max-h-64 divide-y overflow-y-auto rounded-lg border">
+            {results.map((result) => (
+              <li key={result.id}>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
+                  onClick={() => onPick(result)}
+                >
+                  <span className="font-medium">{result.name}</span>
+                  {result.detail ? <span className="text-xs text-muted-foreground">{result.detail}</span> : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+// --- Referring member (admins and sellers) ----------------------------------------
+
+export function ReferrerButton({ contactId, hasReferrer }: { contactId: string; hasReferrer: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await send(`/api/crm/contacts/${contactId}`, "PATCH", body);
+      setOpen(false);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save the referring member.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        setError(null);
+        setTyped("");
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="link" size="xs" className="h-auto px-0">
+          {hasReferrer ? "Change" : "Add referring member"}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Referring member</DialogTitle>
+          <DialogDescription>
+            Search active Mindbody members. The change is stamped with your name and the time.
+          </DialogDescription>
+        </DialogHeader>
+        <SearchPicker
+          endpoint="/api/crm/members/search"
+          placeholder="Member's name"
+          mapResult={(row) => ({ id: String(row.id), name: String(row.name), detail: `Mindbody #${row.mindbodyId}` })}
+          onPick={(result) => void save({ referringClientId: result.id })}
+        />
+        <div className="space-y-2 border-t pt-4">
+          <Label htmlFor="referrer-typed">Can&apos;t find them? Save the name as typed</Label>
+          <div className="flex gap-2">
+            <Input id="referrer-typed" value={typed} maxLength={120} onChange={(event) => setTyped(event.target.value)} />
+            <Button
+              variant="outline"
+              disabled={busy || typed.trim().length < 2}
+              onClick={() => void save({ referrerNameTyped: typed })}
+            >
+              Save
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">A typed name is flagged as unresolved so someone can match it later.</p>
+        </div>
+        {hasReferrer ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="self-start"
+            disabled={busy}
+            onClick={() => void save({ referrerNameTyped: "" })}
+          >
+            Remove referring member
+          </Button>
+        ) : null}
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Not interested / reopen (admins and sellers) -----------------------------------
+
+export function InterestButton({ contactId, notInterested }: { contactId: string; notInterested: boolean }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      await send(`/api/crm/contacts/${contactId}`, "PATCH", body);
+      setOpen(false);
+      setReason("");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't update the status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (notInterested) {
+    return (
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => void save({ status: "lead" })}>
+        Reopen lead
+      </Button>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          Not interested
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Mark as not interested</DialogTitle>
+          <DialogDescription>They&apos;ll drop off the main Guests list. You can reopen them any time.</DialogDescription>
+        </DialogHeader>
+        <Textarea
+          value={reason}
+          maxLength={1000}
+          placeholder="Reason (optional), e.g. joined another gym"
+          onChange={(event) => setReason(event.target.value)}
+        />
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        <DialogFooter>
+          <Button disabled={busy} onClick={() => void save({ status: "not_interested", reason })}>
+            {busy ? "Saving…" : "Mark not interested"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- Merge / delete (admins only) -----------------------------------------------------
+
+export function AdminGuestActions({ contactId, name }: { contactId: string; name: string }) {
+  const router = useRouter();
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [target, setTarget] = useState<SearchResult | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function merge() {
+    if (!target) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await send(`/api/crm/contacts/${contactId}/merge`, "POST", { intoId: target.id });
+      router.push(`/dashboard/guests/${target.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't merge.");
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    try {
+      await send(`/api/crm/contacts/${contactId}/delete`, "POST");
+      router.push("/dashboard/guests");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-2">
+        <Dialog
+          open={mergeOpen}
+          onOpenChange={(next) => {
+            setMergeOpen(next);
+            setTarget(null);
+            setError(null);
+          }}
+        >
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm">
+              Merge into…
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Merge {name} into another guest</DialogTitle>
+              <DialogDescription>
+                Use this for duplicates. Visits move to the guest you pick, their empty details are filled in from this
+                one, and this record is closed. Waivers and notes stay on file and show on the kept guest.
+              </DialogDescription>
+            </DialogHeader>
+            {target ? (
+              <div className="space-y-3">
+                <p className="text-sm">
+                  Merge <span className="font-medium">{name}</span> into{" "}
+                  <span className="font-medium">{target.name}</span>?
+                </p>
+                <div className="flex gap-2">
+                  <Button disabled={busy} onClick={() => void merge()}>
+                    {busy ? "Merging…" : "Merge"}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setTarget(null)}>
+                    Back
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <SearchPicker
+                endpoint="/api/crm/contacts/search"
+                placeholder="Guest's name"
+                mapResult={(row) => ({
+                  id: String(row.id),
+                  name: String(row.name),
+                  detail: `added ${new Date(String(row.createdAt)).toLocaleDateString()}`,
+                })}
+                onPick={(result) => (result.id === contactId ? setError("That's this guest.") : setTarget(result))}
+              />
+            )}
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          </DialogContent>
+        </Dialog>
+        {confirmDelete ? (
+          <>
+            <Button variant="destructive" size="sm" disabled={busy} onClick={() => void remove()}>
+              {busy ? "Deleting…" : "Confirm delete"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setConfirmDelete(true)}>
+            Delete guest
+          </Button>
+        )}
+      </div>
+      {confirmDelete ? (
+        <p className="text-xs text-muted-foreground">
+          Hides {name} from all lists and matching. Signed waivers are kept on file as required.
+        </p>
+      ) : null}
+      {error && !mergeOpen ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}

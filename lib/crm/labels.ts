@@ -18,6 +18,7 @@ export const STATUS_LABELS: Record<string, string> = {
   guest: "Guest",
   lead: "Lead",
   member: "Member",
+  not_interested: "Not interested",
 };
 
 export const MATCH_REASON_LABELS: Record<string, string> = {

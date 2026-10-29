@@ -40,6 +40,7 @@ export async function findContactMatch(
     .select("id, first_name, last_name, email_normalized, phone_e164")
     .eq("organization_id", organizationId)
     .is("merged_into_id", null)
+    .is("deleted_at", null)
     .or(filters.join(","))
     .order("created_at", { ascending: true })
     .limit(10);
