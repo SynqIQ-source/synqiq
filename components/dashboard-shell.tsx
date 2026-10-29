@@ -37,7 +37,10 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
   },
   {
     label: "Sales",
-    items: [{ href: "/dashboard/guests", label: "Guests", adminOnly: false, crm: "staff" }],
+    items: [
+      { href: "/dashboard/sales", label: "Sales Dashboard", adminOnly: false, crm: "staff" },
+      { href: "/dashboard/guests", label: "Guests", adminOnly: false, crm: "staff" },
+    ],
   },
   {
     label: "Insights",

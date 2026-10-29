@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 const EMPTY = { firstName: "", lastName: "", phone: "", email: "" };
 const SOURCES = [
   { value: "phone_in", label: "Phone In" },
+  { value: "web", label: "Web" },
   { value: "walk_in", label: "Walk In" },
   { value: "guest_of_member", label: "Guest of Member" },
   { value: "other", label: "Other" },

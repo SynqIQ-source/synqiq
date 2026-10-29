@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, MessageSquare } from "lucide-react";
+import { Mail, MessageSquare, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 export type ThreadMessage = {
   id: string;
-  channel: "sms" | "email";
+  channel: "sms" | "email" | "call";
   direction: "outbound" | "inbound";
   body: string;
   subject: string | null;
@@ -39,13 +39,13 @@ export function MessageThread({
   email: ChannelState;
 }) {
   const router = useRouter();
-  const [channel, setChannel] = useState<"sms" | "email">(sms.ok || !email.ok ? "sms" : "email");
+  const [channel, setChannel] = useState<"sms" | "email" | "call">(sms.ok || !email.ok ? "sms" : "email");
   const [text, setText] = useState("");
   const [subject, setSubject] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const selected = channel === "sms" ? sms : email;
+  const selected: ChannelState = channel === "sms" ? sms : channel === "email" ? email : { ok: true };
 
   // New replies show up without reloading while the thread is open.
   useEffect(() => {
@@ -89,7 +89,7 @@ export function MessageThread({
         ) : (
           messages.map((message) => {
             const outbound = message.direction === "outbound";
-            const Icon = message.channel === "sms" ? MessageSquare : Mail;
+            const Icon = message.channel === "sms" ? MessageSquare : message.channel === "call" ? Phone : Mail;
             return (
               <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
                 <div
@@ -101,6 +101,7 @@ export function MessageThread({
                   {message.subject && message.channel === "email" ? (
                     <p className="text-xs font-semibold">{message.subject}</p>
                   ) : null}
+                  {message.channel === "call" ? <p className="text-xs font-semibold">Call logged</p> : null}
                   <p className="whitespace-pre-wrap">{message.body}</p>
                   <p
                     className={cn(
@@ -141,6 +142,14 @@ export function MessageThread({
           >
             <Mail /> Email
           </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={channel === "call" ? "default" : "outline"}
+            onClick={() => setChannel("call")}
+          >
+            <Phone /> Log call
+          </Button>
         </div>
         {!selected.ok ? (
           <p className="text-sm text-muted-foreground">{selected.reason}</p>
@@ -157,7 +166,9 @@ export function MessageThread({
             <Textarea
               value={text}
               maxLength={channel === "sms" ? 1000 : 20000}
-              placeholder={channel === "sms" ? "Write a text…" : "Write an email…"}
+              placeholder={
+                channel === "sms" ? "Write a text…" : channel === "email" ? "Write an email…" : "What happened on the call?"
+              }
               className="min-h-20"
               onChange={(event) => setText(event.target.value)}
             />
@@ -166,11 +177,15 @@ export function MessageThread({
                 <p className="text-xs text-destructive">{error}</p>
               ) : (
                 <span className="text-xs text-muted-foreground">
-                  {channel === "sms" ? `${text.length}/1000 · texts send 8 AM–9 PM` : "Sent from your name at the studio"}
+                  {channel === "sms"
+                    ? `${text.length}/1000 · texts send 8 AM–9 PM`
+                    : channel === "email"
+                      ? "Sent from your name at the studio"
+                      : "Saved to the thread; nothing is sent"}
                 </span>
               )}
               <Button type="submit" size="sm" disabled={busy || !text.trim()}>
-                {busy ? "Sending…" : "Send"}
+                {busy ? "Saving…" : channel === "call" ? "Log call" : "Send"}
               </Button>
             </div>
           </>

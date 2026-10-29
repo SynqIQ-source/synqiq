@@ -28,11 +28,14 @@ import { smsConfigured } from "@/lib/crm/sms";
 import {
   AddNoteForm,
   AdminGuestActions,
+  Appointments,
+  type AppointmentRow,
   EditContactButton,
   InterestButton,
   ReferrerButton,
   SalespersonSelect,
   SendToMindbodyButton,
+  SoldButton,
 } from "./profile-actions";
 import { PendingMatchActions } from "../pending-match-actions";
 
@@ -73,6 +76,8 @@ type Contact = {
   referrer_set_by_staff_id: string | null;
   deleted_at: string | null;
   sms_opted_out_at: string | null;
+  closed_at: string | null;
+  close_source: string | null;
   merged_into_id: string | null;
   created_at: string;
   referring_client: { first_name: string; last_name: string; mindbody_unique_id: number; status: string } | null;
@@ -101,7 +106,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, merged_into_id, created_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, close_source, merged_into_id, created_at,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
     .eq("id", id)
@@ -117,7 +122,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   const { data: mergedRows } = await supabase.from("crm_contacts").select("id").eq("merged_into_id", contact.id);
   const contactIds = [contact.id, ...(mergedRows ?? []).map((row) => row.id)];
 
-  const [visitsResult, signaturesResult, staffResult, matchesResult, photoUrls, notesResult, messagesResult, smsNumberResult] =
+  const [visitsResult, signaturesResult, staffResult, matchesResult, photoUrls, notesResult, messagesResult, smsNumberResult, appointmentsResult] =
     await Promise.all([
     supabase
       .from("guest_visits")
@@ -161,6 +166,11 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       .order("created_at", { ascending: true })
       .limit(500),
     supabase.from("organizations").select("crm_sms_number").eq("id", staff.organizationId).maybeSingle(),
+    supabase
+      .from("crm_appointments")
+      .select("id, scheduled_at, status, staff_id")
+      .in("contact_id", contactIds)
+      .order("scheduled_at", { ascending: false }),
   ]);
 
   const staffRows = staffResult.data ?? [];
@@ -188,7 +198,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   }
   const threadMessages: ThreadMessage[] = rawMessages.map((m) => ({
     id: m.id,
-    channel: m.channel as "sms" | "email",
+    channel: m.channel as "sms" | "email" | "call",
     direction: m.direction as "outbound" | "inbound",
     body: m.body,
     subject: m.subject,
@@ -201,6 +211,14 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
           : "Staff",
     status: m.status,
     error: m.error,
+  }));
+  const nowMs = Date.now();
+  const appointmentRows: AppointmentRow[] = (appointmentsResult.data ?? []).map((a) => ({
+    id: a.id,
+    at: DateTime.fromISO(a.scheduled_at).setZone(org.timezone).toFormat("ccc, LLL d, yyyy, h:mm a"),
+    status: a.status,
+    staffName: a.staff_id ? (staffNames.get(a.staff_id) ?? null) : null,
+    upcoming: new Date(a.scheduled_at).getTime() > nowMs,
   }));
   const smsReady = smsConfigured() && Boolean(smsNumberResult.data?.crm_sms_number);
   const smsState = !smsReady
@@ -233,7 +251,11 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   return (
     <DashboardShell
       title={`${contact.first_name} ${contact.last_name}`}
-      description={`${STATUS_LABELS[contact.status] ?? contact.status} · added ${local(contact.created_at, "LLL d, yyyy")}`}
+      description={
+        contact.closed_at
+          ? `Enrolled ${local(contact.closed_at, "LLL d, yyyy")}${contact.close_source === "mindbody" ? " (from Mindbody)" : ""} · added ${local(contact.created_at, "LLL d, yyyy")}`
+          : `${STATUS_LABELS[contact.status] ?? contact.status} · added ${local(contact.created_at, "LLL d, yyyy")}`
+      }
       actions={
         <div className="flex gap-2">
           <Button asChild variant="outline" size="sm">
@@ -241,7 +263,10 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
               <ArrowLeft /> Guests
             </Link>
           </Button>
-          <InterestButton contactId={contact.id} notInterested={contact.status === "not_interested"} />
+          <SoldButton contactId={contact.id} sold={Boolean(contact.closed_at)} />
+          {contact.closed_at ? null : (
+            <InterestButton contactId={contact.id} notInterested={contact.status === "not_interested"} />
+          )}
           <EditContactButton
             contactId={contact.id}
             initial={{
@@ -387,6 +412,20 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                   )}
                 </Item>
               </dl>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Appointments</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Appointments
+                contactId={contact.id}
+                appointments={appointmentRows}
+                staffOptions={salespeople}
+                defaultStaffId={contact.assigned_staff_id ?? staff.id}
+              />
             </CardContent>
           </Card>
 

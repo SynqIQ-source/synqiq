@@ -5,7 +5,7 @@ import { cleanText, normalizeEmail, normalizePhone } from "@/lib/crm/normalize";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 import { enqueueEmailCheck, runJobById } from "@/lib/crm/jobs";
 
-const SOURCES = ["phone_in", "walk_in", "guest_of_member", "other"] as const;
+const SOURCES = ["phone_in", "web", "walk_in", "guest_of_member", "other"] as const;
 
 // "Add lead" on the Guests page: a lead a staff member enters by hand (a
 // phone-in, for example). The staff member who enters it is the seller.

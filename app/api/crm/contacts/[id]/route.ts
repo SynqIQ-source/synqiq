@@ -148,6 +148,27 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Not interested (admins and sellers), or back to an open lead. An
     // optional reason is saved as a note.
     let statusNote: string | null = null;
+
+    // Mark sold / undo (admins and sellers): the guest enrolled. Counts as a
+    // close on the Sales dashboard; also set automatically when their
+    // Mindbody client turns Active.
+    if ("sold" in body) {
+      if (body.sold === true) {
+        updates.closed_at = new Date().toISOString();
+        updates.closed_by_staff_id = staff.id;
+        updates.close_source = "manual";
+        updates.status = "member";
+        statusNote = "Marked sold.";
+      } else if (body.sold === false) {
+        updates.closed_at = null;
+        updates.closed_by_staff_id = null;
+        updates.close_source = null;
+        updates.status = "lead";
+        statusNote = "Sale undone.";
+      } else {
+        return jsonError("Invalid request.", 400);
+      }
+    }
     if ("status" in body) {
       if (body.status === "not_interested") {
         updates.status = "not_interested";

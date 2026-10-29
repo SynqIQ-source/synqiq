@@ -127,11 +127,23 @@ async function runMindbodyPush(admin: SupabaseClient, job: Job) {
     await setMindbodyStatus(admin, job, { mindbody_sync_status: "not_synced", mindbody_sync_error: result.skipped });
     return;
   }
+  // Linked to someone who's already an Active member: not a new sale.
+  let memberAtLink = false;
+  if (result.linked && Number.isInteger(Number(result.clientId))) {
+    const { data: client } = await admin
+      .from("clients")
+      .select("status")
+      .eq("organization_id", job.organization_id)
+      .eq("mindbody_unique_id", Number(result.clientId))
+      .maybeSingle();
+    memberAtLink = client?.status === "Active";
+  }
   await setMindbodyStatus(admin, job, {
     mindbody_client_id: result.clientId,
     mindbody_sync_status: "synced",
     mindbody_synced_at: new Date().toISOString(),
     mindbody_sync_error: null,
+    mindbody_member_at_link: memberAtLink,
   });
 }
 
@@ -209,5 +221,45 @@ export async function runDueJobs(limit = 50): Promise<{ ran: number }> {
   for (const job of (data ?? []) as Job[]) {
     await runJob(admin, job);
   }
+  await detectMindbodyCloses(admin).catch((error) => logCrmError("detect mindbody closes", error));
   return { ran: data?.length ?? 0 };
+}
+
+// A guest whose linked Mindbody client is now an Active member has enrolled:
+// count it as a close ("closed" on the Sales dashboard) if staff haven't
+// marked it already. Uses the nightly-synced clients table, so it shows up
+// the morning after they join in Mindbody.
+async function detectMindbodyCloses(admin: SupabaseClient) {
+  const { data: open, error } = await admin
+    .from("crm_contacts")
+    .select("id, organization_id, mindbody_client_id")
+    .not("mindbody_client_id", "is", null)
+    .eq("mindbody_member_at_link", false)
+    .is("closed_at", null)
+    .is("deleted_at", null)
+    .is("merged_into_id", null)
+    .limit(1000);
+  if (error) throw error;
+  const ids = (open ?? [])
+    .map((row) => Number(row.mindbody_client_id))
+    .filter((value) => Number.isInteger(value));
+  if (ids.length === 0) return;
+
+  const { data: active, error: activeError } = await admin
+    .from("clients")
+    .select("organization_id, mindbody_unique_id")
+    .in("mindbody_unique_id", ids)
+    .eq("status", "Active");
+  if (activeError) throw activeError;
+  const activeKeys = new Set((active ?? []).map((row) => `${row.organization_id}:${row.mindbody_unique_id}`));
+
+  const now = new Date().toISOString();
+  for (const contact of open ?? []) {
+    if (!activeKeys.has(`${contact.organization_id}:${Number(contact.mindbody_client_id)}`)) continue;
+    await admin
+      .from("crm_contacts")
+      .update({ closed_at: now, close_source: "mindbody", status: "member", updated_at: now })
+      .eq("id", contact.id)
+      .is("closed_at", null);
+  }
 }

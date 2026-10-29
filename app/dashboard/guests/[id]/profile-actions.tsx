@@ -473,6 +473,175 @@ export function InterestButton({ contactId, notInterested }: { contactId: string
   );
 }
 
+// --- Mark sold / undo (admins and sellers) --------------------------------------------
+
+export function SoldButton({ contactId, sold }: { contactId: string; sold: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  async function save(value: boolean) {
+    setBusy(true);
+    try {
+      await send(`/api/crm/contacts/${contactId}`, "PATCH", { sold: value });
+      setConfirming(false);
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (sold) {
+    return confirming ? (
+      <Button variant="outline" size="sm" disabled={busy} onClick={() => void save(false)}>
+        Confirm undo
+      </Button>
+    ) : (
+      <Button variant="ghost" size="sm" onClick={() => setConfirming(true)}>
+        Undo sale
+      </Button>
+    );
+  }
+  return (
+    <Button size="sm" disabled={busy} onClick={() => void save(true)}>
+      Mark sold
+    </Button>
+  );
+}
+
+// --- Appointments (admins and sellers) ---------------------------------------------------
+
+export type AppointmentRow = { id: string; at: string; status: string; staffName: string | null; upcoming: boolean };
+
+const APPOINTMENT_LABELS: Record<string, string> = {
+  scheduled: "Scheduled",
+  showed: "Showed",
+  no_show: "No-show",
+  canceled: "Canceled",
+};
+
+export function Appointments({
+  contactId,
+  appointments,
+  staffOptions,
+  defaultStaffId,
+}: {
+  contactId: string;
+  appointments: AppointmentRow[];
+  staffOptions: { id: string; name: string }[];
+  defaultStaffId: string | null;
+}) {
+  const router = useRouter();
+  const [when, setWhen] = useState("");
+  const [staffId, setStaffId] = useState(defaultStaffId ?? UNASSIGNED);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function book(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await send(`/api/crm/contacts/${contactId}/appointments`, "POST", {
+        scheduledAt: when,
+        staffId: staffId === UNASSIGNED ? null : staffId,
+      });
+      setWhen("");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't book the appointment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setStatus(id: string, status: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await send(`/api/crm/appointments/${id}`, "PATCH", { status });
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't update the appointment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {appointments.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No appointments yet.</p>
+      ) : (
+        <ul className="divide-y">
+          {appointments.map((appointment) => (
+            <li key={appointment.id} className="flex flex-col gap-2 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium">{appointment.at}</p>
+                <p className="text-xs text-muted-foreground">
+                  {APPOINTMENT_LABELS[appointment.status] ?? appointment.status}
+                  {appointment.staffName ? ` · with ${appointment.staffName}` : ""}
+                </p>
+              </div>
+              {appointment.status === "scheduled" ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <Button size="xs" variant="outline" disabled={busy} onClick={() => void setStatus(appointment.id, "showed")}>
+                    Showed
+                  </Button>
+                  {!appointment.upcoming ? (
+                    <Button size="xs" variant="outline" disabled={busy} onClick={() => void setStatus(appointment.id, "no_show")}>
+                      No-show
+                    </Button>
+                  ) : null}
+                  <Button size="xs" variant="ghost" disabled={busy} onClick={() => void setStatus(appointment.id, "canceled")}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : appointment.status !== "showed" ? (
+                <Button size="xs" variant="ghost" disabled={busy} onClick={() => void setStatus(appointment.id, "scheduled")}>
+                  Reopen
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form onSubmit={book} className="space-y-2 border-t pt-4">
+        <Label htmlFor="appointment-when">Book an appointment</Label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            id="appointment-when"
+            type="datetime-local"
+            value={when}
+            onChange={(event) => setWhen(event.target.value)}
+            className="sm:w-56"
+          />
+          <Select value={staffId} onValueChange={setStaffId}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={UNASSIGNED}>No one yet</SelectItem>
+              {staffOptions.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="submit" disabled={busy || !when}>
+            Book
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          If they check in at the kiosk that day, it&apos;s marked Showed automatically.
+        </p>
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      </form>
+    </div>
+  );
+}
+
 // --- Merge / delete (admins only) -----------------------------------------------------
 
 export function AdminGuestActions({ contactId, name }: { contactId: string; name: string }) {

@@ -11,6 +11,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   walk_in: "Walk In",
   guest_of_member: "Guest of Member",
   phone_in: "Phone In",
+  web: "Web",
   other: "Other",
 };
 
@@ -47,6 +48,7 @@ export const EMAIL_CHECK_LABELS: Record<string, string> = {
 // The single most useful thing for staff to do next with a guest.
 export function nextAction(input: {
   hasUnreadMessage?: boolean;
+  enrolled?: boolean;
   hasOpenMatch: boolean;
   emailUndeliverable: boolean;
   referrerUnresolved: boolean;
@@ -54,6 +56,7 @@ export function nextAction(input: {
   assigned: boolean;
 }): string {
   if (input.hasUnreadMessage) return "Reply to new message";
+  if (input.enrolled) return "Enrolled";
   if (input.hasOpenMatch) return "Resolve possible duplicate";
   if (input.emailUndeliverable) return "Fix email address";
   if (input.referrerUnresolved) return "Confirm referring member";

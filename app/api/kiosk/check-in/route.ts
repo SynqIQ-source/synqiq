@@ -347,15 +347,35 @@ export async function POST(request: NextRequest) {
           .eq("organization_id", device.organizationId);
         if (error) throw error;
       }
+      // A returning guest with an appointment today: this check-in is the show.
+      const today = DateTime.now().setZone(org.timezone);
+      const { data: appointment } = await admin
+        .from("crm_appointments")
+        .select("id, staff_id")
+        .eq("organization_id", device.organizationId)
+        .eq("contact_id", contact.id)
+        .eq("status", "scheduled")
+        .gte("scheduled_at", today.startOf("day").toUTC().toISO()!)
+        .lte("scheduled_at", today.endOf("day").toUTC().toISO()!)
+        .order("scheduled_at")
+        .limit(1)
+        .maybeSingle();
+
       const { error: visitError } = await admin.from("guest_visits").insert({
         id: visitId,
         organization_id: device.organizationId,
         contact_id: contact.id,
-        visit_type: visitType,
-        assigned_staff_id: sellerId ?? contact.assigned_staff_id,
+        visit_type: appointment ? "appointment" : visitType,
+        assigned_staff_id: sellerId ?? appointment?.staff_id ?? contact.assigned_staff_id,
         kiosk_device_id: device.deviceId,
       });
       if (visitError) throw visitError;
+      if (appointment) {
+        await admin
+          .from("crm_appointments")
+          .update({ status: "showed", visit_id: visitId, updated_at: now })
+          .eq("id", appointment.id);
+      }
       if (signature) {
         const { error } = await admin.from("waiver_signatures").insert(signature);
         if (error) throw error;

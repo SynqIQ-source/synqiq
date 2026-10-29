@@ -19,7 +19,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     if (!isUuid(id)) return jsonError("Guest not found.", 404);
     const body = await readJsonBody(request, 40_000);
-    const channel = body?.channel === "sms" || body?.channel === "email" ? body.channel : null;
+    const channel =
+      body?.channel === "sms" || body?.channel === "email" || body?.channel === "call" ? body.channel : null;
     const text = typeof body?.body === "string" ? body.body.replace(/\r\n?/g, "\n").trim() : "";
     if (!channel) return jsonError("Choose text or email.", 400);
     if (!text) return jsonError("Write a message first.", 400);
@@ -31,6 +32,38 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const admin = createSupabaseAdminClient();
+
+    // A phone call the staff member made: logged in the thread (it counts as
+    // contacting the lead), nothing is sent.
+    if (channel === "call") {
+      const { data: contact } = await admin
+        .from("crm_contacts")
+        .select("id")
+        .eq("id", id)
+        .eq("organization_id", staff.organizationId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!contact) return jsonError("Guest not found.", 404);
+      const now = new Date().toISOString();
+      const { data: logged, error: logError } = await admin
+        .from("crm_messages")
+        .insert({
+          organization_id: staff.organizationId,
+          contact_id: id,
+          channel: "call",
+          direction: "outbound",
+          body: text,
+          sent_by_staff_id: staff.id,
+          status: "sent",
+          created_at: now,
+        })
+        .select("id")
+        .single();
+      if (logError) throw logError;
+      await admin.from("crm_contacts").update({ last_message_at: now }).eq("id", id);
+      return NextResponse.json({ success: true, id: logged.id });
+    }
+
     const messageId = await sendGuestMessage(admin, {
       organizationId: staff.organizationId,
       staff: { id: staff.id, displayName: staff.displayName },
