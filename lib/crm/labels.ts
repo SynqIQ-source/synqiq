@@ -15,6 +15,34 @@ export const SOURCE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+// How someone became a lead, for the Sales dashboard's "Lead type" filter.
+// Derived from the contact's source plus its referring member: a guest of a
+// member is always "guest_of_member"; anyone else with a referring member is
+// a "referral"; everyone else is their source.
+export const LEAD_TYPES = [
+  { value: "walk_in", label: "Walk-in" },
+  { value: "guest_of_member", label: "Guest of member" },
+  { value: "referral", label: "Referral" },
+  { value: "phone_in", label: "Phone-in" },
+  { value: "web", label: "Web lead" },
+  { value: "other", label: "Other" },
+] as const;
+export type LeadType = (typeof LEAD_TYPES)[number]["value"];
+
+export function isLeadType(value: unknown): value is LeadType {
+  return LEAD_TYPES.some((type) => type.value === value);
+}
+
+export function leadTypeOf(contact: {
+  source: string;
+  referring_client_id: string | null;
+  referrer_name_typed: string | null;
+}): LeadType {
+  if (contact.source === "guest_of_member") return "guest_of_member";
+  if (contact.referring_client_id || contact.referrer_name_typed?.trim()) return "referral";
+  return isLeadType(contact.source) ? contact.source : "other";
+}
+
 export const STATUS_LABELS: Record<string, string> = {
   guest: "Guest",
   lead: "Lead",

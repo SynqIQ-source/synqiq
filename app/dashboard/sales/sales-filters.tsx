@@ -1,9 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { UserRound } from "lucide-react";
+import { Funnel, UserRound } from "lucide-react";
 import { PresetRangeSelect } from "@/components/dashboard/preset-range-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LEAD_TYPES } from "@/lib/crm/labels";
 
 const PRESETS = [
   { value: "mtd", label: "Month to date" },
@@ -18,12 +19,14 @@ export function SalesFilters({
   start,
   end,
   seller,
+  leadType,
   salespeople,
 }: {
   range: string;
   start: string;
   end: string;
   seller: string;
+  leadType: string;
   // null for salespeople, who only see their own numbers.
   salespeople: { id: string; name: string }[] | null;
 }) {
@@ -31,10 +34,10 @@ export function SalesFilters({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  function setSeller(value: string) {
+  function setParam(name: "seller" | "type", value: string) {
     const params = new URLSearchParams(searchParams.toString());
-    if (value === "all") params.delete("seller");
-    else params.set("seller", value);
+    if (value === "all") params.delete(name);
+    else params.set(name, value);
     router.push(`${pathname}?${params.toString()}`);
   }
 
@@ -48,8 +51,24 @@ export function SalesFilters({
         end={end}
         ariaLabel="Time frame"
       />
+      <Select value={leadType} onValueChange={(value) => setParam("type", value)}>
+        <SelectTrigger aria-label="Lead type" className="min-w-[170px] bg-card">
+          <span className="flex items-center gap-2">
+            <Funnel className="h-4 w-4 text-muted-foreground" />
+            <SelectValue />
+          </span>
+        </SelectTrigger>
+        <SelectContent align="end">
+          <SelectItem value="all">All lead types</SelectItem>
+          {LEAD_TYPES.map((type) => (
+            <SelectItem key={type.value} value={type.value}>
+              {type.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       {salespeople ? (
-        <Select value={seller} onValueChange={setSeller}>
+        <Select value={seller} onValueChange={(value) => setParam("seller", value)}>
           <SelectTrigger aria-label="Salesperson" className="min-w-[170px] bg-card">
             <span className="flex items-center gap-2">
               <UserRound className="h-4 w-4 text-muted-foreground" />

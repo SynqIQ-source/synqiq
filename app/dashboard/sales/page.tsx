@@ -3,6 +3,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { computeFunnel, percent, type Funnel } from "@/lib/crm/funnel";
+import { isLeadType, LEAD_TYPES } from "@/lib/crm/labels";
 import { requireCrmStaff } from "@/lib/crm/module";
 import { getCrmOrg } from "@/lib/crm/org";
 import { getScopedClient } from "@/lib/supabase/scoped";
@@ -39,11 +40,12 @@ function Section({ title, description, children }: { title: string; description:
 
 // Sales dashboard: the guest-to-member funnel for the period (month to date
 // by default). Admins see the whole club and can pick one salesperson;
-// salespeople only ever see their own guests.
+// salespeople only ever see their own guests. Anyone can narrow it to one
+// lead type (walk-in, guest of member, referral, phone-in, web).
 export default async function SalesDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; start?: string; end?: string; seller?: string }>;
+  searchParams: Promise<{ range?: string; start?: string; end?: string; seller?: string; type?: string }>;
 }) {
   const staff = await requireCrmStaff();
   const params = await searchParams;
@@ -79,6 +81,7 @@ export default async function SalesDashboardPage({
   // Salespeople only see their own numbers, whatever the URL says.
   const sellerParam = isAdmin ? (params.seller ?? "all") : staff.id;
   const staffId = sellerParam === "all" ? null : sellerParam;
+  const leadType = isLeadType(params.type) ? params.type : null;
 
   const { data: staffRows } = await supabase
     .from("staff")
@@ -88,7 +91,7 @@ export default async function SalesDashboardPage({
     .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
     .map((member) => ({ id: member.id, name: member.display_name as string }));
 
-  const funnel = await computeFunnel(supabase, { fromIso, toIso, staffId });
+  const funnel = await computeFunnel(supabase, { fromIso, toIso, staffId, leadType });
 
   // Club view: the same numbers per salesperson, for comparison.
   let bySeller: { id: string; name: string; funnel: Funnel }[] = [];
@@ -96,7 +99,7 @@ export default async function SalesDashboardPage({
     bySeller = await Promise.all(
       salespeople.map(async (person) => ({
         ...person,
-        funnel: await computeFunnel(supabase, { fromIso, toIso, staffId: person.id }),
+        funnel: await computeFunnel(supabase, { fromIso, toIso, staffId: person.id, leadType }),
       })),
     );
     bySeller = bySeller.filter((row) => row.funnel.totals.guests > 0 || row.funnel.leads.total > 0);
@@ -106,18 +109,20 @@ export default async function SalesDashboardPage({
   const who = staffId
     ? (salespeople.find((person) => person.id === staffId)?.name ?? staff.displayName)
     : "The whole club";
+  const typeLabel = LEAD_TYPES.find((type) => type.value === leadType)?.label;
   const { walkIns, guestsOfMembers, returning, leads, leadSources, totals } = funnel;
 
   return (
     <DashboardShell
       title="Sales"
-      description={`${who} · ${periodLabel}`}
+      description={`${who}${typeLabel ? ` · ${typeLabel} leads` : ""} · ${periodLabel}`}
       actions={
         <SalesFilters
           range={preset}
           start={preset === "custom" ? startParam : from.toISODate()!}
           end={preset === "custom" ? endParam : to.toISODate()!}
           seller={sellerParam}
+          leadType={leadType ?? "all"}
           salespeople={isAdmin ? salespeople : null}
         />
       }

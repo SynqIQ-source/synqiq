@@ -1,3 +1,4 @@
+import { leadTypeOf, type LeadType } from "@/lib/crm/labels";
 import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 
 // Sales funnel for the Sales dashboard. Everything is about the selected
@@ -22,7 +23,8 @@ import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 //
 // Each "closed" is sold within the period. Reads go through the staff
 // member's own session (RLS scopes them to the org); `staffId` narrows
-// everything to one salesperson's guests (the contact's assigned salesperson).
+// everything to one salesperson's guests (the contact's assigned salesperson),
+// and `leadType` to people who became a lead that way (walk-in, referral, ...).
 
 export type Funnel = {
   walkIns: { total: number; closed: number };
@@ -40,11 +42,15 @@ type ContactRef = {
   closed_at: string | null;
   created_at: string;
   how_heard: string[] | null;
+  source: string;
+  referring_client_id: string | null;
+  referrer_name_typed: string | null;
   deleted_at: string | null;
   merged_into_id: string | null;
 };
 
-const CONTACT_FIELDS = "id, assigned_staff_id, closed_at, created_at, how_heard, deleted_at, merged_into_id";
+const CONTACT_FIELDS =
+  "id, assigned_staff_id, closed_at, created_at, how_heard, source, referring_client_id, referrer_name_typed, deleted_at, merged_into_id";
 const PAGE = 1000;
 
 async function all<T>(fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
@@ -59,7 +65,7 @@ async function all<T>(fetchPage: (from: number, to: number) => PromiseLike<{ dat
 
 export async function computeFunnel(
   supabase: ScopedSupabaseClient,
-  options: { fromIso: string; toIso: string; staffId: string | null },
+  options: { fromIso: string; toIso: string; staffId: string | null; leadType?: LeadType | null },
 ): Promise<Funnel> {
   const { fromIso, toIso } = options;
   const inPeriod = (iso: string | null) => Boolean(iso && iso >= fromIso && iso <= toIso);
@@ -68,7 +74,8 @@ export async function computeFunnel(
       contact &&
         !contact.deleted_at &&
         !contact.merged_into_id &&
-        (!options.staffId || contact.assigned_staff_id === options.staffId),
+        (!options.staffId || contact.assigned_staff_id === options.staffId) &&
+        (!options.leadType || leadTypeOf(contact) === options.leadType),
     );
   // Live contacts whose `column` timestamp falls in the period (one page).
   const contactsIn = (column: "created_at" | "closed_at", from: number, to: number) => {
@@ -83,7 +90,7 @@ export async function computeFunnel(
     return query.range(from, to).returns<ContactRef[]>();
   };
 
-  const [visits, newContacts, soldContacts] = await Promise.all([
+  const [visits, createdContacts, closedContacts] = await Promise.all([
     all<{ visit_type: string; contact: ContactRef | null }>((from, to) =>
       supabase
         .from("guest_visits")
@@ -96,6 +103,10 @@ export async function computeFunnel(
     all<ContactRef>((from, to) => contactsIn("created_at", from, to)),
     all<ContactRef>((from, to) => contactsIn("closed_at", from, to)),
   ]);
+  // The lead-type filter is applied here rather than in SQL ("referral" is
+  // derived from the referring member).
+  const newContacts = createdContacts.filter(live);
+  const soldContacts = closedContacts.filter(live);
 
   const visitorsOf = (types: string[]) => {
     const contacts = new Map<string, ContactRef>();
@@ -164,7 +175,7 @@ export async function computeFunnel(
       closed: [...showed].filter((id) => soldLeadIds.has(id)).length,
     },
     leadSources,
-    totals: { guests: everyone.size, enrolled: soldContacts.filter(live).length },
+    totals: { guests: everyone.size, enrolled: soldContacts.length },
   };
 }
 
