@@ -7,7 +7,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CameraCapture } from "@/components/crm/camera-capture";
 import { SignaturePad } from "@/components/crm/signature-pad";
 import { cn } from "@/lib/utils";
@@ -16,7 +15,6 @@ export type KioskConfig = {
   organizationName: string;
   logoUrl: string | null;
   sources: string[];
-  sellers: { id: string; name: string }[];
   waiver: { id: string; version: number; body: string } | null;
 };
 
@@ -28,7 +26,7 @@ type Step =
   | "front_desk"
   | "details"
   | "heard"
-  | "seller"
+  | "checkin"
   | "photo"
   | "consent"
   | "waiver"
@@ -81,7 +79,6 @@ function stateCode(raw: string): string | null {
 
 const IDLE_RESET_MS = 120_000;
 const DONE_RESET_MS = 10_000;
-const NO_SELLER = "none";
 
 // Under 18 today, on the iPad's clock (the server re-checks in the studio's
 // time zone).
@@ -166,7 +163,6 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
   const [matchToken, setMatchToken] = useState<string | null>(null);
   const [declinedMatchToken, setDeclinedMatchToken] = useState<string | null>(null);
   const [howHeard, setHowHeard] = useState<string[]>([]);
-  const [sellerId, setSellerId] = useState<string>(NO_SELLER);
   const [photo, setPhoto] = useState<string | null>(null);
   const [consent, setConsent] = useState({ email: false, sms: false });
   const [typedName, setTypedName] = useState("");
@@ -188,7 +184,6 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
     setMatchToken(null);
     setDeclinedMatchToken(null);
     setHowHeard([]);
-    setSellerId(NO_SELLER);
     setPhoto(null);
     setConsent({ email: false, sms: false });
     setTypedName("");
@@ -252,12 +247,11 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
 
   // Order of the remaining steps after the details step, for new vs
   // returning guests.
+  // Returning guests skip the new-guest steps: just the waiver if they
+  // haven't signed one, then check in.
   function afterDetails(): Step {
-    return returning ? "seller" : "heard";
-  }
-  function afterSeller(): Step | "submit" {
-    if (!returning) return "photo";
-    return needsWaiver ? "waiver" : "submit";
+    if (!returning) return "heard";
+    return needsWaiver ? "waiver" : "checkin";
   }
 
   function setDetail(key: keyof typeof EMPTY_DETAILS, value: string) {
@@ -297,7 +291,6 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
     try {
       const body: Record<string, unknown> = {
         visitReason,
-        sellerId: sellerId === NO_SELLER ? null : sellerId,
       };
       if (returning) {
         body.matchToken = matchToken;
@@ -465,7 +458,7 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
                 onClick={() => {
                   setMatchToken(lookup.matchToken);
                   setDeclinedMatchToken(null);
-                  go(lookup.needsDetails ? "details" : "seller");
+                  go(lookup.needsDetails ? "details" : lookup.waiverOnFile ? "checkin" : "waiver");
                 }}
               >
                 Yes, that&apos;s me
@@ -552,45 +545,26 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
               </CheckRow>
             ))}
           </div>
-          <Button className="h-14 w-full text-lg" onClick={() => go("seller")}>
+          <Button className="h-14 w-full text-lg" onClick={() => go("photo")}>
             Continue
           </Button>
         </div>
       );
       break;
 
-    case "seller": {
-      const next = afterSeller();
+    case "checkin":
       content = (
-        <div className="space-y-6">
-          <h1 className="text-3xl font-semibold tracking-tight">Who are you meeting?</h1>
-          <p className="text-lg text-muted-foreground">Optional. Leave it blank if you&apos;re not sure.</p>
-          <Select value={sellerId} onValueChange={setSellerId}>
-            <SelectTrigger className="h-14 w-full text-lg data-[size=default]:h-14">
-              <SelectValue placeholder="Choose a team member" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_SELLER} className="py-3 text-lg">
-                —
-              </SelectItem>
-              {config.sellers.map((seller) => (
-                <SelectItem key={seller.id} value={seller.id} className="py-3 text-lg">
-                  {seller.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            className="h-14 w-full text-lg"
-            disabled={busy}
-            onClick={() => (next === "submit" ? void submit() : go(next))}
-          >
-            {next === "submit" ? (busy ? "Checking you in…" : "Check in") : "Continue"}
+        <div className="space-y-8 text-center">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Welcome back{lookup?.result === "match" ? `, ${lookup.displayName.split(" ")[0]}` : ""}!
+          </h1>
+          <p className="text-xl text-muted-foreground">Your details and waiver are on file.</p>
+          <Button className="h-16 w-full text-xl" disabled={busy} onClick={() => void submit()}>
+            {busy ? "Checking you in…" : "Check in"}
           </Button>
         </div>
       );
       break;
-    }
 
     case "photo":
       content = (

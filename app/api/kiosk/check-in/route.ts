@@ -21,7 +21,7 @@ import { decodeJpeg, decodePng } from "@/lib/crm/images";
 import { buildWaiverPdf } from "@/lib/crm/waiver-pdf";
 import { rateLimitAll } from "@/lib/crm/rate-limit";
 import { enqueueEmailCheck, runJobById } from "@/lib/crm/jobs";
-import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
+import { jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 
 const BUCKET = "crm-private";
 
@@ -94,22 +94,6 @@ function parseMissingDetails(raw: unknown) {
     throw new CheckInError("Some details are missing or invalid. Go back and check them.");
   }
   return details as Record<keyof typeof details, string>;
-}
-
-async function validSellerId(admin: SupabaseClient, organizationId: string, raw: unknown): Promise<string | null> {
-  if (raw === null || raw === undefined || raw === "") return null;
-  if (!isUuid(raw)) throw new CheckInError("Pick someone from the list, or leave it blank.");
-  const { data, error } = await admin
-    .from("staff")
-    .select("id")
-    .eq("id", raw)
-    .eq("organization_id", organizationId)
-    .eq("can_sell", true)
-    .is("archived_at", null)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new CheckInError("Pick someone from the list, or leave it blank.");
-  return data.id;
 }
 
 async function validHowHeard(admin: SupabaseClient, organizationId: string, raw: unknown): Promise<string[]> {
@@ -294,7 +278,15 @@ export async function POST(request: NextRequest) {
       throw new CheckInError("Choose what brings you in today.");
     }
     const visitType = visitReason === "membership" ? "walk_in" : "guest_visit";
-    const sellerId = await validSellerId(admin, device.organizationId, body.sellerId);
+    // Guests are assigned to the salesperson set "On the iPad" for this
+    // kiosk (staff choose it on the Guests page); there's no seller step on
+    // the kiosk itself.
+    const { data: kiosk } = await admin
+      .from("kiosk_devices")
+      .select("on_duty_staff_id")
+      .eq("id", device.deviceId)
+      .single();
+    const onDutyStaffId = (kiosk?.on_duty_staff_id as string | null) ?? null;
     const visitId = randomUUID();
     const now = new Date().toISOString();
 
@@ -322,14 +314,23 @@ export async function POST(request: NextRequest) {
           if (!existing[key as keyof typeof existing]) updates[key] = value;
         }
       }
-      // A returning guest goes to whoever they said they're meeting, else to
-      // the salesperson on duty on this iPad (if one is set).
-      const { data: kiosk } = await admin
-        .from("kiosk_devices")
-        .select("on_duty_staff_id")
-        .eq("id", device.deviceId)
-        .single();
-      const newOwner = sellerId ?? kiosk?.on_duty_staff_id ?? null;
+      // A returning guest with an appointment today: this check-in is the show.
+      const today = DateTime.now().setZone(org.timezone);
+      const { data: appointment } = await admin
+        .from("crm_appointments")
+        .select("id, staff_id")
+        .eq("organization_id", device.organizationId)
+        .eq("contact_id", existing.id)
+        .eq("status", "scheduled")
+        .gte("scheduled_at", today.startOf("day").toUTC().toISO()!)
+        .lte("scheduled_at", today.endOf("day").toUTC().toISO()!)
+        .order("scheduled_at")
+        .limit(1)
+        .maybeSingle();
+
+      // They go to the salesperson their appointment is with, else to whoever
+      // is on duty on this iPad (if anyone is set).
+      const newOwner = (appointment?.staff_id as string | null) ?? onDutyStaffId;
       const previousOwner = existing.assigned_staff_id as string | null;
       if (newOwner && newOwner !== previousOwner) updates.assigned_staff_id = newOwner;
       const contact = { ...existing, ...updates } as ContactForWaiver & { assigned_staff_id: string | null };
@@ -356,26 +357,12 @@ export async function POST(request: NextRequest) {
           .eq("organization_id", device.organizationId);
         if (error) throw error;
       }
-      // A returning guest with an appointment today: this check-in is the show.
-      const today = DateTime.now().setZone(org.timezone);
-      const { data: appointment } = await admin
-        .from("crm_appointments")
-        .select("id, staff_id")
-        .eq("organization_id", device.organizationId)
-        .eq("contact_id", contact.id)
-        .eq("status", "scheduled")
-        .gte("scheduled_at", today.startOf("day").toUTC().toISO()!)
-        .lte("scheduled_at", today.endOf("day").toUTC().toISO()!)
-        .order("scheduled_at")
-        .limit(1)
-        .maybeSingle();
-
       const { error: visitError } = await admin.from("guest_visits").insert({
         id: visitId,
         organization_id: device.organizationId,
         contact_id: contact.id,
         visit_type: appointment ? "appointment" : visitType,
-        assigned_staff_id: sellerId ?? appointment?.staff_id ?? contact.assigned_staff_id,
+        assigned_staff_id: contact.assigned_staff_id,
         kiosk_device_id: device.deviceId,
       });
       if (visitError) throw visitError;
@@ -472,7 +459,7 @@ export async function POST(request: NextRequest) {
       referrer_name_typed: referrerNameTyped,
       referrer_unresolved: visitReason === "guest_of_member" && !referringClientId,
       photo_path: photoPath,
-      assigned_staff_id: sellerId,
+      assigned_staff_id: onDutyStaffId,
       email_consent: consent.email === true,
       email_consent_at: consent.email === true ? now : null,
       sms_consent: consent.sms === true,
@@ -491,13 +478,23 @@ export async function POST(request: NextRequest) {
       organization_id: device.organizationId,
       contact_id: contactId,
       visit_type: visitType,
-      assigned_staff_id: sellerId,
+      assigned_staff_id: onDutyStaffId,
       kiosk_device_id: device.deviceId,
     });
     if (visitError) throw visitError;
 
     const { error: signatureError } = await admin.from("waiver_signatures").insert(signature);
     if (signatureError) throw signatureError;
+
+    if (onDutyStaffId) {
+      const { data: owner } = await admin.from("staff").select("display_name").eq("id", onDutyStaffId).maybeSingle();
+      await admin.from("crm_notes").insert({
+        organization_id: device.organizationId,
+        contact_id: contactId,
+        author_staff_id: onDutyStaffId,
+        body: `Assigned to ${owner?.display_name ?? "the salesperson on the iPad"} at check-in.`,
+      });
+    }
 
     if (pending) {
       const { error } = await admin.from("crm_pending_matches").insert({
