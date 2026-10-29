@@ -106,7 +106,7 @@ export default async function SalesDashboardPage({
   const who = staffId
     ? (salespeople.find((person) => person.id === staffId)?.name ?? staff.displayName)
     : "The whole club";
-  const { walkIns, guestsOfMembers, returning, leads, totals } = funnel;
+  const { walkIns, guestsOfMembers, returning, leads, leadSources, totals } = funnel;
 
   return (
     <DashboardShell
@@ -162,6 +162,21 @@ export default async function SalesDashboardPage({
             sub={`${percent(leads.closed, leads.shows)} closing`}
             highlight
           />
+        </Section>
+
+        <Section
+          title="Leads by marketing source"
+          description="Total leads this period, broken down by how they heard about us. Guests can pick more than one answer, so the sources can add up to more than the total."
+        >
+          <Stat label="Total leads" value={String(leads.total)} highlight />
+          {leadSources.map((source) => (
+            <Stat
+              key={source.label}
+              label={source.label}
+              value={String(source.count)}
+              sub={`${percent(source.count, leads.total)} of leads`}
+            />
+          ))}
         </Section>
 
         <Section

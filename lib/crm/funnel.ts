@@ -14,6 +14,8 @@ import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 //     Appts made      ...with an appointment booked
 //     Shows           ...whose appointment showed
 //     Appts closed    ...of those shows, sold in the period
+//   Lead sources      new people per "How did you hear about us?" answer
+//                     (multi-select, so these can add up to more than Leads)
 //   Total guests      walk-ins + guests of members + appointment shows in the
 //                     period + returning guests (each person once)
 //   Enrolled          everyone sold in the period
@@ -27,6 +29,8 @@ export type Funnel = {
   guestsOfMembers: { total: number; closed: number };
   returning: { total: number; closed: number };
   leads: { total: number; contacted: number; appointments: number; shows: number; closed: number };
+  // Largest first; "Not specified" for people with no answer.
+  leadSources: { label: string; count: number }[];
   totals: { guests: number; enrolled: number };
 };
 
@@ -35,11 +39,12 @@ type ContactRef = {
   assigned_staff_id: string | null;
   closed_at: string | null;
   created_at: string;
+  how_heard: string[] | null;
   deleted_at: string | null;
   merged_into_id: string | null;
 };
 
-const CONTACT_FIELDS = "id, assigned_staff_id, closed_at, created_at, deleted_at, merged_into_id";
+const CONTACT_FIELDS = "id, assigned_staff_id, closed_at, created_at, how_heard, deleted_at, merged_into_id";
 const PAGE = 1000;
 
 async function all<T>(fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
@@ -136,6 +141,15 @@ export async function computeFunnel(
   }
   const soldLeadIds = new Set(newContacts.filter((contact) => inPeriod(contact.closed_at)).map((contact) => contact.id));
 
+  const sourceCounts = new Map<string, number>();
+  for (const contact of newContacts) {
+    const answers = contact.how_heard && contact.how_heard.length > 0 ? contact.how_heard : ["Not specified"];
+    for (const answer of new Set(answers)) sourceCounts.set(answer, (sourceCounts.get(answer) ?? 0) + 1);
+  }
+  const leadSources = [...sourceCounts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((a, b) => (a.label === "Not specified" ? 1 : b.label === "Not specified" ? -1 : b.count - a.count || a.label.localeCompare(b.label)));
+
   const everyone = new Set([...walkIns, ...guests, ...appointmentShows, ...returning.values()].map((contact) => contact.id));
 
   return {
@@ -149,6 +163,7 @@ export async function computeFunnel(
       shows: showed.size,
       closed: [...showed].filter((id) => soldLeadIds.has(id)).length,
     },
+    leadSources,
     totals: { guests: everyone.size, enrolled: soldContacts.filter(live).length },
   };
 }
