@@ -106,7 +106,7 @@ export default async function SalesDashboardPage({
   const who = staffId
     ? (salespeople.find((person) => person.id === staffId)?.name ?? staff.displayName)
     : "The whole club";
-  const { walkIns, guestsOfMembers, leads, totals } = funnel;
+  const { walkIns, guestsOfMembers, returning, leads, totals } = funnel;
 
   return (
     <DashboardShell
@@ -123,19 +123,31 @@ export default async function SalesDashboardPage({
       }
     >
       <div className="space-y-6">
-        <Section title="Walk-ins" description="Guests who walked in interested in a membership or pass.">
+        <Section title="Walk-ins" description="New guests who walked in interested in a membership or pass.">
           <Stat label="Walk-ins" value={String(walkIns.total)} />
           <Stat label="Closed" value={String(walkIns.closed)} />
           <Stat label="Closing %" value={percent(walkIns.closed, walkIns.total)} highlight />
         </Section>
 
-        <Section title="Guests of members" description="Guests who came in with a friend who's a member.">
+        <Section title="Guests of members" description="New guests who came in with a friend who's a member.">
           <Stat label="Guests" value={String(guestsOfMembers.total)} />
           <Stat label="Closed" value={String(guestsOfMembers.closed)} />
           <Stat label="Closing %" value={percent(guestsOfMembers.closed, guestsOfMembers.total)} highlight />
         </Section>
 
-        <Section title="Leads" description="Leads your team added (phone-in, web and other sources) and how far they got.">
+        <Section
+          title="Returning guests"
+          description="People first entered before this period who came back or bought during it."
+        >
+          <Stat label="Returning" value={String(returning.total)} />
+          <Stat label="Closed" value={String(returning.closed)} />
+          <Stat label="Closing %" value={percent(returning.closed, returning.total)} highlight />
+        </Section>
+
+        <Section
+          title="Leads"
+          description="Everyone entered this period (walk-ins, guests of members, phone-in, web and more) and how far they got."
+        >
           <Stat label="Total leads" value={String(leads.total)} />
           <Stat label="Contacted" value={String(leads.contacted)} sub={`${percent(leads.contacted, leads.total)} of leads`} />
           <Stat
@@ -152,7 +164,10 @@ export default async function SalesDashboardPage({
           />
         </Section>
 
-        <Section title="Total" description="Everyone who came in: walk-ins, guests of members and appointment shows.">
+        <Section
+          title="Total"
+          description="Everyone who came in: walk-ins, guests of members, appointment shows and returning guests."
+        >
           <Stat label="Total guests" value={String(totals.guests)} />
           <Stat label="Enrolled" value={String(totals.enrolled)} />
           <Stat label="Closing %" value={percent(totals.enrolled, totals.guests)} highlight />
@@ -200,8 +215,9 @@ export default async function SalesDashboardPage({
         ) : null}
 
         <p className="text-xs text-muted-foreground">
-          &ldquo;Closed&rdquo; counts guests from this period who have enrolled, whether staff marked them sold or
-          Mindbody shows them as an active member (updated overnight).
+          &ldquo;Closed&rdquo; and &ldquo;Enrolled&rdquo; count sales made during this period, whether staff marked
+          them sold or Mindbody shows them as a new active member (updated overnight). Someone who toured in an earlier
+          period and buys now counts here as a returning guest.
         </p>
       </div>
     </DashboardShell>

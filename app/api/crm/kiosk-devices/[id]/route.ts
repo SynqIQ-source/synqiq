@@ -12,13 +12,16 @@ type RouteParams = { params: Promise<{ id: string }> };
 //   after Safari's website data was cleared). The old token stops working.
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const staff = await getCrmStaffForApi({ adminOnly: true });
+    // Any admin or salesperson can set who's on duty; everything else is
+    // admin-only.
+    const staff = await getCrmStaffForApi();
     if (!staff) return jsonError("Not found.", 404);
 
     const { id } = await params;
     if (!isUuid(id)) return jsonError("Device not found.", 404);
     const body = await readJsonBody(request);
     const action = body?.action;
+    if (action !== "on_duty" && staff.role !== "admin") return jsonError("Not found.", 404);
 
     const admin = createSupabaseAdminClient();
     const { data: device, error } = await admin
@@ -29,6 +32,33 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .maybeSingle();
     if (error) throw error;
     if (!device) return jsonError("Device not found.", 404);
+
+    // action "on_duty": the salesperson working the front desk on this iPad
+    // (null to clear). Returning guests who check in there are reassigned
+    // to them.
+    if (action === "on_duty") {
+      if (device.revoked_at) return jsonError("This device was revoked.", 409);
+      let onDuty: string | null = null;
+      if (body?.staffId) {
+        if (!isUuid(body.staffId)) return jsonError("Pick someone from the list.", 400);
+        const { data: member } = await admin
+          .from("staff")
+          .select("id")
+          .eq("id", body.staffId)
+          .eq("organization_id", staff.organizationId)
+          .is("archived_at", null)
+          .maybeSingle();
+        if (!member) return jsonError("Pick someone from the list.", 400);
+        onDuty = member.id;
+      }
+      const { error: updateError } = await admin
+        .from("kiosk_devices")
+        .update({ on_duty_staff_id: onDuty, on_duty_set_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("organization_id", staff.organizationId);
+      if (updateError) throw updateError;
+      return NextResponse.json({ success: true });
+    }
 
     if (action === "revoke") {
       const { error: updateError } = await admin

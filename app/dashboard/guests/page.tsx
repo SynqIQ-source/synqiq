@@ -14,6 +14,8 @@ import { AddLeadButton } from "./add-lead-button";
 import { GuestAvatar } from "./guest-avatar";
 import { GuestFilters } from "./guest-filters";
 import { PendingMatchActions } from "./pending-match-actions";
+import { OnDutySelect } from "./on-duty-select";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -218,6 +220,18 @@ export default async function GuestsPage({
   const unread = new Set((unreadResult.data ?? []).map((row) => row.contact_id));
   const pending = pendingResult.data ?? [];
   const openMatchContacts = new Set(pending.flatMap((match) => [match.submitted?.id, match.candidate?.id]));
+  // Paired kiosks and who's on duty on each. kiosk_devices is admin-only
+  // under RLS, so this small, non-personal read uses the service client,
+  // scoped to the staff member's own org.
+  const { data: kioskRows } = await createSupabaseAdminClient()
+    .from("kiosk_devices")
+    .select("id, name, on_duty_staff_id")
+    .eq("organization_id", staff.organizationId)
+    .is("revoked_at", null)
+    .not("activated_at", "is", null)
+    .order("created_at");
+  const kiosks = (kioskRows ?? []).map((row) => ({ id: row.id, name: row.name, onDutyStaffId: row.on_duty_staff_id }));
+
   const staffRows = staffResult.data ?? [];
   const staffNames = new Map(staffRows.map((member) => [member.id, member.display_name as string]));
   const salespeople = staffRows
@@ -233,7 +247,19 @@ export default async function GuestsPage({
     <DashboardShell
       title="Guests"
       description="Guests who checked in at the kiosk, and leads your team added."
-      actions={<AddLeadButton sources={(sourcesResult.data ?? []).map((row) => row.label)} />}
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {kiosks.length > 0 ? (
+            <OnDutySelect
+              devices={kiosks}
+              salespeople={staffRows
+                .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
+                .map((member) => ({ id: member.id, name: member.display_name as string }))}
+            />
+          ) : null}
+          <AddLeadButton sources={(sourcesResult.data ?? []).map((row) => row.label)} />
+        </div>
+      }
     >
       <div className="space-y-6">
         {pending.length > 0 ? (

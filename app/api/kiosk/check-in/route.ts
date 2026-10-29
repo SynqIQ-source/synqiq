@@ -322,7 +322,16 @@ export async function POST(request: NextRequest) {
           if (!existing[key as keyof typeof existing]) updates[key] = value;
         }
       }
-      if (sellerId && !existing.assigned_staff_id) updates.assigned_staff_id = sellerId;
+      // A returning guest goes to whoever they said they're meeting, else to
+      // the salesperson on duty on this iPad (if one is set).
+      const { data: kiosk } = await admin
+        .from("kiosk_devices")
+        .select("on_duty_staff_id")
+        .eq("id", device.deviceId)
+        .single();
+      const newOwner = sellerId ?? kiosk?.on_duty_staff_id ?? null;
+      const previousOwner = existing.assigned_staff_id as string | null;
+      if (newOwner && newOwner !== previousOwner) updates.assigned_staff_id = newOwner;
       const contact = { ...existing, ...updates } as ContactForWaiver & { assigned_staff_id: string | null };
 
       const { count, error: countError } = await admin
@@ -375,6 +384,21 @@ export async function POST(request: NextRequest) {
           .from("crm_appointments")
           .update({ status: "showed", visit_id: visitId, updated_at: now })
           .eq("id", appointment.id);
+      }
+      if (updates.assigned_staff_id) {
+        const { data: names } = await admin
+          .from("staff")
+          .select("id, display_name")
+          .in("id", [updates.assigned_staff_id, previousOwner].filter((value): value is string => Boolean(value)));
+        const name = (staffId: string | null) => names?.find((row) => row.id === staffId)?.display_name ?? "someone";
+        await admin.from("crm_notes").insert({
+          organization_id: device.organizationId,
+          contact_id: contact.id,
+          author_staff_id: updates.assigned_staff_id,
+          body: previousOwner
+            ? `Reassigned from ${name(previousOwner)} to ${name(updates.assigned_staff_id)} when they checked in again.`
+            : `Assigned to ${name(updates.assigned_staff_id)} when they checked in again.`,
+        });
       }
       if (signature) {
         const { error } = await admin.from("waiver_signatures").insert(signature);

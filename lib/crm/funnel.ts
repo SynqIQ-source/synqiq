@@ -1,35 +1,45 @@
 import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 
-// Sales funnel for the Sales dashboard. Everything is a cohort of the
-// selected period: "closed" means that guest or lead has enrolled by now
-// (crm_contacts.closed_at is set), whenever it happened.
+// Sales funnel for the Sales dashboard. Everything is about the selected
+// period, and a sale ("closed") counts in the period it happened:
 //
-//   Walk-ins          guests with a Walk In visit in the period
-//   Guests of members guests with a Guest Visit in the period
-//   Leads             contacts added by staff (not the kiosk) in the period:
-//                     phone-in, web and other sources
+//   New people        contacts entered in the period (any source)
+//   Walk-ins          new people whose visit in the period was a Walk In
+//   Guests of members new people whose visit was a Guest Visit
+//   Returning guests  people entered BEFORE the period who came back (a
+//                     visit) or bought in it -- a March tour who buys in
+//                     April is an April sale and an April returning guest
+//   Leads             all new people (walk-ins, guests, phone-in, web, ...)
 //     Contacted       ...with an outbound text, email or logged call
 //     Appts made      ...with an appointment booked
 //     Shows           ...whose appointment showed
-//     Appts closed    ...of those shows, enrolled
-//   Total guests      everyone with any visit in the period (walk-ins,
-//                     guests of members, appointment shows)
+//     Appts closed    ...of those shows, sold in the period
+//   Total guests      walk-ins + guests of members + appointment shows in the
+//                     period + returning guests (each person once)
+//   Enrolled          everyone sold in the period
 //
-// Reads go through the staff member's own session, so RLS scopes them to
-// the org. `staffId` narrows everything to one salesperson's guests (the
-// contact's assigned salesperson).
-
-export type Rate = { count: number; of: number };
+// Each "closed" is sold within the period. Reads go through the staff
+// member's own session (RLS scopes them to the org); `staffId` narrows
+// everything to one salesperson's guests (the contact's assigned salesperson).
 
 export type Funnel = {
   walkIns: { total: number; closed: number };
   guestsOfMembers: { total: number; closed: number };
+  returning: { total: number; closed: number };
   leads: { total: number; contacted: number; appointments: number; shows: number; closed: number };
   totals: { guests: number; enrolled: number };
 };
 
-type ContactRef = { id: string; assigned_staff_id: string | null; closed_at: string | null; deleted_at: string | null; merged_into_id: string | null };
+type ContactRef = {
+  id: string;
+  assigned_staff_id: string | null;
+  closed_at: string | null;
+  created_at: string;
+  deleted_at: string | null;
+  merged_into_id: string | null;
+};
 
+const CONTACT_FIELDS = "id, assigned_staff_id, closed_at, created_at, deleted_at, merged_into_id";
 const PAGE = 1000;
 
 async function all<T>(fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
@@ -46,50 +56,70 @@ export async function computeFunnel(
   supabase: ScopedSupabaseClient,
   options: { fromIso: string; toIso: string; staffId: string | null },
 ): Promise<Funnel> {
+  const { fromIso, toIso } = options;
+  const inPeriod = (iso: string | null) => Boolean(iso && iso >= fromIso && iso <= toIso);
   const live = (contact: ContactRef | null): contact is ContactRef =>
-    Boolean(contact && !contact.deleted_at && !contact.merged_into_id && (!options.staffId || contact.assigned_staff_id === options.staffId));
+    Boolean(
+      contact &&
+        !contact.deleted_at &&
+        !contact.merged_into_id &&
+        (!options.staffId || contact.assigned_staff_id === options.staffId),
+    );
+  // Live contacts whose `column` timestamp falls in the period (one page).
+  const contactsIn = (column: "created_at" | "closed_at", from: number, to: number) => {
+    let query = supabase
+      .from("crm_contacts")
+      .select(CONTACT_FIELDS)
+      .is("deleted_at", null)
+      .is("merged_into_id", null)
+      .gte(column, fromIso)
+      .lte(column, toIso);
+    if (options.staffId) query = query.eq("assigned_staff_id", options.staffId);
+    return query.range(from, to).returns<ContactRef[]>();
+  };
 
-  const visits = await all<{ visit_type: string; contact: ContactRef | null }>((from, to) =>
-    supabase
-      .from("guest_visits")
-      .select("visit_type, contact:crm_contacts!guest_visits_contact_id_fkey ( id, assigned_staff_id, closed_at, deleted_at, merged_into_id )")
-      .gte("visit_at", options.fromIso)
-      .lte("visit_at", options.toIso)
-      .range(from, to)
-      .returns<{ visit_type: string; contact: ContactRef | null }[]>(),
-  );
+  const [visits, newContacts, soldContacts] = await Promise.all([
+    all<{ visit_type: string; contact: ContactRef | null }>((from, to) =>
+      supabase
+        .from("guest_visits")
+        .select(`visit_type, contact:crm_contacts!guest_visits_contact_id_fkey ( ${CONTACT_FIELDS} )`)
+        .gte("visit_at", fromIso)
+        .lte("visit_at", toIso)
+        .range(from, to)
+        .returns<{ visit_type: string; contact: ContactRef | null }[]>(),
+    ),
+    all<ContactRef>((from, to) => contactsIn("created_at", from, to)),
+    all<ContactRef>((from, to) => contactsIn("closed_at", from, to)),
+  ]);
 
-  const byType = (types: string[]) => {
+  const visitorsOf = (types: string[]) => {
     const contacts = new Map<string, ContactRef>();
     for (const visit of visits) {
       if (types.includes(visit.visit_type) && live(visit.contact)) contacts.set(visit.contact.id, visit.contact);
     }
-    return [...contacts.values()];
+    return contacts;
   };
-  const closedCount = (contacts: ContactRef[]) => contacts.filter((contact) => contact.closed_at).length;
+  const soldInPeriod = (contacts: Iterable<ContactRef>) => [...contacts].filter((c) => inPeriod(c.closed_at)).length;
 
-  const walkIns = byType(["walk_in", "trial_visit"]);
-  const guests = byType(["guest_visit"]);
-  const everyone = byType(["walk_in", "trial_visit", "guest_visit", "appointment"]);
+  const isNew = (contact: ContactRef) => inPeriod(contact.created_at);
+  const walkIns = [...visitorsOf(["walk_in", "trial_visit"]).values()].filter(isNew);
+  const guests = [...visitorsOf(["guest_visit"]).values()].filter(isNew);
+  const appointmentShows = [...visitorsOf(["appointment"]).values()];
 
-  const leadRows = await all<ContactRef>((from, to) => {
-    let query = supabase
-      .from("crm_contacts")
-      .select("id, assigned_staff_id, closed_at, deleted_at, merged_into_id")
-      .is("created_by_kiosk_device_id", null)
-      .is("deleted_at", null)
-      .is("merged_into_id", null)
-      .gte("created_at", options.fromIso)
-      .lte("created_at", options.toIso);
-    if (options.staffId) query = query.eq("assigned_staff_id", options.staffId);
-    return query.range(from, to).returns<ContactRef[]>();
-  });
-  const leadIds = leadRows.map((lead) => lead.id);
+  const returning = new Map<string, ContactRef>();
+  for (const contact of visitorsOf(["walk_in", "trial_visit", "guest_visit", "appointment"]).values()) {
+    if (!isNew(contact)) returning.set(contact.id, contact);
+  }
+  for (const contact of soldContacts) {
+    if (!isNew(contact)) returning.set(contact.id, contact);
+  }
 
-  let contacted = new Set<string>();
-  let booked = new Set<string>();
-  let showed = new Set<string>();
-  // .in() with very long lists makes for very long URLs; chunk it.
+  // Leads funnel over everyone new in the period.
+  const leadIds = newContacts.map((contact) => contact.id);
+  const contacted = new Set<string>();
+  const booked = new Set<string>();
+  const showed = new Set<string>();
+  // Chunked so the .in() filter stays a reasonable URL length.
   for (let index = 0; index < leadIds.length; index += 200) {
     const chunk = leadIds.slice(index, index + 200);
     const [messages, appointments] = await Promise.all([
@@ -98,26 +128,28 @@ export async function computeFunnel(
     ]);
     if (messages.error) throw messages.error;
     if (appointments.error) throw appointments.error;
-    contacted = new Set([...contacted, ...(messages.data ?? []).map((row) => row.contact_id)]);
-    booked = new Set([...booked, ...(appointments.data ?? []).map((row) => row.contact_id)]);
-    showed = new Set([
-      ...showed,
-      ...(appointments.data ?? []).filter((row) => row.status === "showed").map((row) => row.contact_id),
-    ]);
+    for (const row of messages.data ?? []) contacted.add(row.contact_id);
+    for (const row of appointments.data ?? []) {
+      booked.add(row.contact_id);
+      if (row.status === "showed") showed.add(row.contact_id);
+    }
   }
-  const closedLeads = new Set(leadRows.filter((lead) => lead.closed_at).map((lead) => lead.id));
+  const soldLeadIds = new Set(newContacts.filter((contact) => inPeriod(contact.closed_at)).map((contact) => contact.id));
+
+  const everyone = new Set([...walkIns, ...guests, ...appointmentShows, ...returning.values()].map((contact) => contact.id));
 
   return {
-    walkIns: { total: walkIns.length, closed: closedCount(walkIns) },
-    guestsOfMembers: { total: guests.length, closed: closedCount(guests) },
+    walkIns: { total: walkIns.length, closed: soldInPeriod(walkIns) },
+    guestsOfMembers: { total: guests.length, closed: soldInPeriod(guests) },
+    returning: { total: returning.size, closed: soldInPeriod(returning.values()) },
     leads: {
-      total: leadRows.length,
+      total: newContacts.length,
       contacted: contacted.size,
       appointments: booked.size,
       shows: showed.size,
-      closed: [...showed].filter((id) => closedLeads.has(id)).length,
+      closed: [...showed].filter((id) => soldLeadIds.has(id)).length,
     },
-    totals: { guests: everyone.length, enrolled: closedCount(everyone) },
+    totals: { guests: everyone.size, enrolled: soldContacts.filter(live).length },
   };
 }
 

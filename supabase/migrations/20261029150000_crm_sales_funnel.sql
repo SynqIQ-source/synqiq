@@ -19,6 +19,11 @@ alter table crm_contacts add constraint crm_contacts_source_check
 alter table crm_messages drop constraint crm_messages_channel_check;
 alter table crm_messages add constraint crm_messages_channel_check check (channel in ('sms', 'email', 'call'));
 
+-- The salesperson working the front desk on this iPad. A returning guest who
+-- checks in there is reassigned to them.
+alter table kiosk_devices add column on_duty_staff_id uuid references staff (id);
+alter table kiosk_devices add column on_duty_set_at timestamptz;
+
 create table crm_appointments (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references organizations (id),
