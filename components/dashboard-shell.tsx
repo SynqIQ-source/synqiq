@@ -41,6 +41,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/sales", label: "Sales Dashboard", adminOnly: false, crm: "staff" },
       { href: "/dashboard/sales/history", label: "Sales History", adminOnly: false, crm: "staff" },
       { href: "/dashboard/guests", label: "Guests", adminOnly: false, crm: "staff" },
+      { href: "/dashboard/sales/calendar", label: "Calendar", adminOnly: false, crm: "staff" },
       { href: "/dashboard/sales/lead-status", label: "Lead Status", adminOnly: false, crm: "staff" },
       { href: "/dashboard/sales/follow-ups", label: "Lead Follow-ups", adminOnly: false, crm: "staff" },
       { href: "/dashboard/sales/new-members", label: "New Members", adminOnly: true, crm: "admin" },

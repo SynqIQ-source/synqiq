@@ -105,7 +105,7 @@ function Section({
   children,
 }: {
   title: string;
-  description: string;
+  description: React.ReactNode;
   target?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -266,9 +266,14 @@ export default async function SalesDashboardPage({
           description="New guests who walked in interested in a membership or pass."
           target={targetColumn("walk_ins")}
         >
-          <Stat label="Walk-ins" value={String(walkIns.total)} />
-          <Stat label="Closed" value={String(walkIns.closed)} />
-          <Stat label="Closing %" value={percent(walkIns.closed, walkIns.total)} highlight />
+          <Stat label="Walk-ins" value={String(walkIns.total)} href={detailsHref("walk_ins")} />
+          <Stat label="Closed" value={String(walkIns.closed)} href={detailsHref("walk_ins_closed")} />
+          <Stat
+            label="Closing %"
+            value={percent(walkIns.closed, walkIns.total)}
+            href={detailsHref("walk_ins_closed")}
+            highlight
+          />
         </Section>
 
         <Section
@@ -276,9 +281,14 @@ export default async function SalesDashboardPage({
           description="New guests who came in with a friend who's a member."
           target={targetColumn("guests")}
         >
-          <Stat label="Guests" value={String(guestsOfMembers.total)} />
-          <Stat label="Closed" value={String(guestsOfMembers.closed)} />
-          <Stat label="Closing %" value={percent(guestsOfMembers.closed, guestsOfMembers.total)} highlight />
+          <Stat label="Guests" value={String(guestsOfMembers.total)} href={detailsHref("guests")} />
+          <Stat label="Closed" value={String(guestsOfMembers.closed)} href={detailsHref("guests_closed")} />
+          <Stat
+            label="Closing %"
+            value={percent(guestsOfMembers.closed, guestsOfMembers.total)}
+            href={detailsHref("guests_closed")}
+            highlight
+          />
         </Section>
 
         <Section
@@ -286,9 +296,14 @@ export default async function SalesDashboardPage({
           description="People first entered before this period who came back or bought during it."
           target={targetColumn("returning")}
         >
-          <Stat label="Returning" value={String(returning.total)} />
-          <Stat label="Closed" value={String(returning.closed)} />
-          <Stat label="Closing %" value={percent(returning.closed, returning.total)} highlight />
+          <Stat label="Returning" value={String(returning.total)} href={detailsHref("returning")} />
+          <Stat label="Closed" value={String(returning.closed)} href={detailsHref("returning_closed")} />
+          <Stat
+            label="Closing %"
+            value={percent(returning.closed, returning.total)}
+            href={detailsHref("returning_closed")}
+            highlight
+          />
         </Section>
 
         <Section
@@ -296,36 +311,59 @@ export default async function SalesDashboardPage({
           description="Everyone entered this period (walk-ins, guests of members, phone-in, web and more) and how far they got."
           target={targetColumn("leads")}
         >
-          <Stat label="Total leads" value={String(leads.total)} />
-          <Stat label="Contacted" value={String(leads.contacted)} sub={`${percent(leads.contacted, leads.total)} of leads`} />
+          <Stat label="Total leads" value={String(leads.total)} href={detailsHref("leads")} />
+          <Stat
+            label="Contacted"
+            value={String(leads.contacted)}
+            sub={`${percent(leads.contacted, leads.total)} of leads`}
+            href={detailsHref("leads_contacted")}
+          />
           <Stat
             label="Appointments made"
             value={String(leads.appointments)}
             sub={`${percent(leads.appointments, leads.total)} conversion`}
+            href={detailsHref("leads_appointments")}
           />
-          <Stat label="Shows" value={String(leads.shows)} sub={`${percent(leads.shows, leads.appointments)} show rate`} />
+          <Stat
+            label="Shows"
+            value={String(leads.shows)}
+            sub={`${percent(leads.shows, leads.appointments)} show rate`}
+            href={detailsHref("leads_shows")}
+          />
           <Stat
             label="Appointments closed"
             value={String(leads.closed)}
             sub={`${percent(leads.closed, leads.shows)} closing`}
+            href={detailsHref("leads_closed")}
             highlight
           />
         </Section>
 
         <Section
           title="Appointments"
-          description="Appointments set for this period (not canceled), how many showed, and how many of those bought."
+          description={
+            <>
+              Appointments set for this period (not canceled), how many showed, and how many of those bought. Click a
+              number to see who, or{" "}
+              <Link href="/dashboard/sales/calendar" className="text-primary underline-offset-4 hover:underline">
+                open the calendar
+              </Link>
+              .
+            </>
+          }
         >
-          <Stat label="Scheduled" value={String(appointments.scheduled)} />
+          <Stat label="Scheduled" value={String(appointments.scheduled)} href={detailsHref("appointments_scheduled")} />
           <Stat
             label="Showed"
             value={String(appointments.showed)}
             sub={`${percent(appointments.showed, appointments.scheduled)} show rate`}
+            href={detailsHref("appointments_showed")}
           />
           <Stat
             label="Closed"
             value={String(appointments.closed)}
             sub={`${percent(appointments.closed, appointments.showed)} of shows`}
+            href={detailsHref("appointments_closed")}
             highlight
           />
         </Section>
@@ -334,13 +372,14 @@ export default async function SalesDashboardPage({
           title="Leads by marketing source"
           description="Total leads this period, broken down by how they heard about us. Guests can pick more than one answer, so the sources can add up to more than the total."
         >
-          <Stat label="Total leads" value={String(leads.total)} highlight />
+          <Stat label="Total leads" value={String(leads.total)} href={detailsHref("leads")} highlight />
           {leadSources.map((source) => (
             <Stat
               key={source.label}
               label={source.label}
               value={String(source.count)}
               sub={`${percent(source.count, leads.total)} of leads`}
+              href={detailsHref(`source:${source.label}`)}
             />
           ))}
         </Section>
@@ -388,8 +427,17 @@ export default async function SalesDashboardPage({
             </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Overdue" value={String(sum(followUps.overdue))} highlight />
-            <Stat label="Due today" value={String(sum(followUps.dueToday))} />
+            <Stat
+              label="Overdue"
+              value={String(sum(followUps.overdue))}
+              href={`/dashboard/sales/follow-ups${isAdmin && staffId ? `?seller=${staffId}` : ""}`}
+              highlight
+            />
+            <Stat
+              label="Due today"
+              value={String(sum(followUps.dueToday))}
+              href={`/dashboard/sales/follow-ups?view=today${isAdmin && staffId ? `&seller=${staffId}` : ""}`}
+            />
           </CardContent>
         </Card>
 
@@ -398,9 +446,14 @@ export default async function SalesDashboardPage({
           description="Everyone who came in: walk-ins, guests of members, appointment shows and returning guests."
           target={targetColumn("total")}
         >
-          <Stat label="Total guests" value={String(totals.guests)} />
-          <Stat label="Enrolled" value={String(totals.enrolled)} />
-          <Stat label="Closing %" value={percent(totals.enrolled, totals.guests)} highlight />
+          <Stat label="Total guests" value={String(totals.guests)} href={detailsHref("total_guests")} />
+          <Stat label="Enrolled" value={String(totals.enrolled)} href={detailsHref("enrolled")} />
+          <Stat
+            label="Closing %"
+            value={percent(totals.enrolled, totals.guests)}
+            href={detailsHref("enrolled")}
+            highlight
+          />
         </Section>
 
         {bySeller.length > 0 ? (

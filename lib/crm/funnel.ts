@@ -152,6 +152,41 @@ export async function loadAppointmentsMade(
 }
 
 export async function computeFunnel(supabase: ScopedSupabaseClient, options: FunnelOptions): Promise<Funnel> {
+  return (await computeFunnelLists(supabase, options)).funnel;
+}
+
+// The guests (or appointments) behind each dashboard number, for the
+// drill-down page. Keys match FUNNEL_LISTS.
+export type FunnelLists = {
+  contacts: Map<string, ContactRef[]>;
+  appointments: Map<string, (AppointmentRef & { contact: ContactRef })[]>;
+};
+export type FunnelContact = ContactRef;
+export type FunnelAppointment = AppointmentRef & { contact: ContactRef };
+
+export const FUNNEL_LISTS: Record<string, string> = {
+  walk_ins: "Walk-ins",
+  walk_ins_closed: "Walk-ins closed",
+  guests: "Guests of members",
+  guests_closed: "Guests of members closed",
+  returning: "Returning guests",
+  returning_closed: "Returning guests closed",
+  leads: "Leads",
+  leads_contacted: "Leads contacted",
+  leads_appointments: "Leads with appointments",
+  leads_shows: "Leads who showed",
+  leads_closed: "Leads who showed and bought",
+  total_guests: "Total guests",
+  enrolled: "Enrolled",
+  appointments_scheduled: "Appointments scheduled",
+  appointments_showed: "Appointments showed",
+  appointments_closed: "Appointments closed",
+};
+
+export async function computeFunnelLists(
+  supabase: ScopedSupabaseClient,
+  options: FunnelOptions,
+): Promise<{ funnel: Funnel; lists: FunnelLists }> {
   const { fromIso, toIso } = options;
   const inPeriod = (iso: string | null) => Boolean(iso && iso >= fromIso && iso <= toIso);
   const live = (contact: ContactRef | null): contact is ContactRef =>
@@ -215,7 +250,7 @@ export async function computeFunnel(supabase: ScopedSupabaseClient, options: Fun
     }
     return contacts;
   };
-  const soldInPeriod = (contacts: Iterable<ContactRef>) => [...contacts].filter((c) => inPeriod(c.closed_at)).length;
+  const soldInPeriod = (contacts: Iterable<ContactRef>) => [...contacts].filter((c) => inPeriod(c.closed_at));
 
   const isNew = (contact: ContactRef) => inPeriod(contact.created_at);
   const walkIns = [...visitorsOf(["walk_in", "trial_visit"]).values()].filter(isNew);
@@ -271,28 +306,69 @@ export async function computeFunnel(supabase: ScopedSupabaseClient, options: Fun
   const scheduledInPeriod = scheduled.filter((row) => live(row.contact));
   const showedInPeriod = scheduledInPeriod.filter((row) => row.status === "showed");
 
-  const everyone = new Set([...walkIns, ...guests, ...appointmentShows, ...returning.values()].map((contact) => contact.id));
+  const everyone = new Map(
+    [...walkIns, ...guests, ...appointmentShows, ...returning.values()].map((contact) => [contact.id, contact]),
+  );
+  const leadsWhere = (ids: Set<string>) => newContacts.filter((contact) => ids.has(contact.id));
+
+  const contactLists = new Map<string, ContactRef[]>([
+    ["walk_ins", walkIns],
+    ["walk_ins_closed", soldInPeriod(walkIns)],
+    ["guests", guests],
+    ["guests_closed", soldInPeriod(guests)],
+    ["returning", [...returning.values()]],
+    ["returning_closed", soldInPeriod(returning.values())],
+    ["leads", newContacts],
+    ["leads_contacted", leadsWhere(contacted)],
+    ["leads_appointments", leadsWhere(booked)],
+    ["leads_shows", leadsWhere(showed)],
+    ["leads_closed", leadsWhere(showed).filter((contact) => soldLeadIds.has(contact.id))],
+    ["total_guests", [...everyone.values()]],
+    ["enrolled", soldContacts],
+  ]);
+  // One list per marketing source ("source:Instagram").
+  for (const source of leadSources) {
+    contactLists.set(
+      `source:${source.label}`,
+      newContacts.filter((contact) =>
+        source.label === "Not specified"
+          ? !contact.how_heard || contact.how_heard.length === 0
+          : (contact.how_heard ?? []).includes(source.label),
+      ),
+    );
+  }
+  const scheduledLive = scheduledInPeriod as FunnelAppointment[];
+  const showedLive = showedInPeriod as FunnelAppointment[];
+  const appointmentLists = new Map<string, FunnelAppointment[]>([
+    ["appointments_scheduled", scheduledLive],
+    ["appointments_showed", showedLive],
+    ["appointments_closed", showedLive.filter((row) => inPeriod(row.contact.closed_at))],
+  ]);
+  const count = (key: string) => contactLists.get(key)!.length;
 
   return {
-    walkIns: { total: walkIns.length, closed: soldInPeriod(walkIns) },
-    guestsOfMembers: { total: guests.length, closed: soldInPeriod(guests) },
-    returning: { total: returning.size, closed: soldInPeriod(returning.values()) },
-    leads: {
-      total: newContacts.length,
-      contacted: contacted.size,
-      appointments: booked.size,
-      shows: showed.size,
-      closed: [...showed].filter((id) => soldLeadIds.has(id)).length,
+    funnel: {
+      walkIns: { total: count("walk_ins"), closed: count("walk_ins_closed") },
+      guestsOfMembers: { total: count("guests"), closed: count("guests_closed") },
+      returning: { total: count("returning"), closed: count("returning_closed") },
+      leads: {
+        total: count("leads"),
+        contacted: count("leads_contacted"),
+        appointments: count("leads_appointments"),
+        shows: count("leads_shows"),
+        closed: count("leads_closed"),
+      },
+      leadSources,
+      activity,
+      appointments: {
+        scheduled: scheduledLive.length,
+        showed: showedLive.length,
+        closed: appointmentLists.get("appointments_closed")!.length,
+      },
+      appointmentsMade: appointmentsMade.length,
+      totals: { guests: everyone.size, enrolled: count("enrolled") },
     },
-    leadSources,
-    activity,
-    appointments: {
-      scheduled: scheduledInPeriod.length,
-      showed: showedInPeriod.length,
-      closed: showedInPeriod.filter((row) => inPeriod(row.contact!.closed_at)).length,
-    },
-    appointmentsMade: appointmentsMade.length,
-    totals: { guests: everyone.size, enrolled: soldContacts.length },
+    lists: { contacts: contactLists, appointments: appointmentLists },
   };
 }
 

@@ -30,6 +30,35 @@ export const LEAD_TYPES = [
 ] as const;
 export type LeadType = (typeof LEAD_TYPES)[number]["value"];
 
+// Short tags shown next to a guest's name (calendar, drill-downs).
+export const LEAD_TYPE_TAGS: Record<LeadType, string> = {
+  walk_in: "WI",
+  guest_of_member: "GM",
+  referral: "REF",
+  phone_in: "PH",
+  web: "WEB",
+  other: "OTH",
+};
+
+// How an appointment turned out, for its color: blue = scheduled (not yet
+// marked), grey = no-show, red = showed but hasn't bought, green = showed
+// and bought.
+export type AppointmentOutcome = "scheduled" | "no_show" | "showed" | "closed" | "canceled";
+
+export function appointmentOutcome(status: string, contactClosedAt: string | null): AppointmentOutcome {
+  if (status === "showed") return contactClosedAt ? "closed" : "showed";
+  if (status === "no_show" || status === "canceled") return status;
+  return "scheduled";
+}
+
+export const APPOINTMENT_OUTCOME_LABELS: Record<AppointmentOutcome, string> = {
+  scheduled: "Scheduled",
+  no_show: "No-show",
+  showed: "Showed, not sold",
+  closed: "Showed and sold",
+  canceled: "Canceled",
+};
+
 export function isLeadType(value: unknown): value is LeadType {
   return LEAD_TYPES.some((type) => type.value === value);
 }
