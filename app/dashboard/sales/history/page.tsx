@@ -87,6 +87,12 @@ function sumFunnels(funnels: Funnel[]): Funnel {
       texts: add((f) => f.activity.texts),
       emails: add((f) => f.activity.emails),
     },
+    appointments: {
+      scheduled: add((f) => f.appointments.scheduled),
+      showed: add((f) => f.appointments.showed),
+      closed: add((f) => f.appointments.closed),
+    },
+    appointmentsMade: add((f) => f.appointmentsMade),
     totals: {
       guests: add((f) => f.totals.guests),
       enrolled: add((f) => f.totals.enrolled),

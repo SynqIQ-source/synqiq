@@ -19,13 +19,38 @@ const PRESETS = ["mtd", "today", "7", "last_month", "custom"] as const;
 type Preset = (typeof PRESETS)[number];
 const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/;
 
-function Stat({ label, value, sub, highlight }: { label: string; value: string; sub?: string; highlight?: boolean }) {
-  return (
-    <div className={cn("rounded-lg border p-3", highlight ? "border-primary/40 bg-primary/5" : "bg-card")}>
+function Stat({
+  label,
+  value,
+  sub,
+  highlight,
+  href,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  highlight?: boolean;
+  // Drill-down: the guests behind the number.
+  href?: string;
+}) {
+  const className = cn(
+    "rounded-lg border p-3",
+    highlight ? "border-primary/40 bg-primary/5" : "bg-card",
+    href && "block transition-colors hover:border-primary hover:bg-primary/10",
+  );
+  const body = (
+    <>
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
       <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
       {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
-    </div>
+    </>
+  );
+  return href ? (
+    <Link href={href} className={className}>
+      {body}
+    </Link>
+  ) : (
+    <div className={className}>{body}</div>
   );
 }
 
@@ -181,7 +206,19 @@ export default async function SalesDashboardPage({
     ? (salespeople.find((person) => person.id === staffId)?.name ?? staff.displayName)
     : "The whole club";
   const typeLabel = LEAD_TYPES.find((type) => type.value === leadType)?.label;
-  const { walkIns, guestsOfMembers, returning, leads, leadSources, activity, totals } = funnel;
+  const { walkIns, guestsOfMembers, returning, leads, leadSources, activity, appointments, appointmentsMade, totals } =
+    funnel;
+  // Drill-down links keep the dashboard's period and filters.
+  const detailsHref = (metric: string) => {
+    const query = new URLSearchParams({ metric, range: preset });
+    if (preset === "custom") {
+      query.set("start", startParam);
+      query.set("end", endParam);
+    }
+    if (isAdmin && staffId) query.set("seller", staffId);
+    if (leadType) query.set("type", leadType);
+    return `/dashboard/sales/details?${query.toString()}`;
+  };
 
   // Monthly targets for the month the period ends in, for the club or the
   // salesperson shown. Targets cover all lead types, so they're hidden while
@@ -276,6 +313,24 @@ export default async function SalesDashboardPage({
         </Section>
 
         <Section
+          title="Appointments"
+          description="Appointments set for this period (not canceled), how many showed, and how many of those bought."
+        >
+          <Stat label="Scheduled" value={String(appointments.scheduled)} />
+          <Stat
+            label="Showed"
+            value={String(appointments.showed)}
+            sub={`${percent(appointments.showed, appointments.scheduled)} show rate`}
+          />
+          <Stat
+            label="Closed"
+            value={String(appointments.closed)}
+            sub={`${percent(appointments.closed, appointments.showed)} of shows`}
+            highlight
+          />
+        </Section>
+
+        <Section
           title="Leads by marketing source"
           description="Total leads this period, broken down by how they heard about us. Guests can pick more than one answer, so the sources can add up to more than the total."
         >
@@ -294,15 +349,31 @@ export default async function SalesDashboardPage({
           title="Contacts"
           description={
             staffId
-              ? "Calls logged, texts and emails sent by this salesperson during this period."
-              : "Calls logged, texts and emails sent by the sales team during this period."
+              ? "Calls logged, texts and emails sent by this salesperson during this period. Click a number to see who."
+              : "Calls logged, texts and emails sent by the sales team during this period. Click a number to see who."
           }
           target={targetColumn("contacts")}
         >
-          <Stat label="Calls" value={String(activity.calls)} />
-          <Stat label="Texts" value={String(activity.texts)} />
-          <Stat label="Emails" value={String(activity.emails)} />
-          <Stat label="Total contacts" value={String(activity.calls + activity.texts + activity.emails)} highlight />
+          <Stat label="Calls" value={String(activity.calls)} href={detailsHref("calls")} />
+          <Stat label="Texts" value={String(activity.texts)} href={detailsHref("texts")} />
+          <Stat label="Emails" value={String(activity.emails)} href={detailsHref("emails")} />
+          <Stat
+            label="Total contacts"
+            value={String(activity.calls + activity.texts + activity.emails)}
+            href={detailsHref("contacts")}
+            highlight
+          />
+        </Section>
+
+        <Section
+          title="Appointments made"
+          description={
+            staffId
+              ? "Appointments this salesperson booked during this period (not canceled). Click to see who."
+              : "Appointments the sales team booked during this period (not canceled). Click to see who."
+          }
+        >
+          <Stat label="Appointments made" value={String(appointmentsMade)} href={detailsHref("appointments_made")} highlight />
         </Section>
 
         <Card>
