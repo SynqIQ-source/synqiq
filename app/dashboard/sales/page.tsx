@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { overdueBySeller } from "@/lib/crm/follow-ups";
 import { computeFunnel, percent, type Funnel } from "@/lib/crm/funnel";
 import { effectiveTargets, formatKpi, KPI_SECTIONS, monthKey, type Targets } from "@/lib/crm/kpis";
 import { isLeadType, LEAD_TYPES } from "@/lib/crm/labels";
@@ -150,7 +151,12 @@ export default async function SalesDashboardPage({
     .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
     .map((member) => ({ id: member.id, name: member.display_name as string }));
 
-  const funnel = await computeFunnel(supabase, { fromIso, toIso, staffId, leadType });
+  const [funnel, followUps] = await Promise.all([
+    computeFunnel(supabase, { fromIso, toIso, staffId, leadType }),
+    // Follow-ups are a right-now count, not tied to the period.
+    overdueBySeller(supabase, org.timezone, staffId),
+  ]);
+  const sum = (counts: Map<string, number>) => [...counts.values()].reduce((total, value) => total + value, 0);
 
   // Club view: the same numbers per salesperson, for comparison.
   let bySeller: { id: string; name: string; funnel: Funnel }[] = [];
@@ -165,6 +171,7 @@ export default async function SalesDashboardPage({
       (row) =>
         row.funnel.totals.guests > 0 ||
         row.funnel.leads.total > 0 ||
+        (followUps.overdue.get(row.id) ?? 0) > 0 ||
         row.funnel.activity.calls + row.funnel.activity.texts + row.funnel.activity.emails > 0,
     );
   }
@@ -298,6 +305,23 @@ export default async function SalesDashboardPage({
           <Stat label="Total contacts" value={String(activity.calls + activity.texts + activity.emails)} highlight />
         </Section>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>Follow-ups</CardTitle>
+            <CardDescription>
+              Right now, whatever the period: open leads whose follow-up has passed its due day with no text, email or
+              call.{" "}
+              <Link href="/dashboard/sales/follow-ups" className="text-primary underline-offset-4 hover:underline">
+                See the list
+              </Link>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <Stat label="Overdue" value={String(sum(followUps.overdue))} highlight />
+            <Stat label="Due today" value={String(sum(followUps.dueToday))} />
+          </CardContent>
+        </Card>
+
         <Section
           title="Total"
           description="Everyone who came in: walk-ins, guests of members, appointment shows and returning guests."
@@ -326,6 +350,7 @@ export default async function SalesDashboardPage({
                   <TableHead className="text-right">Shows</TableHead>
                   <TableHead className="text-right">Show %</TableHead>
                   <TableHead className="text-right">Contacts</TableHead>
+                  <TableHead className="text-right">Overdue now</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -345,6 +370,14 @@ export default async function SalesDashboardPage({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {row.funnel.activity.calls + row.funnel.activity.texts + row.funnel.activity.emails}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "text-right tabular-nums",
+                        (followUps.overdue.get(row.id) ?? 0) > 0 && "font-semibold text-destructive",
+                      )}
+                    >
+                      {followUps.overdue.get(row.id) ?? 0}
                     </TableCell>
                   </TableRow>
                 ))}

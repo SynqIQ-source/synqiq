@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
+import { DateTime } from "luxon";
+import { getCrmOrg } from "@/lib/crm/org";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCrmStaffForApi } from "@/lib/crm/module";
 import { cleanDateOfBirth, cleanState, cleanText, cleanZip, normalizeEmail, normalizePhone } from "@/lib/crm/normalize";
@@ -14,6 +16,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 //     push failed. Edits aren't pushed to an already-linked Mindbody client.
 //   assignedStaffId (admins only): assign or reassign the salesperson, or
 //     null to unassign.
+//   followUpOn (admins and sellers): reschedule the next follow-up.
 // Only keys present in the body are changed.
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
@@ -182,6 +185,22 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       } else {
         return jsonError("Invalid status.", 400);
       }
+    }
+
+    // Reschedule the next follow-up (admins and sellers). It holds until the
+    // next text, email, call or visit, then the normal cadence takes over.
+    if ("followUpOn" in body) {
+      const raw = typeof body.followUpOn === "string" ? body.followUpOn : "";
+      const org = await getCrmOrg(staff.organizationId);
+      const date = DateTime.fromISO(raw, { zone: org.timezone });
+      const today = DateTime.now().setZone(org.timezone).startOf("day");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || !date.isValid) return jsonError("Pick a date.", 400);
+      if (date < today) return jsonError("Pick today or a later date.", 400);
+      if (date > today.plus({ days: 90 })) return jsonError("Pick a date within the next 90 days.", 400);
+      updates.follow_up_on = raw;
+      updates.follow_up_set_at = new Date().toISOString();
+      updates.follow_up_set_by_staff_id = staff.id;
+      statusNote = `Follow-up rescheduled to ${date.toFormat("ccc, LLL d")}.`;
     }
 
     if (Object.keys(updates).length === 0) return NextResponse.json({ success: true });

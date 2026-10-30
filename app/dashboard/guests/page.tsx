@@ -16,6 +16,8 @@ import { GuestFilters } from "./guest-filters";
 import { PendingMatchActions } from "./pending-match-actions";
 import { OnDutySelect } from "./on-duty-select";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { FirstContactBadge, NextFollowUp } from "@/components/crm/follow-up-status";
+import { activityFor, firstContactFor, followUpFor, loadLeadActivity } from "@/lib/crm/follow-ups";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +39,15 @@ type ContactSummary = {
   referrer_unresolved: boolean;
   email_check_status: string;
   closed_at: string | null;
+  sms_opted_out_at: string | null;
+  follow_up_on: string | null;
+  follow_up_set_at: string | null;
   referring_client: { first_name: string; last_name: string } | null;
   created_at: string;
 };
 
 const CONTACT_COLUMNS =
-  "id, first_name, last_name, status, source, photo_path, assigned_staff_id, referrer_name_typed, referrer_unresolved, email_check_status, closed_at, created_at, referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name )";
+  "id, first_name, last_name, status, source, photo_path, assigned_staff_id, referrer_name_typed, referrer_unresolved, email_check_status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, created_at, referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name )";
 
 type Row = {
   key: string;
@@ -189,7 +194,7 @@ export default async function GuestsPage({
     .slice(0, ROW_LIMIT);
 
   const contactIds = [...new Set(rows.map((row) => row.contact.id))];
-  const [signaturesResult, pendingResult, staffResult, photoUrls, sourcesResult, unreadResult] = await Promise.all([
+  const [signaturesResult, pendingResult, staffResult, photoUrls, sourcesResult, unreadResult, activity] = await Promise.all([
     contactIds.length
       ? supabase.from("waiver_signatures").select("contact_id").in("contact_id", contactIds)
       : Promise.resolve({ data: [] as { contact_id: string }[], error: null }),
@@ -217,6 +222,7 @@ export default async function GuestsPage({
           .eq("direction", "inbound")
           .is("read_at", null)
       : Promise.resolve({ data: [] as { contact_id: string }[], error: null }),
+    loadLeadActivity(supabase, contactIds),
   ]);
   if (signaturesResult.error || pendingResult.error || staffResult.error) {
     throw new Error("Failed to load guest details.");
@@ -339,13 +345,15 @@ export default async function GuestsPage({
                 <TableHead>Referring member</TableHead>
                 <TableHead>Salesperson</TableHead>
                 <TableHead>Waiver</TableHead>
+                <TableHead>First contact</TableHead>
+                <TableHead>Next follow-up</TableHead>
                 <TableHead>Next action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
                     {range === "today" ? "No guests have checked in today yet." : "No guests in this period."}
                   </TableCell>
                 </TableRow>
@@ -365,6 +373,7 @@ export default async function GuestsPage({
                     waiverSigned,
                     assigned: Boolean(contact.assigned_staff_id),
                   });
+                  const contactActivity = activityFor(activity, contact.id);
                   return (
                     <TableRow key={row.key}>
                       <TableCell>
@@ -410,6 +419,12 @@ export default async function GuestsPage({
                       <TableCell>{contact.assigned_staff_id ? (staffNames.get(contact.assigned_staff_id) ?? "—") : "Unassigned"}</TableCell>
                       <TableCell>
                         <Badge variant={waiverSigned ? "secondary" : "outline"}>{waiverSigned ? "Signed" : "Not signed"}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <FirstContactBadge firstContact={firstContactFor(contact, contactActivity)} />
+                      </TableCell>
+                      <TableCell>
+                        <NextFollowUp followUp={followUpFor(contact, contactActivity, org.timezone)} timezone={org.timezone} />
                       </TableCell>
                       <TableCell
                         className={cn(

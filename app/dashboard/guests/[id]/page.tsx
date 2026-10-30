@@ -40,6 +40,9 @@ import {
 } from "./profile-actions";
 import { PendingMatchActions } from "../pending-match-actions";
 import { TrainerSelect } from "./trainer-select";
+import { FirstContactBadge, NextFollowUp } from "@/components/crm/follow-up-status";
+import { RescheduleFollowUp } from "@/components/crm/reschedule-follow-up";
+import { combinedActivity, firstContactFor, followUpFor, loadLeadActivity } from "@/lib/crm/follow-ups";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +82,8 @@ type Contact = {
   deleted_at: string | null;
   sms_opted_out_at: string | null;
   closed_at: string | null;
+  follow_up_on: string | null;
+  follow_up_set_at: string | null;
   close_source: string | null;
   merged_into_id: string | null;
   created_at: string;
@@ -117,7 +122,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, close_source, merged_into_id, created_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, follow_up_on, follow_up_set_at, close_source, merged_into_id, created_at,
        member_enrolled_at, membership_name, membership_sold_by_staff_id, enrollment_status, trainer_staff_id, trainer_assigned_at,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
@@ -134,8 +139,18 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   const { data: mergedRows } = await supabase.from("crm_contacts").select("id").eq("merged_into_id", contact.id);
   const contactIds = [contact.id, ...(mergedRows ?? []).map((row) => row.id)];
 
-  const [visitsResult, signaturesResult, staffResult, matchesResult, photoUrls, notesResult, messagesResult, smsNumberResult, appointmentsResult] =
-    await Promise.all([
+  const [
+    visitsResult,
+    signaturesResult,
+    staffResult,
+    matchesResult,
+    photoUrls,
+    notesResult,
+    messagesResult,
+    smsNumberResult,
+    appointmentsResult,
+    leadActivity,
+  ] = await Promise.all([
     supabase
       .from("guest_visits")
       .select("id, visit_at, visit_type, assigned_staff_id")
@@ -183,6 +198,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       .select("id, scheduled_at, status, staff_id")
       .in("contact_id", contactIds)
       .order("scheduled_at", { ascending: false }),
+    loadLeadActivity(supabase, contactIds),
   ]);
 
   const staffRows = staffResult.data ?? [];
@@ -219,6 +235,10 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       : INTRO_LABELS.none;
   }
   const mindbodyPending = contact.mindbody_sync_status === "pending";
+  // Leads only: members who joined in Mindbody have trainers, not follow-ups.
+  const activity = combinedActivity(leadActivity, contactIds);
+  const followUp = contact.source === "member" ? null : followUpFor(contact, activity, org.timezone);
+  const firstContact = contact.source === "member" ? null : firstContactFor(contact, activity);
 
   // Messages: opening the guest marks their unread texts/emails as read.
   const rawMessages = messagesResult.data ?? [];
@@ -557,6 +577,31 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
         </div>
 
         <div className="space-y-6">
+          {full && followUp && firstContact ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Follow-up</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <dl className="space-y-4">
+                  <Item label="Next follow-up">
+                    <NextFollowUp followUp={followUp} timezone={org.timezone} />
+                  </Item>
+                  <Item label="First contact">
+                    <FirstContactBadge firstContact={firstContact} />
+                  </Item>
+                </dl>
+                {followUp.kind === "due" ? (
+                  <RescheduleFollowUp
+                    contactId={contact.id}
+                    today={DateTime.now().setZone(org.timezone).toISODate()!}
+                    current={followUp.rescheduled ? followUp.dueOn : null}
+                  />
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle>Waiver</CardTitle>
