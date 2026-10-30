@@ -14,6 +14,7 @@ import { requireCrmStaff } from "@/lib/crm/module";
 import { getCrmOrg } from "@/lib/crm/org";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { cn } from "@/lib/utils";
+import { AddAppointmentButton } from "./add-appointment";
 import { CalendarSellerSelect } from "./calendar-seller-select";
 
 export const dynamic = "force-dynamic";
@@ -123,7 +124,20 @@ export default async function SalesCalendarPage({
   };
   const days: DateTime[] = [];
   for (let day = rangeStart; day <= rangeEnd; day = day.plus({ days: 1 })) days.push(day);
-  const today = now.toISODate();
+  const today = now.toISODate()!;
+  // Where "Add appointment" starts: the day in view, today if it's in view,
+  // else the first day shown.
+  const bookingDate =
+    view === "day"
+      ? anchor.toISODate()!
+      : today >= rangeStart.toISODate()! && today <= rangeEnd.toISODate()!
+        ? today
+        : rangeStart.toISODate()!;
+  const booking = {
+    today,
+    salespeople,
+    currentStaffId: staff.id,
+  };
 
   const title =
     view === "day"
@@ -194,6 +208,7 @@ export default async function SalesCalendarPage({
             </Button>
           </div>
           {isAdmin ? <CalendarSellerSelect seller={sellerParam} salespeople={salespeople} /> : null}
+          <AddAppointmentButton date={bookingDate} {...booking} />
         </div>
       }
     >
@@ -255,23 +270,26 @@ export default async function SalesCalendarPage({
                       view === "month" && dayEntries.length === 0 && "hidden sm:block",
                     )}
                   >
-                    <Link
-                      href={href({ view: "day", date: iso })}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded px-1 text-xs font-medium hover:underline",
-                        outside ? "text-muted-foreground" : "text-foreground",
-                      )}
-                    >
-                      <span
+                    <div className="flex items-center justify-between gap-1">
+                      <Link
+                        href={href({ view: "day", date: iso })}
                         className={cn(
-                          "inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 tabular-nums",
-                          iso === today && "bg-primary text-primary-foreground",
+                          "flex items-center gap-1.5 rounded px-1 text-xs font-medium hover:underline",
+                          outside ? "text-muted-foreground" : "text-foreground",
                         )}
                       >
-                        {day.day}
-                      </span>
-                      <span className="sm:hidden">{day.toFormat("cccc, LLL d")}</span>
-                    </Link>
+                        <span
+                          className={cn(
+                            "inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 tabular-nums",
+                            iso === today && "bg-primary text-primary-foreground",
+                          )}
+                        >
+                          {day.day}
+                        </span>
+                        <span className="sm:hidden">{day.toFormat("cccc, LLL d")}</span>
+                      </Link>
+                      {iso >= today ? <AddAppointmentButton date={iso} compact {...booking} /> : null}
+                    </div>
                     {shown.map((entry) => chip(entry, view === "month"))}
                     {dayEntries.length > shown.length ? (
                       <Link
@@ -289,7 +307,8 @@ export default async function SalesCalendarPage({
         )}
         <p className="text-xs text-muted-foreground">
           Tags: WI walk-in · GM guest of a member · REF referral · PH phone-in · WEB web lead · OTH other. Canceled
-          appointments aren&apos;t shown. Click a guest to open their profile, or a date to see that day.
+          appointments aren&apos;t shown. Click a guest to open their profile, a date to see that day, or + to book on
+          that day.
         </p>
       </div>
     </DashboardShell>
