@@ -10,10 +10,11 @@ import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 //   Returning guests  people entered BEFORE the period who came back (a
 //                     visit) or bought in it -- a March tour who buys in
 //                     April is an April sale and an April returning guest
-//   Leads             all new people (walk-ins, guests, phone-in, web, ...)
-//     Contacted       ...with an outbound text, email or logged call
-//     Appts made      ...with an appointment booked
-//     Shows           ...whose appointment showed
+//   New leads         all new people (walk-ins, guests, phone-in, web, ...)
+//     Contacted       ...with an outbound text, email or logged call (not
+//                     failed), sent any time since
+//     Appts made      ...with an appointment booked (not canceled)
+//     Shows           ...whose appointment showed (Sales History sums)
 //     Appts closed    ...of those shows, sold in the period
 //   Lead sources      new people per "How did you hear about us?" answer
 //                     (multi-select, so these can add up to more than Leads)
@@ -274,7 +275,12 @@ export async function computeFunnelLists(
   for (let index = 0; index < leadIds.length; index += 200) {
     const chunk = leadIds.slice(index, index + 200);
     const [messages, appointments] = await Promise.all([
-      supabase.from("crm_messages").select("contact_id").in("contact_id", chunk).eq("direction", "outbound"),
+      supabase
+        .from("crm_messages")
+        .select("contact_id")
+        .in("contact_id", chunk)
+        .eq("direction", "outbound")
+        .neq("status", "failed"),
       supabase.from("crm_appointments").select("contact_id, status").in("contact_id", chunk).neq("status", "canceled"),
     ]);
     if (messages.error) throw messages.error;

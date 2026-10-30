@@ -307,11 +307,11 @@ export default async function SalesDashboardPage({
         </Section>
 
         <Section
-          title="Leads"
-          description="Everyone entered this period (walk-ins, guests of members, phone-in, web and more) and how far they got."
+          title="New leads"
+          description="Only people first entered during this period (walk-ins, guests of members, phone-in, web and more): how many have been contacted and how many booked an appointment."
           target={targetColumn("leads")}
         >
-          <Stat label="Total leads" value={String(leads.total)} href={detailsHref("leads")} />
+          <Stat label="New leads" value={String(leads.total)} href={detailsHref("leads")} highlight />
           <Stat
             label="Contacted"
             value={String(leads.contacted)}
@@ -324,23 +324,11 @@ export default async function SalesDashboardPage({
             sub={`${percent(leads.appointments, leads.total)} conversion`}
             href={detailsHref("leads_appointments")}
           />
-          <Stat
-            label="Shows"
-            value={String(leads.shows)}
-            sub={`${percent(leads.shows, leads.appointments)} show rate`}
-            href={detailsHref("leads_shows")}
-          />
-          <Stat
-            label="Appointments closed"
-            value={String(leads.closed)}
-            sub={`${percent(leads.closed, leads.shows)} closing`}
-            href={detailsHref("leads_closed")}
-            highlight
-          />
         </Section>
 
         <Section
           title="Appointments"
+          target={targetColumn("appointments")}
           description={
             <>
               Appointments set for this period (not canceled), how many showed, and how many of those bought. Click a
@@ -469,7 +457,7 @@ export default async function SalesDashboardPage({
                   <TableHead className="text-right">Guests</TableHead>
                   <TableHead className="text-right">Enrolled</TableHead>
                   <TableHead className="text-right">Closing %</TableHead>
-                  <TableHead className="text-right">Leads</TableHead>
+                  <TableHead className="text-right">New leads</TableHead>
                   <TableHead className="text-right">Appts</TableHead>
                   <TableHead className="text-right">Shows</TableHead>
                   <TableHead className="text-right">Show %</TableHead>
@@ -488,9 +476,9 @@ export default async function SalesDashboardPage({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{row.funnel.leads.total}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.funnel.leads.appointments}</TableCell>
-                    <TableCell className="text-right tabular-nums">{row.funnel.leads.shows}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.funnel.appointments.showed}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {percent(row.funnel.leads.shows, row.funnel.leads.appointments)}
+                      {percent(row.funnel.appointments.showed, row.funnel.appointments.scheduled)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {row.funnel.activity.calls + row.funnel.activity.texts + row.funnel.activity.emails}

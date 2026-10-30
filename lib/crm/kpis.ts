@@ -93,7 +93,7 @@ export const KPI_SECTIONS: KpiSection[] = [
   },
   {
     key: "leads",
-    title: "Leads",
+    title: "New leads",
     metrics: [
       {
         key: "leads",
@@ -119,29 +119,43 @@ export const KPI_SECTIONS: KpiSection[] = [
         kind: "percent",
         actual: (f) => rate(f.leads.appointments, f.leads.total),
       },
+    ],
+  },
+  {
+    // Appointments set for the period, whoever they're for (not only new
+    // leads): scheduled, shows, and shows who bought.
+    key: "appointments",
+    title: "Appointments",
+    metrics: [
+      {
+        key: "appointments_scheduled",
+        label: "Scheduled",
+        kind: "count",
+        actual: (f) => f.appointments.scheduled,
+      },
       {
         key: "shows",
         label: "Shows",
         kind: "count",
-        actual: (f) => f.leads.shows,
+        actual: (f) => f.appointments.showed,
       },
       {
         key: "show_rate",
         label: "Show %",
         kind: "percent",
-        actual: (f) => rate(f.leads.shows, f.leads.appointments),
+        actual: (f) => rate(f.appointments.showed, f.appointments.scheduled),
       },
       {
         key: "appointments_closed",
         label: "Appointments closed",
         kind: "count",
-        actual: (f) => f.leads.closed,
+        actual: (f) => f.appointments.closed,
       },
       {
         key: "appointment_close_rate",
         label: "Appt. closing %",
         kind: "percent",
-        actual: (f) => rate(f.leads.closed, f.leads.shows),
+        actual: (f) => rate(f.appointments.closed, f.appointments.showed),
       },
     ],
   },

@@ -35,7 +35,7 @@ const COLUMNS = [
 ] as const;
 
 const HEADINGS: Record<(typeof COLUMNS)[number], string> = {
-  leads: "Leads",
+  leads: "New leads",
   contacted: "Contacted",
   appointments: "Appts",
   shows: "Shows",
