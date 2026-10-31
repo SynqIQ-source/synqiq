@@ -1,5 +1,6 @@
 import {
   Bell,
+  Building2,
   BookOpen,
   Calendar,
   CalendarClock,
@@ -55,6 +56,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/guests": UserRound,
   "/dashboard/sales/new-members": UserPlus,
   "/dashboard/sales/calendar": CalendarDays,
+  "/dashboard/platform": Building2,
   "/dashboard/sales/lead-status": ListChecks,
   "/dashboard/sales/follow-ups": CalendarClock,
   "/dashboard/settings/crm": Tablet,

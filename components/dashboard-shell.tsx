@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getPlatformAdmin } from "@/lib/platform/admin";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { BottomNav, type NavItem } from "@/components/bottom-nav";
@@ -9,7 +10,8 @@ import { unreadGuestMessageCount } from "@/lib/crm/unread";
 
 // crm: shown only when the org has the CRM module -- "staff" to admins and
 // sellers (can_sell), "admin" to admins only.
-type NavEntry = NavItem & { adminOnly: boolean; crm?: "staff" | "admin" };
+// platform: shown only to SynqIQ platform admins (lib/platform/admin.ts).
+type NavEntry = NavItem & { adminOnly: boolean; crm?: "staff" | "admin"; platform?: boolean };
 
 // Grouped so the sidebar reads as "what I do every day" / "how the studio is
 // doing" / "setup", instead of one flat list of 16 links.
@@ -69,6 +71,10 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/settings/sales-targets", label: "Sales Targets", adminOnly: true, crm: "admin" },
     ],
   },
+  {
+    label: "SynqIQ",
+    items: [{ href: "/dashboard/platform", label: "Studios", adminOnly: false, platform: true }],
+  },
 ];
 
 // Fixed, identical across roles -- solves the mobile bottom-bar width
@@ -110,6 +116,8 @@ export async function DashboardShell({ children, title, description, actions }: 
   const currentStaff = await getCurrentStaff();
   const isAdmin = currentStaff?.role === "admin";
   const crmEnabled = currentStaff ? await isCrmEnabled(currentStaff.organizationId) : false;
+  // Platform admins are always admins of their own studio, so only admins pay for the lookup.
+  const isPlatformAdmin = isAdmin && Boolean(await getPlatformAdmin());
   // Unread guest texts/emails, shown as a count on "Guests" -- or, for
   // trainers (who work assigned new members), on "Follow Up".
   const guestUnread = currentStaff && crmEnabled ? await unreadGuestMessageCount(currentStaff) : 0;
@@ -121,7 +129,7 @@ export async function DashboardShell({ children, title, description, actions }: 
     .map((group) => ({
       label: group.label,
       items: group.items
-        .filter((item) => (!item.adminOnly || isAdmin) && showCrm(item))
+        .filter((item) => (!item.adminOnly || isAdmin) && showCrm(item) && (!item.platform || isPlatformAdmin))
         .map(({ href, label }) => ({ href, label, badge: href === unreadHref ? guestUnread : undefined })),
     }))
     .filter((group) => group.items.length > 0);
