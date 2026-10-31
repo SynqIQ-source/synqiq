@@ -105,6 +105,15 @@ export class MindbodyClient {
     });
   }
 
+  // The activation code and link a studio owner opens to approve Synq for
+  // this client's site. Works for any real site, approved or not.
+  async getActivationCode() {
+    return this.request("/site/activationcode", { method: "GET" }) as Promise<{
+      ActivationCode?: string;
+      ActivationLink?: string;
+    }>;
+  }
+
   async getSite(accessToken?: string) {
     return this.request("/site/sites", {
       method: "GET",
