@@ -133,16 +133,10 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
   // overwriting staff.email with null on every nightly sync (only 7 of 195
   // rows had an email, all traceable to the manual admin invite flow, none
   // to this sync) until caught while scoping the substitution-request
-  // email-notification feature. Same soft-fail pattern as
-  // appointments/sales/clients/class-visits -- never used for the
-  // /site/sites call above, only here.
-  let staffAccessToken: string | undefined;
-  try {
-    const staffAuth = await mindbody.authenticate();
-    staffAccessToken = staffAuth.AccessToken;
-  } catch (authError) {
-    console.error("Failed to fetch a staff-visibility user token -- continuing without it:", authError);
-  }
+  // email-notification feature. Never used for the /site/sites call above,
+  // only here. No token stops the sync (see requireAccessToken) rather than
+  // syncing emails as null again.
+  const staffAccessToken = await mindbody.requireAccessToken();
 
   // getStaff with no pagination params silently returns MindBody's default
   // page size, not the full roster -- confirmed empirically: two real
@@ -440,18 +434,10 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
     // (subscriberId 561843 in the token's own JWT payload, not sandbox),
     // including this token does not change which site's data comes back.
     //
-    // Soft-fail, not fatal: if the staff login itself fails (expired
-    // password, revoked account, transient MindBody hiccup), the sync
-    // should still import real class/schedule data with capacity fields
-    // simply staying null/0, rather than the whole sync failing outright
-    // over an enhancement that isn't required for the sync's core purpose.
-    let capacityAccessToken: string | undefined;
-    try {
-      const capacityAuth = await mindbody.authenticate();
-      capacityAccessToken = capacityAuth.AccessToken;
-    } catch (authError) {
-      console.error("Failed to fetch a capacity-visibility user token -- continuing without it:", authError);
-    }
+    // Fatal, not soft: syncing without it wrote 0 capacity over every class
+    // (2026-10-28), so a failed login stops the sync before any class is
+    // written, and the error lands in sync_state.
+    const capacityAccessToken = await mindbody.requireAccessToken();
 
     // Paginate through one date window -- a single unpaginated call silently
     // truncates to MindBody's default page size (the same bug fixed for
@@ -480,6 +466,14 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
           }),
         );
         const classes: MindbodyClass[] = page.Classes ?? [];
+        // A token that logs in but can't see class stats (wrong kind of
+        // user) masks them as 0 too. A real page always has some capacity,
+        // so a full page of zeros stops the sync before it's written.
+        if (classes.length >= 10 && classes.every((cls) => !cls.MaxCapacity)) {
+          throw new Error(
+            `Mindbody returned 0 capacity for all ${classes.length} classes on this page -- the login can't see class stats. The sync stopped without changing any data.`,
+          );
+        }
         // Only trust TotalResults from a page that actually returned rows --
         // confirmed empirically against /sale/sales (same pagination shape
         // as this endpoint): the true terminal empty page reports

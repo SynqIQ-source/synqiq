@@ -48,6 +48,29 @@ export class MindbodyClient {
     });
   }
 
+  // A user token for data Mindbody hides on a plain Api-Key + SiteId request
+  // (class capacity and bookings, staff emails, appointments, clients,
+  // visits). Throws a clear error instead of returning nothing: a sync that
+  // carried on without a token would write Mindbody's masked zeros and
+  // nulls over real data -- how every class's capacity was wiped in the
+  // 2026-10-28 credentials test. The sync stops and records the error.
+  async requireAccessToken(): Promise<string> {
+    const who = this.username ? `"${this.username}"` : "(MINDBODY_USERNAME not set)";
+    let auth: { AccessToken?: string } | undefined;
+    try {
+      auth = await this.authenticate();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Mindbody login failed for ${who}, so the sync stopped without changing any data. Check MINDBODY_USERNAME and MINDBODY_PASSWORD (no extra spaces or tabs). ${detail}`,
+      );
+    }
+    if (!auth?.AccessToken) {
+      throw new Error(`Mindbody login for ${who} returned no token, so the sync stopped without changing any data.`);
+    }
+    return auth.AccessToken;
+  }
+
   async getClasses(
     accessToken?: string,
     filters?: {

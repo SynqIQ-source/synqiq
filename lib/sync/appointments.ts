@@ -110,14 +110,10 @@ export async function syncAppointments(options: SyncAppointmentsOptions): Promis
     // results without a staff User Token, 3,252 real appointments with one
     // included (real staff, real client ids, real completed sessions). Used
     // ONLY for this call, never for getSite above -- same safeguard as
-    // lib/sync/classes.ts. Soft-fails rather than failing the whole sync.
-    let appointmentsAccessToken: string | undefined;
-    try {
-      const appointmentsAuth = await mindbody.authenticate();
-      appointmentsAccessToken = appointmentsAuth.AccessToken;
-    } catch (authError) {
-      console.error("Failed to fetch an appointments-visibility user token -- continuing without it:", authError);
-    }
+    // lib/sync/classes.ts.
+    // No token stops the sync rather than writing masked data (see
+    // MindbodyClient.requireAccessToken).
+    const appointmentsAccessToken = await mindbody.requireAccessToken();
 
     let imported = 0;
     let total = 0;

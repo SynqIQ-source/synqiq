@@ -53,15 +53,9 @@ export async function syncClients(): Promise<SyncClientsResult> {
 
     // Client data is treated as non-public on a plain Api-Key + SiteId
     // request, same as appointments/class visits -- confirmed empirically.
-    // Soft-fails rather than failing the whole sync, matching
-    // lib/sync/appointments.ts.
-    let clientsAccessToken: string | undefined;
-    try {
-      const clientsAuth = await mindbody.authenticate();
-      clientsAccessToken = clientsAuth.AccessToken;
-    } catch (authError) {
-      console.error("Failed to fetch a clients-visibility user token -- continuing without it:", authError);
-    }
+    // No token stops the sync rather than writing masked data (see
+    // MindbodyClient.requireAccessToken).
+    const clientsAccessToken = await mindbody.requireAccessToken();
 
     const syncedAt = DateTime.utc().toISO();
 

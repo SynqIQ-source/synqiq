@@ -108,13 +108,9 @@ export async function syncClassVisits(options: SyncClassVisitsOptions = {}): Pro
 
     // Class-visit data is treated as non-public on a plain Api-Key + SiteId
     // request, same as appointments/clients -- confirmed empirically.
-    let visitsAccessToken: string | undefined;
-    try {
-      const visitsAuth = await mindbody.authenticate();
-      visitsAccessToken = visitsAuth.AccessToken;
-    } catch (authError) {
-      console.error("Failed to fetch a class-visits-visibility user token -- continuing without it:", authError);
-    }
+    // No token stops the sync rather than writing masked data (see
+    // MindbodyClient.requireAccessToken).
+    const visitsAccessToken = await mindbody.requireAccessToken();
 
     const since = options.since ?? DateTime.utc().minus({ days: DEFAULT_LOOKBACK_DAYS }).toISO() ?? "";
     const occurrences = await getOccurrencesInWindow(supabase, org.id, since);
