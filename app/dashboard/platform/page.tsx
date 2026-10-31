@@ -19,6 +19,7 @@ type Studio = {
   mindbody_connected: boolean;
   mindbody_activation_link: string | null;
   mindbody_activated_at: string | null;
+  is_demo: boolean;
   created_at: string;
 };
 
@@ -32,7 +33,7 @@ export default async function PlatformStudiosPage() {
     admin
       .from("organizations")
       .select(
-        "id, name, timezone, mindbody_site_id, mindbody_connected, mindbody_activation_link, mindbody_activated_at, created_at",
+        "id, name, timezone, mindbody_site_id, mindbody_connected, mindbody_activation_link, mindbody_activated_at, is_demo, created_at",
       )
       .order("created_at")
       .returns<Studio[]>(),
@@ -70,7 +71,14 @@ export default async function PlatformStudiosPage() {
               {studios.map((studio) => (
                 <TableRow key={studio.id}>
                   <TableCell>
-                    <p className="font-medium">{studio.name ?? "Unnamed studio"}</p>
+                    <p className="font-medium">
+                      {studio.name ?? "Unnamed studio"}
+                      {studio.is_demo ? (
+                        <Badge variant="outline" className="ml-2">
+                          Demo
+                        </Badge>
+                      ) : null}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       Added {DateTime.fromISO(studio.created_at).toFormat("LLL d, yyyy")}
                       {crm.has(studio.id) ? " · CRM" : ""}
@@ -80,7 +88,7 @@ export default async function PlatformStudiosPage() {
                   <TableCell className="tabular-nums">{logins.get(studio.id) ?? 0}</TableCell>
                   <TableCell>
                     {studio.mindbody_site_id === null ? (
-                      <span className="text-muted-foreground">No site</span>
+                      <span className="text-muted-foreground">{studio.is_demo ? "Made-up data, refreshed nightly" : "No site"}</span>
                     ) : (
                       <span className="flex flex-wrap items-center gap-1.5">
                         <span className="tabular-nums">Site {studio.mindbody_site_id}</span>
