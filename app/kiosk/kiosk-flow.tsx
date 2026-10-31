@@ -589,7 +589,8 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
             </CheckRow>
             <CheckRow id="consent-sms" checked={consent.sms} onChange={(sms) => setConsent((c) => ({ ...c, sms }))}>
               Text me from {config.organizationName} about my visit, appointments and membership, including offers.
-              Message frequency varies. Message and data rates may apply. Reply HELP for help or STOP to opt out.
+              Not required to buy anything. Message frequency varies. Message and data rates may apply. Reply HELP for
+              help or STOP to opt out.
             </CheckRow>
           </div>
           <Button className="h-14 w-full text-lg" onClick={() => go("waiver")}>
