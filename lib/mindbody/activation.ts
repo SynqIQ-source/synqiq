@@ -28,8 +28,9 @@ async function loadOrg(admin: AdminClient, organizationId: string) {
     .from("organizations")
     .select("id, mindbody_site_id, mindbody_connected, mindbody_activation_code, mindbody_activation_link, mindbody_activated_at")
     .eq("id", organizationId)
-    .single();
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("Studio not found.");
   if (data.mindbody_site_id === null || data.mindbody_site_id === undefined) {
     throw new Error("Set the studio's Mindbody site ID first.");
   }
