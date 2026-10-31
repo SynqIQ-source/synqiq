@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
-import { getEnv } from "@/lib/env";
+import { siteIdOr } from "@/lib/sync/sites";
 import { isCrmEnabled } from "@/lib/crm/module";
 import { recordEnrollments } from "@/lib/crm/onboarding";
 import type { MindbodyClientRecord } from "@/types/mindbody";
@@ -18,9 +18,13 @@ const PAGE_LIMIT = 200;
 // clients at this org) is a handful of paginated calls, not one call per
 // row like class_visits, so there's no cost/time pressure to only pull
 // what changed.
-export async function syncClients(): Promise<SyncClientsResult> {
+export async function syncClients(
+  // Mindbody site to sync; MINDBODY_SITE_ID when omitted.
+  options: { siteId?: number } = {},
+): Promise<SyncClientsResult> {
   try {
-    const mindbody = createMindbodyClient();
+    const configuredSiteId = siteIdOr(options.siteId);
+    const mindbody = createMindbodyClient({ siteId: String(configuredSiteId) });
     const supabase = createSupabaseAdminClient();
 
     // Site resolution stays Authorization-free -- see lib/sync/classes.ts
@@ -28,13 +32,12 @@ export async function syncClients(): Promise<SyncClientsResult> {
     // own home site regardless of the SiteId header, which is what caused
     // every sync to resolve to the wrong site historically. Never used for
     // getSite, only for the /client/clients call below.
-    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
     const siteResult = await mindbody.getSite();
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
       throw new Error(
-        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+        `MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`,
       );
     }
 

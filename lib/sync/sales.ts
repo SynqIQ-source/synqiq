@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
-import { getEnv } from "@/lib/env";
+import { siteIdOr } from "@/lib/sync/sites";
 import type { MindbodySale } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -29,6 +29,8 @@ async function getStaffIdByMindbodyId(supabase: SupabaseAdminClient, organizatio
 }
 
 export type SyncSalesOptions = {
+  // Mindbody site to sync; MINDBODY_SITE_ID when omitted.
+  siteId?: number;
   startSaleDateTime?: string;
   endSaleDateTime?: string;
 };
@@ -45,7 +47,8 @@ export async function syncSales(options: SyncSalesOptions): Promise<SyncSalesRes
       options.startSaleDateTime ?? DateTime.utc().minus({ days: DEFAULT_LOOKBACK_DAYS }).toISO();
     const endSaleDateTime = options.endSaleDateTime ?? DateTime.utc().toISO();
 
-    const mindbody = createMindbodyClient();
+    const configuredSiteId = siteIdOr(options.siteId);
+    const mindbody = createMindbodyClient({ siteId: String(configuredSiteId) });
     const supabase = createSupabaseAdminClient();
 
     // No usertoken/issue staff login -- see lib/sync/classes.ts for why: a
@@ -53,13 +56,12 @@ export async function syncSales(options: SyncSalesOptions): Promise<SyncSalesRes
     // member's own home site regardless of the SiteId header, which is
     // what caused every sync to resolve to the sandbox site. Api-Key +
     // SiteId alone is the correct activated-key model.
-    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
     const siteResult = await mindbody.getSite();
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
       throw new Error(
-        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+        `MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`,
       );
     }
 

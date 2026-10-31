@@ -6,6 +6,7 @@ import { syncSales } from "@/lib/sync/sales";
 import { syncClients } from "@/lib/sync/clients";
 import { syncClassVisits } from "@/lib/sync/class-visits";
 import { runGatedSync } from "@/lib/sync/sync-state";
+import { combineSiteResults, sitesForRequest } from "@/lib/sync/sites";
 import { sendSubstitutionReminders } from "@/lib/substitutions/reminders";
 
 // Pro's ceiling. Each MindBody sync also has its own cron entry + its own
@@ -38,16 +39,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const classes = await syncClasses({});
+  // Every connected studio (or ?siteId= for one), one sync at a time.
+  const sites = await sitesForRequest(request.nextUrl.searchParams);
+  const each = async <T extends { success: boolean }>(run: (siteId: number) => Promise<T>) => {
+    const results = [];
+    for (const siteId of sites) results.push({ siteId, result: await run(siteId) });
+    return combineSiteResults(results);
+  };
+
+  const classes = await each((siteId) => syncClasses({ siteId }));
 
   // Classes being skipped (already ran today) or failing outright no longer
   // blocks the rest -- each of these self-gates on sync_state and only
   // needs staff/location/occurrence rows a PRIOR run already populated, not
   // today's.
-  const appointments = await runGatedSync("appointments", () => syncAppointments({}));
-  const sales = await runGatedSync("sales", () => syncSales({}));
-  const clients = await runGatedSync("clients", () => syncClients());
-  const classVisits = await runGatedSync("class-visits", () => syncClassVisits({}));
+  const appointments = await each((siteId) =>
+    runGatedSync("appointments", () => syncAppointments({ siteId }), { siteId }),
+  );
+  const sales = await each((siteId) => runGatedSync("sales", () => syncSales({ siteId }), { siteId }));
+  const clients = await each((siteId) => runGatedSync("clients", () => syncClients({ siteId }), { siteId }));
+  const classVisits = await each((siteId) =>
+    runGatedSync("class-visits", () => syncClassVisits({ siteId }), { siteId }),
+  );
 
   // Not a MindBody sync -- runs against this app's own substitution_requests
   // data, so it's cheap and independent. Last simply so a fresh class/staff
@@ -63,7 +76,15 @@ export async function GET(request: NextRequest) {
     substitutionReminders.success;
 
   return NextResponse.json(
-    { success, classes, appointments, sales, clients, classVisits, substitutionReminders },
+    {
+      success,
+      classes: classes.body,
+      appointments: appointments.body,
+      sales: sales.body,
+      clients: clients.body,
+      classVisits: classVisits.body,
+      substitutionReminders,
+    },
     { status: success ? 200 : 500 },
   );
 }

@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getEnv } from "@/lib/env";
+import { siteIdOr } from "@/lib/sync/sites";
 
 // The four syncs that used to ride along inside /api/sync/all with no gate
 // of their own. classes is deliberately NOT in this list -- it keeps its
@@ -17,8 +17,7 @@ export type GatedSyncResult =
 
 type AdminClient = ReturnType<typeof createSupabaseAdminClient>;
 
-async function resolveOrg(supabase: AdminClient) {
-  const siteId = Number(getEnv("MINDBODY_SITE_ID"));
+async function resolveOrg(supabase: AdminClient, siteId: number) {
   const { data } = await supabase
     .from("organizations")
     .select("id, timezone")
@@ -38,10 +37,11 @@ function errorText(r: SyncResultish, fallback: string) {
 export async function runGatedSync<T extends SyncResultish>(
   name: GatedSyncName,
   run: () => Promise<T>,
-  opts: { force?: boolean } = {},
+  // siteId: which studio's sync this is (MINDBODY_SITE_ID when omitted).
+  opts: { force?: boolean; siteId?: number } = {},
 ): Promise<GatedSyncResult> {
   const supabase = createSupabaseAdminClient();
-  const org = await resolveOrg(supabase);
+  const org = await resolveOrg(supabase, siteIdOr(opts.siteId));
   const nowIso = () => DateTime.utc().toISO();
   const zone = org?.timezone ?? "utc";
 

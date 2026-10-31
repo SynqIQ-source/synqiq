@@ -163,13 +163,13 @@ export async function recordEnrollments(
 export async function runMemberContractLookup(admin: SupabaseClient, organizationId: string, contactId: string) {
   const { data: contact, error } = await admin
     .from("crm_contacts")
-    .select("mindbody_client_id, enrollment_detected_at, organization:organizations ( timezone )")
+    .select("mindbody_client_id, enrollment_detected_at, organization:organizations ( timezone, mindbody_site_id )")
     .eq("id", contactId)
     .eq("organization_id", organizationId)
     .single<{
       mindbody_client_id: string | null;
       enrollment_detected_at: string | null;
-      organization: { timezone: string } | null;
+      organization: { timezone: string; mindbody_site_id: number | null } | null;
     }>();
   if (error) throw error;
   if (!contact.mindbody_client_id) {
@@ -177,7 +177,8 @@ export async function runMemberContractLookup(admin: SupabaseClient, organizatio
     return;
   }
 
-  const mindbody = createMindbodyClient();
+  const siteId = contact.organization?.mindbody_site_id;
+  const mindbody = createMindbodyClient(siteId ? { siteId: String(siteId) } : undefined);
   const auth = await mindbody.authenticate();
   const result = await mindbody.getClientContracts(contact.mindbody_client_id, auth.AccessToken);
   const contracts = ((result?.Contracts ?? []) as MindbodyClientContract[]).filter((c) => c.StartDate);

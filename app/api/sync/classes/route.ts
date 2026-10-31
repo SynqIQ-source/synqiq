@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
+import { combineSiteResults, sitesForRequest } from "@/lib/sync/sites";
 import { syncClasses } from "@/lib/sync/classes";
 
 // Thin wrapper -- see lib/sync/classes.ts for the actual sync logic (which
@@ -22,11 +23,15 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const locationIdParam = searchParams.get("locationId");
 
-  const result = await syncClasses({
-    startDateTime: searchParams.get("startDateTime") ?? undefined,
-    endDateTime: searchParams.get("endDateTime") ?? undefined,
-    locationId: locationIdParam ? Number(locationIdParam) : undefined,
-  });
-
-  return NextResponse.json(result, { status: result.success ? 200 : 500 });
+  const results = [];
+  for (const siteId of await sitesForRequest(request.nextUrl.searchParams)) {
+    results.push({ siteId, result: await syncClasses({
+        startDateTime: searchParams.get("startDateTime") ?? undefined,
+        endDateTime: searchParams.get("endDateTime") ?? undefined,
+        locationId: locationIdParam ? Number(locationIdParam) : undefined,
+        siteId,
+      }) });
+  }
+  const { body, success } = combineSiteResults(results);
+  return NextResponse.json(body, { status: success ? 200 : 500 });
 }

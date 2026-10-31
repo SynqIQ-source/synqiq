@@ -94,12 +94,12 @@ export async function pushContactToMindbody(
 ): Promise<{ clientId: string; linked: boolean } | { skipped: string }> {
   const { data: org, error: orgError } = await admin
     .from("organizations")
-    .select("mindbody_site_id, crm_mindbody_push")
+    .select("mindbody_site_id, mindbody_connected, crm_mindbody_push")
     .eq("id", organizationId)
     .single();
   if (orgError) throw orgError;
   if (!org.crm_mindbody_push) return { skipped: "Mindbody push is off for this studio" };
-  if (String(org.mindbody_site_id) !== String(process.env.MINDBODY_SITE_ID)) {
+  if (!org.mindbody_connected) {
     return { skipped: "This studio's Mindbody site isn't connected" };
   }
 
@@ -115,7 +115,7 @@ export async function pushContactToMindbody(
   const contact = data as Contact;
   if (contact.mindbody_client_id) return { clientId: contact.mindbody_client_id, linked: true };
 
-  const mindbody = createMindbodyClient();
+  const mindbody = createMindbodyClient({ siteId: String(org.mindbody_site_id) });
   const auth = (await mindbody.authenticate()) as { AccessToken?: string };
   if (!auth.AccessToken) throw new Error("Mindbody login returned no token");
   const token = auth.AccessToken;

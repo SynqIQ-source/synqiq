@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
-import { getEnv } from "@/lib/env";
+import { siteIdOr } from "@/lib/sync/sites";
 import { asOccurrenceId } from "@/lib/mindbody/types";
 import type { MindbodyClassVisit } from "@/types/mindbody";
 
@@ -55,6 +55,8 @@ async function getOccurrencesInWindow(
 }
 
 export type SyncClassVisitsOptions = {
+  // Mindbody site to sync; MINDBODY_SITE_ID when omitted.
+  siteId?: number;
   // ISO datetime -- only occurrences starting on/after this are visited.
   // Defaults to a short nightly lookback; a historical backfill passes an
   // explicit, much earlier value. No forward window: a class that hasn't
@@ -79,17 +81,17 @@ const DELAY_BETWEEN_OCCURRENCES_MS = 250;
 
 export async function syncClassVisits(options: SyncClassVisitsOptions = {}): Promise<SyncClassVisitsResult> {
   try {
-    const mindbody = createMindbodyClient();
+    const configuredSiteId = siteIdOr(options.siteId);
+    const mindbody = createMindbodyClient({ siteId: String(configuredSiteId) });
     const supabase = createSupabaseAdminClient();
 
     // Site resolution stays Authorization-free -- see lib/sync/classes.ts.
-    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
     const siteResult = await mindbody.getSite();
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
       throw new Error(
-        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+        `MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`,
       );
     }
 

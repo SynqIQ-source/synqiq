@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
+import { combineSiteResults, sitesForRequest } from "@/lib/sync/sites";
 import { syncSales } from "@/lib/sync/sales";
 import { runGatedSync } from "@/lib/sync/sync-state";
 
@@ -27,11 +28,14 @@ export async function GET(request: NextRequest) {
   // An explicit window is a deliberate backfill -- bypass the once-a-day gate.
   const force = Boolean(startSaleDateTime || endSaleDateTime);
 
-  const result = await runGatedSync(
-    "sales",
-    () => syncSales({ startSaleDateTime, endSaleDateTime }),
-    { force },
-  );
-
-  return NextResponse.json(result, { status: result.success ? 200 : 500 });
+  const results = [];
+  for (const siteId of await sitesForRequest(request.nextUrl.searchParams)) {
+    results.push({ siteId, result: await runGatedSync(
+        "sales",
+        () => syncSales({ startSaleDateTime, endSaleDateTime, siteId }),
+        { force, siteId },
+      ) });
+  }
+  const { body, success } = combineSiteResults(results);
+  return NextResponse.json(body, { status: success ? 200 : 500 });
 }

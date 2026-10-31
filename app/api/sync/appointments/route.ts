@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
+import { combineSiteResults, sitesForRequest } from "@/lib/sync/sites";
 import { syncAppointments } from "@/lib/sync/appointments";
 import { runGatedSync } from "@/lib/sync/sync-state";
 
@@ -26,11 +27,14 @@ export async function GET(request: NextRequest) {
   // gate so it always runs.
   const force = Boolean(startDate || endDate);
 
-  const result = await runGatedSync(
-    "appointments",
-    () => syncAppointments({ startDate, endDate }),
-    { force },
-  );
-
-  return NextResponse.json(result, { status: result.success ? 200 : 500 });
+  const results = [];
+  for (const siteId of await sitesForRequest(request.nextUrl.searchParams)) {
+    results.push({ siteId, result: await runGatedSync(
+        "appointments",
+        () => syncAppointments({ startDate, endDate, siteId }),
+        { force, siteId },
+      ) });
+  }
+  const { body, success } = combineSiteResults(results);
+  return NextResponse.json(body, { status: success ? 200 : 500 });
 }

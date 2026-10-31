@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
+import { combineSiteResults, sitesForRequest } from "@/lib/sync/sites";
 import { syncClassVisits } from "@/lib/sync/class-visits";
 import { runGatedSync } from "@/lib/sync/sync-state";
 
@@ -24,11 +25,14 @@ export async function GET(request: NextRequest) {
   const since = request.nextUrl.searchParams.get("since") ?? undefined;
 
   // An explicit `since` is a deliberate backfill -- bypass the once-a-day gate.
-  const result = await runGatedSync(
-    "class-visits",
-    () => syncClassVisits({ since }),
-    { force: Boolean(since) },
-  );
-
-  return NextResponse.json(result, { status: result.success ? 200 : 500 });
+  const results = [];
+  for (const siteId of await sitesForRequest(request.nextUrl.searchParams)) {
+    results.push({ siteId, result: await runGatedSync(
+        "class-visits",
+        () => syncClassVisits({ since, siteId }),
+        { force: Boolean(since), siteId },
+      ) });
+  }
+  const { body, success } = combineSiteResults(results);
+  return NextResponse.json(body, { status: success ? 200 : 500 });
 }

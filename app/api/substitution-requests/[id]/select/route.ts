@@ -151,7 +151,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // there (confirmed in production: a corrupted MINDBODY_API_KEY env var)
     // threw past the revert entirely and left the row stuck at
     // 'pending_selection' forever, with no retry path in the UI.
-    const mindbody = createMindbodyClient();
+    // The class's own studio's Mindbody site.
+    const { data: orgSite } = await supabase
+      .from("organizations")
+      .select("mindbody_site_id")
+      .eq("id", occurrence.organization_id)
+      .maybeSingle();
+    const mindbody = createMindbodyClient(
+      orgSite?.mindbody_site_id ? { siteId: String(orgSite.mindbody_site_id) } : undefined,
+    );
 
     try {
       const { AccessToken: accessToken } = await mindbody.authenticate();

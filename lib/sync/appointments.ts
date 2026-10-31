@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
-import { getEnv } from "@/lib/env";
+import { siteIdOr } from "@/lib/sync/sites";
 import type { MindbodyAppointment } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -52,6 +52,8 @@ async function getLocationIdByMindbodyId(supabase: SupabaseAdminClient, organiza
 }
 
 export type SyncAppointmentsOptions = {
+  // Mindbody site to sync; MINDBODY_SITE_ID when omitted.
+  siteId?: number;
   startDate?: string;
   endDate?: string;
 };
@@ -69,19 +71,19 @@ export async function syncAppointments(options: SyncAppointmentsOptions): Promis
     const endDate = options.endDate ?? syncStartedAt.plus({ days: DEFAULT_LOOKAHEAD_DAYS }).toISO();
     const seenAppointmentIds = new Set<number>();
 
-    const mindbody = createMindbodyClient();
+    const configuredSiteId = siteIdOr(options.siteId);
+    const mindbody = createMindbodyClient({ siteId: String(configuredSiteId) });
     const supabase = createSupabaseAdminClient();
 
     // Site resolution stays Authorization-free -- see lib/sync/classes.ts
     // for the full reasoning. This is the one call that must never depend
     // on a staff token's own scoping.
-    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
     const siteResult = await mindbody.getSite();
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
       throw new Error(
-        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+        `MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`,
       );
     }
 

@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { MindbodyClient, createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
-import { getEnv } from "@/lib/env";
+import { siteIdOr } from "@/lib/sync/sites";
 import { seedEligibilityForNewClassTypes } from "@/lib/eligibility/new-class-types";
 import { archivePastSubBoards } from "@/lib/message-boards/archive-past-sub-boards";
 import type { MindbodyClass, MindbodyStaffMember } from "@/types/mindbody";
@@ -219,6 +219,8 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
 }
 
 export type SyncClassesOptions = {
+  // Mindbody site to sync; MINDBODY_SITE_ID when omitted.
+  siteId?: number;
   startDateTime?: string;
   endDateTime?: string;
   locationId?: number;
@@ -249,9 +251,9 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
   let orgIdForSyncState: string | null = null;
 
   try {
-    const mindbody = createMindbodyClient();
+    const configuredSiteId = siteIdOr(options.siteId);
+    const mindbody = createMindbodyClient({ siteId: String(configuredSiteId) });
     const supabase = createSupabaseAdminClient();
-    const configuredSiteId = Number(getEnv("MINDBODY_SITE_ID"));
 
     // No explicit window -- an automatic (cron or unparented manual) run,
     // as opposed to someone deliberately requesting a specific window.
@@ -371,7 +373,7 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
 
     if (!site) {
       throw new Error(
-        `MindBody /site/sites did not return a site matching MINDBODY_SITE_ID=${configuredSiteId}.`,
+        `MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`,
       );
     }
 
