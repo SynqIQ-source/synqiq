@@ -5,9 +5,10 @@ export async function GET() {
   try {
     const supabase = createSupabaseAdminClient();
 
-    const { data, error } = await supabase
+    // Public, so it reports only whether the database answered -- no rows.
+    const { error } = await supabase
       .from("class_occurrences")
-      .select("*")
+      .select("id", { head: true, count: "exact" })
       .limit(1);
 
     if (error) {
@@ -23,7 +24,6 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       message: "Supabase connection successful!",
-      rows: data,
     });
   } catch (err) {
     return NextResponse.json(
