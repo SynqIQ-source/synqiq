@@ -105,6 +105,10 @@ export interface MindbodySale {
   ClientId: string | null;
   PurchasedItems: Array<{
     TotalAmount: number | null;
+    // Pricing option id, its name, and the client contract it paid for.
+    Id?: number | null;
+    Description?: string | null;
+    ContractId?: number | null;
   }> | null;
 }
 
@@ -143,6 +147,10 @@ export interface MindbodyClientContract {
   StartDate?: string | null;
   AgreementDate?: string | null;
   EndDate?: string | null;
+  // Set when this contract is the automatic resell of an earlier one (a
+  // 12-month membership renewing itself).
+  AutoRenewClientContractID?: number | null;
+  TerminationDate?: string | null;
 }
 
 export interface MindbodyClientsResponse {

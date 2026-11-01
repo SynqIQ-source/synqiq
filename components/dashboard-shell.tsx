@@ -67,6 +67,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/settings/staff", label: "Staff Logins", adminOnly: true },
       { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true },
       { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
+      { href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", adminOnly: true },
       { href: "/dashboard/settings/crm", label: "CRM", adminOnly: true, crm: "admin" },
       { href: "/dashboard/settings/sales-targets", label: "Sales Targets", adminOnly: true, crm: "admin" },
     ],

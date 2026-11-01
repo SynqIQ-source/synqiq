@@ -81,6 +81,7 @@ export default async function NewMembersPage({
     name: row.name,
     enrolled: local(row.enrolledAt, "LLL d, yyyy")!,
     enrollmentPending: row.enrollmentPending,
+    returning: row.returning,
     membership: row.membership,
     soldBy: row.soldById ? (staffNames.get(row.soldById) ?? null) : null,
     trainerId: row.trainerId,

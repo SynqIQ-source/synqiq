@@ -11,6 +11,8 @@ export type NewMemberRow = {
   name: string;
   enrolledAt: string;
   enrollmentPending: boolean;
+  // Returning: had a membership before that ended over 90 days earlier.
+  returning: boolean;
   membership: string | null;
   soldById: string | null;
   trainerId: string | null;
@@ -38,6 +40,7 @@ type MemberContact = {
   last_name: string;
   member_enrolled_at: string;
   enrollment_status: string | null;
+  enrollment_kind: string | null;
   membership_name: string | null;
   membership_sold_by_staff_id: string | null;
   trainer_staff_id: string | null;
@@ -52,7 +55,7 @@ export async function loadNewMembers(
   let query = supabase
     .from("crm_contacts")
     .select(
-      "id, first_name, last_name, member_enrolled_at, enrollment_status, membership_name, membership_sold_by_staff_id, trainer_staff_id, trainer_assigned_at, mindbody_client_id",
+      "id, first_name, last_name, member_enrolled_at, enrollment_status, enrollment_kind, membership_name, membership_sold_by_staff_id, trainer_staff_id, trainer_assigned_at, mindbody_client_id",
     )
     .not("member_enrolled_at", "is", null)
     .gte("member_enrolled_at", options.fromIso)
@@ -102,6 +105,7 @@ export async function loadNewMembers(
       name: `${contact.first_name} ${contact.last_name}`.trim(),
       enrolledAt: contact.member_enrolled_at,
       enrollmentPending: contact.enrollment_status === "pending",
+      returning: contact.enrollment_kind === "returning",
       membership: contact.membership_name,
       soldById: contact.membership_sold_by_staff_id,
       trainerId: contact.trainer_staff_id,

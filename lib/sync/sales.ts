@@ -3,6 +3,7 @@ import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
 import { siteIdOr } from "@/lib/sync/sites";
+import { recordItemNames } from "@/lib/mindbody/item-types";
 import type { MindbodySale } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -85,6 +86,7 @@ export async function syncSales(options: SyncSalesOptions): Promise<SyncSalesRes
     const staffIdByMindbodyId = await getStaffIdByMindbodyId(supabase, org.id);
 
     let imported = 0;
+    const itemNames = new Set<string>();
     let total = 0;
     let offset = 0;
     const pageLimit = 200;
@@ -132,6 +134,25 @@ export async function syncSales(options: SyncSalesOptions): Promise<SyncSalesRes
         } else {
           console.error(error);
         }
+
+        // What the sale was made of, line by line (PT revenue on Trainer
+        // Health). Item names are recorded for Settings -> Mindbody items.
+        const items = (sale.PurchasedItems ?? []).map((item, index) => ({
+          organization_id: org.id,
+          mindbody_sale_id: sale.Id,
+          line_number: index,
+          pricing_option_id: item.Id ?? null,
+          description: item.Description?.trim() || null,
+          total_amount: item.TotalAmount ?? 0,
+          client_contract_id: item.ContractId ?? null,
+        }));
+        if (items.length) {
+          const { error: itemsError } = await supabase
+            .from("sale_items")
+            .upsert(items, { onConflict: "organization_id,mindbody_sale_id,line_number" });
+          if (itemsError) console.error(itemsError);
+          for (const item of items) if (item.description) itemNames.add(item.description);
+        }
       }
 
       offset += sales.length;
@@ -142,6 +163,7 @@ export async function syncSales(options: SyncSalesOptions): Promise<SyncSalesRes
       await delay(300);
     }
 
+    await recordItemNames(supabase, org.id, "sale_item", [...itemNames]);
     return { success: true, imported, total };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };

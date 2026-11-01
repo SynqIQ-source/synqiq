@@ -16,6 +16,7 @@ export type MemberTableRow = {
   name: string;
   enrolled: string;
   enrollmentPending: boolean;
+  returning: boolean;
   membership: string | null;
   soldBy: string | null;
   trainerId: string | null;
@@ -161,6 +162,11 @@ export function NewMembersTable({
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
                     {row.enrolled}
+                    {row.returning ? (
+                      <span className="ml-1.5 rounded border px-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                        Returning
+                      </span>
+                    ) : null}
                     <span className="block text-xs text-muted-foreground">
                       {row.enrollmentPending ? "Checking contract…" : (row.membership ?? "No contract found")}
                     </span>

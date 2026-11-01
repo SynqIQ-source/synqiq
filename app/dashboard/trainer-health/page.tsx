@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
+import { loadItemClassifier } from "@/lib/mindbody/item-types";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { TrainerHealthTable } from "./trainer-health-table";
 
@@ -15,7 +16,7 @@ const HEALTH_THRESHOLD = 0.8;
 const CONSECUTIVE_MONTHS_TO_FLAG = 2;
 
 type StaffRow = { id: string; display_name: string };
-type AppointmentRow = { staff_id: string | null; status: string; start_datetime: string };
+type AppointmentRow = { staff_id: string | null; status: string; start_datetime: string; client_id: string | null };
 type SaleRow = { sales_rep_staff_id: string | null; sale_datetime: string; total_amount: number };
 
 async function getOrg(supabase: ScopedSupabaseClient, organizationId: string) {
@@ -56,7 +57,7 @@ async function getCompletedAppointments(
   for (;;) {
     const { data, error } = await supabase
       .from("appointment_occurrences")
-      .select("staff_id, status, start_datetime")
+      .select("staff_id, status, start_datetime, client_id")
       .eq("status", "Completed")
       .gte("start_datetime", windowStartIso)
       .range(offset, offset + PAGE_SIZE - 1)
@@ -74,29 +75,84 @@ async function getCompletedAppointments(
   return allRows;
 }
 
-async function getSales(supabase: ScopedSupabaseClient, windowStartIso: string): Promise<SaleRow[]> {
-  const allRows: SaleRow[] = [];
-  let offset = 0;
+// A PT package's sale is credited, whole, to the trainer who completed the
+// most sessions with that client in the 90 days after it was sold (a tie
+// goes to whoever trained them first), in the month it was sold. PT means a
+// sale line whose item is ticked as PT on Settings -> Mindbody items. Sales
+// with no completed sessions yet aren't credited to anyone.
+const PT_CREDIT_DAYS = 90;
 
-  for (;;) {
+async function getPtSales(
+  supabase: ScopedSupabaseClient,
+  organizationId: string,
+  windowStartIso: string,
+  appointments: AppointmentRow[],
+): Promise<{ credited: SaleRow[]; uncredited: number }> {
+  const isPt = await loadItemClassifier(supabase, organizationId, "sale_item");
+  const { data: names, error: namesError } = await supabase
+    .from("mindbody_item_types")
+    .select("name")
+    .eq("organization_id", organizationId)
+    .eq("kind", "sale_item");
+  if (namesError) throw new Error(`Failed to load item types: ${namesError.message}`);
+  const ptNames = (names ?? []).map((row) => row.name as string).filter((name) => isPt(name));
+  if (ptNames.length === 0) return { credited: [], uncredited: 0 };
+
+  // PT lines, then the sales they belong to (in the window).
+  const lines: { mindbody_sale_id: number; total_amount: number }[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("sale_items")
+      .select("mindbody_sale_id, total_amount")
+      .in("description", ptNames)
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw new Error(`Failed to load sale items: ${error.message}`);
+    lines.push(...((data ?? []) as typeof lines));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  const ptAmount = new Map<number, number>();
+  for (const line of lines) ptAmount.set(line.mindbody_sale_id, (ptAmount.get(line.mindbody_sale_id) ?? 0) + Number(line.total_amount ?? 0));
+  const saleIds = [...ptAmount.keys()];
+  const sales: { mindbody_sale_id: number; client_id: string | null; sale_datetime: string }[] = [];
+  for (let index = 0; index < saleIds.length; index += 200) {
     const { data, error } = await supabase
       .from("sales")
-      .select("sales_rep_staff_id, sale_datetime, total_amount")
-      .not("sales_rep_staff_id", "is", null)
-      .gte("sale_datetime", windowStartIso)
-      .range(offset, offset + PAGE_SIZE - 1)
-      .returns<SaleRow[]>();
-
-    if (error) {
-      throw new Error(`Failed to load sales: ${error.message}`);
-    }
-
-    allRows.push(...(data ?? []));
-    if (!data || data.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
+      .select("mindbody_sale_id, client_id, sale_datetime")
+      .in("mindbody_sale_id", saleIds.slice(index, index + 200))
+      .gte("sale_datetime", windowStartIso);
+    if (error) throw new Error(`Failed to load sales: ${error.message}`);
+    sales.push(...((data ?? []) as typeof sales));
   }
 
-  return allRows;
+  const sessionsByClient = new Map<string, AppointmentRow[]>();
+  for (const appointment of appointments) {
+    if (!appointment.client_id || !appointment.staff_id) continue;
+    sessionsByClient.set(appointment.client_id, [...(sessionsByClient.get(appointment.client_id) ?? []), appointment]);
+  }
+
+  const credited: SaleRow[] = [];
+  let uncredited = 0;
+  for (const sale of sales) {
+    const amount = ptAmount.get(sale.mindbody_sale_id) ?? 0;
+    if (amount === 0) continue;
+    const soldAt = DateTime.fromISO(sale.sale_datetime);
+    const until = soldAt.plus({ days: PT_CREDIT_DAYS });
+    const sessions = (sale.client_id ? (sessionsByClient.get(sale.client_id) ?? []) : [])
+      .filter((session) => {
+        const at = DateTime.fromISO(session.start_datetime);
+        return at >= soldAt.startOf("day") && at <= until;
+      })
+      .sort((a, b) => a.start_datetime.localeCompare(b.start_datetime));
+    const counts = new Map<string, number>();
+    for (const session of sessions) counts.set(session.staff_id!, (counts.get(session.staff_id!) ?? 0) + 1);
+    let trainer: string | null = null;
+    for (const session of sessions) {
+      if (trainer === null || counts.get(session.staff_id!)! > counts.get(trainer)!) trainer = session.staff_id!;
+    }
+    if (trainer) credited.push({ sales_rep_staff_id: trainer, sale_datetime: sale.sale_datetime, total_amount: amount });
+    else uncredited += amount;
+  }
+  return { credited, uncredited };
 }
 
 export type MonthBucket = { key: string; label: string; start: DateTime; end: DateTime };
@@ -287,11 +343,16 @@ export default async function TrainerHealthPage() {
   const windowStart = yearStart < buckets[0].start ? yearStart : buckets[0].start;
   const windowStartIso = windowStart.toUTC().toISO() ?? "";
 
-  const [staff, appointments, sales] = await Promise.all([
+  const [staff, appointments] = await Promise.all([
     getInstructors(supabase),
     getCompletedAppointments(supabase, windowStartIso),
-    getSales(supabase, windowStartIso),
   ]);
+  const { credited: sales, uncredited } = await getPtSales(
+    supabase,
+    currentStaff.organizationId,
+    windowStartIso,
+    appointments,
+  );
 
   const trainerHealth = buildTrainerHealth(
     staff,
@@ -306,7 +367,7 @@ export default async function TrainerHealthPage() {
   return (
     <DashboardShell
       title="Trainer Health"
-      description={`Sessions and sales credited per trainer each month, against a $${org.expected_revenue_per_session.toFixed(2)}/session benchmark. Flagged after ${CONSECUTIVE_MONTHS_TO_FLAG}+ months under ${(HEALTH_THRESHOLD * 100).toFixed(0)}%.`}
+      description={`Sessions and PT sales credited per trainer each month, against a $${org.expected_revenue_per_session.toFixed(2)}/session benchmark. Flagged after ${CONSECUTIVE_MONTHS_TO_FLAG}+ months under ${(HEALTH_THRESHOLD * 100).toFixed(0)}%.`}
     >
       <TrainerHealthTable
         // Luxon DateTime instances (bucket.start/end) aren't plain
@@ -322,8 +383,12 @@ export default async function TrainerHealthPage() {
 
       <p className="mt-3 max-w-3xl text-xs leading-5 text-muted-foreground">
         <span className="font-medium text-muted-foreground">Sessions</span> counts appointments with status
-        Completed. <span className="font-medium text-muted-foreground">Sales</span> is the total credited to
-        that trainer as sales rep (MindBody&apos;s SalesRepId), regardless of what was sold.{" "}
+        Completed. <span className="font-medium text-muted-foreground">Sales</span> is PT revenue: each PT package
+        sold (items ticked as PT on Settings → Mindbody items) is credited, in the month it was sold, to the
+        trainer who completed the most sessions with that client in the {PT_CREDIT_DAYS} days after the sale.
+        {uncredited > 0
+          ? ` $${Math.round(uncredited).toLocaleString()} of PT sold in this window has no completed sessions yet, so it isn't credited to anyone.`
+          : ""}{" "}
         <span className="font-medium text-muted-foreground">Ratio</span> is Sales ÷ (Sessions ×
         expected revenue per session, set in Settings) and reads N/A for a period with zero sessions
         rather than a misleading 0%. <span className="font-medium text-muted-foreground">Year to Date</span>{" "}

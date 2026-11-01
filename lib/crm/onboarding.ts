@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { normalizeEmail, normalizePhone } from "@/lib/crm/normalize";
+import { loadItemClassifier, recordItemNames } from "@/lib/mindbody/item-types";
 import type { MindbodyClientContract, MindbodyClientRecord } from "@/types/mindbody";
 
 // New-member onboarding. Forward-only: the nightly client sync calls
@@ -157,18 +158,72 @@ export async function recordEnrollments(
   return recorded;
 }
 
-// The "member_contract" job: sets the enrollment date to the start date of
-// the member's newest contract. No contract (e.g. a pass rather than a
-// membership) keeps the day Synq saw them turn Active.
+// Within this many days of their last membership ending, a new membership
+// is the same membership continuing, not a sale.
+const RETURNING_GAP_DAYS = 90;
+// The membership that made someone Active started at most this long before
+// Synq saw it (the nightly sync can lag, a start date can be backdated).
+const START_WINDOW_DAYS = 45;
+
+export type EnrollmentDecision =
+  | { counts: true; kind: "new" | "returning"; contract: MindbodyClientContract }
+  | { counts: false; note: "not_membership" | "renewal" | "continuation"; contract: MindbodyClientContract | null };
+
+// Whether a member who just turned Active is a new membership sale:
+//   - only membership contracts count (PT and other packages don't);
+//   - an automatic resell of an earlier contract (12-month renewals) doesn't;
+//   - a membership that starts within 90 days of their last one ending is a
+//     continuation; after a longer gap they're a returning member;
+//   - otherwise they're new.
+export function classifyEnrollment(
+  contracts: MindbodyClientContract[],
+  isMembership: (name: string | null | undefined) => boolean,
+  detectedAt: string,
+  timezone: string,
+): EnrollmentDecision {
+  const day = (iso: string) => DateTime.fromISO(iso, { zone: timezone }).startOf("day");
+  const detected = day(detectedAt);
+  const memberships = contracts
+    .filter((contract) => contract.StartDate && isMembership(contract.ContractName))
+    .sort((a, b) => `${a.StartDate}${a.AgreementDate ?? ""}`.localeCompare(`${b.StartDate}${b.AgreementDate ?? ""}`));
+  const recent = memberships.filter(
+    (contract) => day(contract.StartDate!) >= detected.minus({ days: START_WINDOW_DAYS }) && day(contract.StartDate!) <= detected.plus({ days: 1 }),
+  );
+  const contract = recent.at(-1) ?? null;
+  if (!contract) {
+    const newest = [...contracts].sort((a, b) => `${b.StartDate}`.localeCompare(`${a.StartDate}`))[0] ?? null;
+    return { counts: false, note: "not_membership", contract: newest };
+  }
+  if (contract.AutoRenewClientContractID) return { counts: false, note: "renewal", contract };
+
+  const start = day(contract.StartDate!);
+  const earlier = memberships.filter((other) => other !== contract && day(other.StartDate!) < start);
+  if (earlier.length === 0) return { counts: true, kind: "new", contract };
+  const lastEnded = earlier
+    .map((other) => {
+      const ends = [other.EndDate, other.TerminationDate].filter(Boolean).map((iso) => day(iso!));
+      return ends.length ? DateTime.min(...ends)! : start;
+    })
+    .reduce((latest, end) => (end > latest ? end : latest));
+  return start.diff(lastEnded, "days").days > RETURNING_GAP_DAYS
+    ? { counts: true, kind: "returning", contract }
+    : { counts: false, note: "continuation", contract };
+}
+
+// The "member_contract" job: decides whether the member who just turned
+// Active is a new membership sale (classifyEnrollment) and, if so, sets the
+// enrollment date to that membership's start date. Ones that don't count
+// (PT, renewals, continuations) are kept but left off New Members.
 export async function runMemberContractLookup(admin: SupabaseClient, organizationId: string, contactId: string) {
   const { data: contact, error } = await admin
     .from("crm_contacts")
-    .select("mindbody_client_id, enrollment_detected_at, organization:organizations ( timezone, mindbody_site_id )")
+    .select("mindbody_client_id, enrollment_detected_at, created_at, organization:organizations ( timezone, mindbody_site_id )")
     .eq("id", contactId)
     .eq("organization_id", organizationId)
     .single<{
       mindbody_client_id: string | null;
       enrollment_detected_at: string | null;
+      created_at: string;
       organization: { timezone: string; mindbody_site_id: number | null } | null;
     }>();
   if (error) throw error;
@@ -183,28 +238,40 @@ export async function runMemberContractLookup(admin: SupabaseClient, organizatio
   const result = await mindbody.getClientContracts(contact.mindbody_client_id, auth.AccessToken);
   const contracts = ((result?.Contracts ?? []) as MindbodyClientContract[]).filter((c) => c.StartDate);
   const timezone = contact.organization?.timezone ?? "utc";
-
-  // Newest contract by start date (then by signing date). A contract that
-  // started long before Synq saw them turn Active is from an earlier
-  // membership, unless it's the only one.
-  contracts.sort((a, b) =>
-    `${b.StartDate}${b.AgreementDate ?? ""}`.localeCompare(`${a.StartDate}${a.AgreementDate ?? ""}`),
-  );
-  const newest = contracts[0];
   const now = new Date().toISOString();
-  if (!newest?.StartDate) {
+  if (contracts.length === 0) {
     await admin.from("crm_contacts").update({ enrollment_status: "no_contract", updated_at: now }).eq("id", contactId);
     return;
   }
-  const start = DateTime.fromISO(newest.StartDate, { zone: timezone }).startOf("day");
+
+  await recordItemNames(admin, organizationId, "contract", contracts.map((c) => c.ContractName ?? ""));
+  const isMembership = await loadItemClassifier(admin, organizationId, "contract");
+  const decision = classifyEnrollment(contracts, isMembership, contact.enrollment_detected_at ?? contact.created_at, timezone);
+  const start = decision.contract?.StartDate
+    ? DateTime.fromISO(decision.contract.StartDate, { zone: timezone }).startOf("day").toUTC().toISO()
+    : null;
   await admin
     .from("crm_contacts")
-    .update({
-      member_enrolled_at: start.toUTC().toISO(),
-      membership_name: newest.ContractName?.trim() || null,
-      enrollment_status: "found",
-      updated_at: now,
-    })
+    .update(
+      decision.counts
+        ? {
+            member_enrolled_at: start,
+            membership_name: decision.contract.ContractName?.trim() || null,
+            enrollment_status: "found",
+            enrollment_kind: decision.kind,
+            enrollment_note: null,
+            updated_at: now,
+          }
+        : {
+            // No enrollment date = not on New Members or trainer assignment.
+            member_enrolled_at: null,
+            membership_name: decision.contract?.ContractName?.trim() || null,
+            enrollment_status: "not_counted",
+            enrollment_kind: null,
+            enrollment_note: decision.note,
+            updated_at: now,
+          },
+    )
     .eq("id", contactId);
 }
 
