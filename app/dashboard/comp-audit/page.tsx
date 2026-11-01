@@ -39,6 +39,7 @@ async function getZeroRevenueCappedRows(supabase: ScopedSupabaseClient): Promise
       .eq("revenue_amount", 0)
       .lt("visits_remaining", CAPPED_VISITS_THRESHOLD)
       .order("date_of_service", { ascending: false })
+      .order("id") // tie-breaker so pages never overlap or skip rows
       .range(offset, offset + PAGE_SIZE - 1)
       .returns<RawCompRow[]>();
 

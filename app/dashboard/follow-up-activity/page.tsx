@@ -59,6 +59,7 @@ async function getVisits(supabase: ScopedSupabaseClient, startIso: string, endIs
       .eq("signed_in", true)
       .gte("occurrence.start_datetime", startIso)
       .lte("occurrence.start_datetime", endIso)
+      .order("id") // tie-breaker so pages never overlap or skip rows
       .range(from, from + PAGE_SIZE - 1)
       .returns<VisitRow[]>();
 
@@ -87,6 +88,7 @@ async function getMessages(supabase: ScopedSupabaseClient, startIso: string, end
       .gte("created_at", startIso)
       .lte("created_at", endIso)
       .order("created_at", { ascending: false })
+      .order("id") // tie-breaker so pages never overlap or skip rows
       .range(from, from + PAGE_SIZE - 1)
       .returns<MessageRow[]>();
 

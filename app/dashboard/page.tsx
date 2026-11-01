@@ -72,7 +72,7 @@ async function getOverviewRows(
       query = query.lte("start_datetime", rangeEnd.toUTC().toISO() ?? "");
     }
 
-    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1).returns<OverviewRow[]>();
+    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<OverviewRow[]>();
 
     if (error) {
       throw new Error(`Failed to load overview metrics: ${error.message}`);
@@ -193,7 +193,7 @@ async function getPayrollRows(
       query = query.gte("class_date", rangeStart.toISODate() ?? "").lte("class_date", rangeEnd.toISODate() ?? "");
     }
 
-    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1).returns<PayrollCostRow[]>();
+    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<PayrollCostRow[]>();
 
     if (error) {
       throw new Error(`Failed to load payroll cost data: ${error.message}`);
@@ -249,7 +249,7 @@ async function getClassVisits(
       query = query.lte("class_occurrences.start_datetime", rangeEnd.toUTC().toISO() ?? "");
     }
 
-    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1).returns<RawVisitRow[]>();
+    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<RawVisitRow[]>();
 
     if (error) {
       throw new Error(`Failed to load class visits: ${error.message}`);
@@ -294,6 +294,7 @@ async function getActiveMemberIds(supabase: ScopedSupabaseClient): Promise<Set<n
       .from("clients")
       .select("mindbody_unique_id")
       .eq("status", "Active")
+      .order("id") // tie-breaker so pages never overlap or skip rows
       .range(offset, offset + PAGE_SIZE - 1)
       .returns<{ mindbody_unique_id: number }[]>();
 

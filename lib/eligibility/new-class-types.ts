@@ -68,6 +68,7 @@ export async function seedEligibilityForNewClassTypes(
       .from("instructor_class_eligibility")
       .select("department_id, class_name")
       .in("department_id", departmentIds)
+      .order("id") // tie-breaker so pages never overlap or skip rows
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) {

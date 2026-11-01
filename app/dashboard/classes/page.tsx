@@ -105,6 +105,7 @@ async function getHistoricalOccurrences(
       .gte("start_datetime", windowStart.toUTC().toISO())
       .lte("start_datetime", windowEnd.toUTC().toISO())
       .order("start_datetime", { ascending: true })
+      .order("id") // tie-breaker so pages never overlap or skip rows
       .range(offset, offset + HISTORY_PAGE_SIZE - 1)
       .returns<HistoricalOccurrenceRow[]>();
 

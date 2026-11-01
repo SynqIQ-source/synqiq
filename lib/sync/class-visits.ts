@@ -35,6 +35,7 @@ async function getOccurrencesInWindow(
       // attendance is meaningless (same rule Overview's This-period columns
       // already apply).
       .lte("start_datetime", DateTime.utc().toISO() ?? "")
+      .order("id") // tie-breaker so pages never overlap or skip rows
       .range(offset, offset + OCCURRENCE_PAGE_SIZE - 1)
       .returns<OccurrenceRow[]>();
 

@@ -118,7 +118,7 @@ async function getOccurrences(
       query = query.lte("start_datetime", rangeEnd.toUTC().toISO() ?? "");
     }
 
-    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1).returns<OccurrenceRow[]>();
+    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<OccurrenceRow[]>();
 
     if (error) {
       throw new Error(`Failed to load class occurrences: ${error.message}`);
