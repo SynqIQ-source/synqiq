@@ -80,6 +80,10 @@ async function getCompletedAppointments(
 // goes to whoever trained them first), in the month it was sold. PT means a
 // sale line whose item is ticked as PT on Settings -> Mindbody items. Sales
 // with no completed sessions yet aren't credited to anyone.
+//
+// A sale whose Mindbody sales rep is on the sales team (staff who can sell)
+// was sold by that salesperson, so no trainer is credited -- standing in for
+// "commission assigned" until Synq can read Mindbody's payroll commissions.
 const PT_CREDIT_DAYS = 90;
 
 async function getPtSales(
@@ -87,7 +91,7 @@ async function getPtSales(
   organizationId: string,
   windowStartIso: string,
   appointments: AppointmentRow[],
-): Promise<{ credited: SaleRow[]; uncredited: number }> {
+): Promise<{ credited: SaleRow[]; uncredited: number; soldBySales: number }> {
   const isPt = await loadItemClassifier(supabase, organizationId, "sale_item");
   const { data: names, error: namesError } = await supabase
     .from("mindbody_item_types")
@@ -96,7 +100,10 @@ async function getPtSales(
     .eq("kind", "sale_item");
   if (namesError) throw new Error(`Failed to load item types: ${namesError.message}`);
   const ptNames = (names ?? []).map((row) => row.name as string).filter((name) => isPt(name));
-  if (ptNames.length === 0) return { credited: [], uncredited: 0 };
+  if (ptNames.length === 0) return { credited: [], uncredited: 0, soldBySales: 0 };
+  const { data: sellers, error: sellersError } = await supabase.from("staff").select("id").eq("can_sell", true);
+  if (sellersError) throw new Error(`Failed to load the sales team: ${sellersError.message}`);
+  const salesTeam = new Set((sellers ?? []).map((row) => row.id as string));
 
   // PT lines, then the sales they belong to (in the window).
   const lines: { mindbody_sale_id: number; total_amount: number }[] = [];
@@ -113,11 +120,16 @@ async function getPtSales(
   const ptAmount = new Map<number, number>();
   for (const line of lines) ptAmount.set(line.mindbody_sale_id, (ptAmount.get(line.mindbody_sale_id) ?? 0) + Number(line.total_amount ?? 0));
   const saleIds = [...ptAmount.keys()];
-  const sales: { mindbody_sale_id: number; client_id: string | null; sale_datetime: string }[] = [];
+  const sales: {
+    mindbody_sale_id: number;
+    client_id: string | null;
+    sale_datetime: string;
+    sales_rep_staff_id: string | null;
+  }[] = [];
   for (let index = 0; index < saleIds.length; index += 200) {
     const { data, error } = await supabase
       .from("sales")
-      .select("mindbody_sale_id, client_id, sale_datetime")
+      .select("mindbody_sale_id, client_id, sale_datetime, sales_rep_staff_id")
       .in("mindbody_sale_id", saleIds.slice(index, index + 200))
       .gte("sale_datetime", windowStartIso);
     if (error) throw new Error(`Failed to load sales: ${error.message}`);
@@ -132,9 +144,14 @@ async function getPtSales(
 
   const credited: SaleRow[] = [];
   let uncredited = 0;
+  let soldBySales = 0;
   for (const sale of sales) {
     const amount = ptAmount.get(sale.mindbody_sale_id) ?? 0;
     if (amount === 0) continue;
+    if (sale.sales_rep_staff_id && salesTeam.has(sale.sales_rep_staff_id)) {
+      soldBySales += amount;
+      continue;
+    }
     const soldAt = DateTime.fromISO(sale.sale_datetime);
     const until = soldAt.plus({ days: PT_CREDIT_DAYS });
     const sessions = (sale.client_id ? (sessionsByClient.get(sale.client_id) ?? []) : [])
@@ -152,7 +169,7 @@ async function getPtSales(
     if (trainer) credited.push({ sales_rep_staff_id: trainer, sale_datetime: sale.sale_datetime, total_amount: amount });
     else uncredited += amount;
   }
-  return { credited, uncredited };
+  return { credited, uncredited, soldBySales };
 }
 
 export type MonthBucket = { key: string; label: string; start: DateTime; end: DateTime };
@@ -347,7 +364,7 @@ export default async function TrainerHealthPage() {
     getInstructors(supabase),
     getCompletedAppointments(supabase, windowStartIso),
   ]);
-  const { credited: sales, uncredited } = await getPtSales(
+  const { credited: sales, uncredited, soldBySales } = await getPtSales(
     supabase,
     currentStaff.organizationId,
     windowStartIso,
@@ -385,7 +402,10 @@ export default async function TrainerHealthPage() {
         <span className="font-medium text-muted-foreground">Sessions</span> counts appointments with status
         Completed. <span className="font-medium text-muted-foreground">Sales</span> is PT revenue: each PT package
         sold (items ticked as PT on Settings → Mindbody items) is credited, in the month it was sold, to the
-        trainer who completed the most sessions with that client in the {PT_CREDIT_DAYS} days after the sale.
+        trainer who completed the most sessions with that client in the {PT_CREDIT_DAYS} days after the sale. PT
+        rung up with a salesperson (someone who can sell) as the Mindbody sales rep counts as their sale, so no
+        trainer is credited
+        {soldBySales > 0 ? ` ($${Math.round(soldBySales).toLocaleString()} in this window)` : ""}.
         {uncredited > 0
           ? ` $${Math.round(uncredited).toLocaleString()} of PT sold in this window has no completed sessions yet, so it isn't credited to anyone.`
           : ""}{" "}
