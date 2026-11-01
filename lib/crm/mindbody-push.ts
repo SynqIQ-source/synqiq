@@ -10,8 +10,9 @@ import { createMindbodyClient } from "@/lib/mindbody/client";
 //     site's GetRequiredClientFields demands, with the guest's email opt-in
 //   - no waiver upload and no LiabilityRelease (waivers stay in SynqIQ), no
 //     photo, and SMS consent stays in SynqIQ (Mindbody's API can't set it)
-// Uses the same staff login the syncs use (MINDBODY_USERNAME/PASSWORD) and
-// only for the org whose Mindbody site matches MINDBODY_SITE_ID.
+// Uses the same Source login the syncs use (MINDBODY_USERNAME/PASSWORD),
+// against the studio's own Mindbody site, and only for studios connected to
+// Mindbody (organizations.mindbody_connected).
 
 type Contact = {
   id: string;
