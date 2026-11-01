@@ -210,7 +210,8 @@ export async function computeFunnelLists(
       .gte(column, fromIso)
       .lte(column, toIso);
     if (options.staffId) query = query.eq("assigned_staff_id", options.staffId);
-    return query.range(from, to).returns<ContactRef[]>();
+    // Stable order so pages don't overlap or skip rows.
+    return query.order("id").range(from, to).returns<ContactRef[]>();
   };
 
   const [visits, createdContacts, closedContacts, outbound, appointmentsMade, scheduled] = await Promise.all([
@@ -220,6 +221,7 @@ export async function computeFunnelLists(
         .select(`visit_type, contact:crm_contacts!guest_visits_contact_id_fkey ( ${CONTACT_FIELDS} )`)
         .gte("visit_at", fromIso)
         .lte("visit_at", toIso)
+        .order("id")
         .range(from, to)
         .returns<{ visit_type: string; contact: ContactRef | null }[]>(),
     ),
@@ -235,6 +237,7 @@ export async function computeFunnelLists(
         .neq("status", "canceled")
         .gte("scheduled_at", fromIso)
         .lte("scheduled_at", toIso)
+        .order("id")
         .range(from, to)
         .returns<AppointmentRef[]>(),
     ),

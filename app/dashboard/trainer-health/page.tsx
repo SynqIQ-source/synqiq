@@ -60,6 +60,9 @@ async function getCompletedAppointments(
       .select("staff_id, status, start_datetime, client_id")
       .eq("status", "Completed")
       .gte("start_datetime", windowStartIso)
+      // A stable order, or pages overlap and skip rows once there are
+      // several pages (October showed 279 of 898 sessions).
+      .order("id")
       .range(offset, offset + PAGE_SIZE - 1)
       .returns<AppointmentRow[]>();
 
@@ -112,6 +115,7 @@ async function getPtSales(
       .from("sale_items")
       .select("mindbody_sale_id, total_amount")
       .in("description", ptNames)
+      .order("id")
       .range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(`Failed to load sale items: ${error.message}`);
     lines.push(...((data ?? []) as typeof lines));
