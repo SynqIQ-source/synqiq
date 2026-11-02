@@ -62,7 +62,8 @@ export async function planPriceId(modules: ModuleKey[]): Promise<string> {
     // Moves the lookup key off an old price if the amount changed.
     transfer_lookup_key: true,
     tax_behavior: "exclusive",
-    metadata: { synqiq_modules: [...new Set(modules)].sort().join(",") },
+    // The studio's modules live in Synq; "two" is shared by every pair.
+    metadata: { synqiq_plan: lookupKey },
   });
   return price.id;
 }
