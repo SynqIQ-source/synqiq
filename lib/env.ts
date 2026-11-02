@@ -17,7 +17,11 @@ type EnvKey =
   | "FOLLOWUP_RELAY_DOMAIN"
   // Signing secret for the Resend inbound webhook ("whsec_..."), verified
   // Svix-style in app/api/email/inbound.
-  | "RESEND_INBOUND_WEBHOOK_SECRET";
+  | "RESEND_INBOUND_WEBHOOK_SECRET"
+  // Stripe billing (lib/billing/*): the secret API key ("sk_test_..." or
+  // "sk_live_...") and the webhook signing secret ("whsec_...").
+  | "STRIPE_SECRET_KEY"
+  | "STRIPE_WEBHOOK_SECRET";
 
 export function getEnv(key: EnvKey): string {
   const value = process.env[key];

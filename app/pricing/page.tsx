@@ -41,6 +41,12 @@ export default function PricingPage() {
                 <span className="text-4xl font-semibold text-zinc-950">{dollars(module.price)}</span>
                 <span className="text-sm text-zinc-500"> / month</span>
               </p>
+              <Link
+                href={`/signup?modules=${module.key}`}
+                className="mt-5 inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 px-4 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
+              >
+                Get started
+              </Link>
               <ul className="mt-5 flex-1 space-y-2 text-sm text-zinc-700">
                 {module.features.map((feature) => (
                   <li key={feature} className="flex gap-2">
@@ -77,6 +83,12 @@ export default function PricingPage() {
             <p className="mt-3 text-sm text-zinc-600">
               Everything SynqIQ does, {dollars(separately - BUNDLE_PRICES[3])} less than buying each module separately.
             </p>
+            <Link
+              href="/signup?modules=group_fitness,trainer,crm"
+              className="mt-5 inline-flex h-10 items-center rounded-md bg-brand-accent px-4 text-sm font-medium text-white hover:bg-brand-accent-hover"
+            >
+              Get all three
+            </Link>
           </div>
         </div>
 
@@ -100,12 +112,18 @@ export default function PricingPage() {
 
         <div className="mt-12 flex flex-wrap items-center gap-4">
           <Link
-            href="/contact"
+            href="/signup"
             className="inline-flex h-11 items-center rounded-md bg-brand-accent px-5 text-sm font-medium text-white hover:bg-brand-accent-hover"
+          >
+            Get started
+          </Link>
+          <Link
+            href="/contact"
+            className="inline-flex h-11 items-center rounded-md border border-zinc-200 px-5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
             Talk to us
           </Link>
-          <p className="text-sm text-zinc-500">We&apos;ll set up your studio and connect Mindbody with you.</p>
+          <p className="text-sm text-zinc-500">We&apos;ll help you connect Mindbody after you sign up.</p>
         </div>
       </main>
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { updateSubscriptionPlan } from "@/lib/billing/subscriptions";
 import { getPlatformAdmin } from "@/lib/platform/admin";
 import { isModuleKey, MODULES } from "@/lib/plans";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -43,7 +44,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .update({ custom_monthly_price: customPrice })
       .eq("id", id);
     if (priceError) throw priceError;
-    return NextResponse.json({ success: true });
+    // A self-serve studio's Stripe subscription follows its modules.
+    let billing: string = "not billed in Stripe";
+    try {
+      billing = (await updateSubscriptionPlan(id, modules)) === "updated" ? "subscription updated" : "no change";
+    } catch (error) {
+      logCrmError("platform/studios plan: Stripe update", error);
+      return jsonError("Modules saved, but the Stripe subscription couldn't be updated. Check it in Stripe.", 502);
+    }
+    return NextResponse.json({ success: true, billing });
   } catch (error) {
     logCrmError("platform/studios plan PATCH", error);
     return jsonError("Couldn't save the plan.", 500);

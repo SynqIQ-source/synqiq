@@ -23,6 +23,8 @@ type Studio = {
   mindbody_activated_at: string | null;
   is_demo: boolean;
   custom_monthly_price: number | null;
+  billing_status: string | null;
+  stripe_customer_id: string | null;
   created_at: string;
 };
 
@@ -37,7 +39,7 @@ export default async function PlatformStudiosPage() {
     admin
       .from("organizations")
       .select(
-        "id, name, timezone, mindbody_site_id, mindbody_connected, mindbody_activation_link, mindbody_activated_at, is_demo, custom_monthly_price, created_at",
+        "id, name, timezone, mindbody_site_id, mindbody_connected, mindbody_activation_link, mindbody_activated_at, is_demo, custom_monthly_price, billing_status, stripe_customer_id, created_at",
       )
       .order("created_at")
       .returns<Studio[]>(),
@@ -116,6 +118,26 @@ export default async function PlatformStudiosPage() {
                       ${studio.custom_monthly_price ?? listPrice(modulesByStudio.get(studio.id) ?? [])}/mo
                       {studio.custom_monthly_price !== null ? (
                         <span className="ml-1.5 text-xs font-normal text-muted-foreground">custom</span>
+                      ) : null}
+                      {studio.billing_status ? (
+                        <Badge
+                          variant={studio.billing_status === "active" || studio.billing_status === "trialing" ? "secondary" : "destructive"}
+                          className="ml-1.5"
+                        >
+                          {studio.billing_status === "past_due" ? "payment failed" : studio.billing_status.replace("_", " ")}
+                        </Badge>
+                      ) : studio.custom_monthly_price !== null || studio.is_demo ? null : (
+                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">not billed in Stripe</span>
+                      )}
+                      {studio.stripe_customer_id ? (
+                        <a
+                          href={`https://dashboard.stripe.com/customers/${studio.stripe_customer_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="ml-1.5 text-xs font-normal text-primary hover:underline"
+                        >
+                          Stripe
+                        </a>
                       ) : null}
                     </p>
                     <PlanEditor
