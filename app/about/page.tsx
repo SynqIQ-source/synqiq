@@ -22,17 +22,18 @@ export default function AboutPage() {
 
         <div className="mt-8 space-y-6 text-lg leading-8 text-zinc-600">
           <p>
-            SynqIQ started with a simple frustration: managing instructor substitutions,
-            schedules, and performance across a boutique fitness studio shouldn&apos;t mean
+            SynqIQ started with a simple frustration: running a fitness studio shouldn&apos;t mean
             juggling group texts, spreadsheets, and a half-dozen tools that don&apos;t talk to
-            each other.
+            each other, just to get a class covered, follow up with a guest, or know how your
+            trainers are doing.
           </p>
           <p>
             We built SynqIQ on top of Mindbody — not to replace it, but to give studios the
-            staffing and analytics layer it was never designed to provide. Substitution requests
-            that actually route to the right qualified instructor. Fill-rate and heat-map data
-            that shows you where your programming is working. Instructor performance and trainer
-            health metrics pulled directly from real class and appointment data — not guesswork.
+            staffing, sales and analytics layer it was never designed to provide. Substitution
+            requests that actually route to the right qualified instructor. Fill-rate and heat-map
+            data that shows you where your programming is working. Trainer health metrics pulled
+            directly from real appointment and sales data — not guesswork. And a sales CRM, from
+            the front-desk check-in kiosk to the follow-up that turns a guest into a member.
           </p>
           <p>
             SynqIQ is built and tested inside a real, operating studio, not designed in a vacuum.
@@ -45,12 +46,20 @@ export default function AboutPage() {
         </div>
 
         <div className="mt-12 border-t border-zinc-200 pt-8">
-          <Link
-            href="/contact"
-            className="inline-flex h-11 items-center rounded-md bg-brand-accent px-5 text-sm font-medium text-white hover:bg-brand-accent-hover"
-          >
-            Get in touch
-          </Link>
+          <div className="flex flex-wrap gap-4">
+            <Link
+              href="/signup"
+              className="inline-flex h-11 items-center rounded-md bg-brand-accent px-5 text-sm font-medium text-white hover:bg-brand-accent-hover"
+            >
+              Get started
+            </Link>
+            <Link
+              href="/contact"
+              className="inline-flex h-11 items-center rounded-md border border-zinc-200 px-5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              Get in touch
+            </Link>
+          </div>
         </div>
       </main>
 

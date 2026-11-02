@@ -9,7 +9,7 @@ import { FONT_VARIABLE_CLASS_NAMES } from "@/lib/fonts";
 const DEFAULT_THEME_COLOR = "#0f766e";
 
 const SITE_DESCRIPTION =
-  "Staff scheduling and substitute coverage for fitness studios.";
+  "Sub coverage, member follow-up, trainer productivity and a sales CRM for fitness studios on Mindbody.";
 
 export const metadata: Metadata = {
   // synqiq.co (apex) is the canonical host -- www 308s to it at the Vercel
