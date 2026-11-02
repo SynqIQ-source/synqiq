@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { MarketingHeader } from "@/components/marketing-header";
+import { getOptionalEnv } from "@/lib/env";
 import { SiteFooter } from "@/components/site-footer";
 import { STUDIO_TIMEZONES } from "@/lib/platform/studios";
 import { isModuleKey, type ModuleKey } from "@/lib/plans";
@@ -35,7 +37,18 @@ export default async function SignupPage({
             Checkout was canceled, so nothing was charged. Your details are below if you&apos;d like to try again.
           </p>
         ) : null}
-        <SignupForm timezones={[...STUDIO_TIMEZONES]} preselected={preselected.length ? preselected : ["group_fitness"]} />
+        {/* Until Stripe is configured for this deployment, point people to us instead of a form that can't charge. */}
+        {getOptionalEnv("STRIPE_SECRET_KEY") ? (
+          <SignupForm timezones={[...STUDIO_TIMEZONES]} preselected={preselected.length ? preselected : ["group_fitness"]} />
+        ) : (
+          <p className="mt-8 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-700">
+            Online signup is opening soon. In the meantime,{" "}
+            <Link href="/contact" className="font-medium text-primary hover:underline">
+              talk to us
+            </Link>{" "}
+            and we&apos;ll get your studio set up.
+          </p>
+        )}
       </main>
       <SiteFooter />
     </div>

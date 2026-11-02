@@ -73,6 +73,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     items: [
       { href: "/dashboard/settings", label: "Settings", adminOnly: true },
       { href: "/dashboard/settings/staff", label: "Staff Logins", adminOnly: true },
+      { href: "/dashboard/settings/billing", label: "Billing", adminOnly: true },
       { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true, modules: ["group_fitness"] },
       { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
       { href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", adminOnly: true },
