@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import type Stripe from "stripe";
+import { provisionCheckout } from "@/lib/billing/signup";
 import { getStripe, planPriceId, SAAS_TAX_CODE } from "@/lib/billing/stripe";
 import { TEXT_OVERAGE, TEXTS_INCLUDED, type ModuleKey } from "@/lib/plans";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -92,4 +93,51 @@ export async function chargeTextingOverage(now = DateTime.now().setZone("America
     results.push({ studio: studio.name ?? studio.id, textsSent: sent, charged: amountCents });
   }
   return results;
+}
+
+// Nightly safety net for the webhook: re-reads every billed studio's
+// subscription from Stripe and corrects its status (payment failed,
+// canceled, active again), and finishes any paid signup whose studio was
+// never created (the owner closed the page and the webhook didn't arrive).
+export async function reconcileBilling(inviteRedirect: string) {
+  const admin = createSupabaseAdminClient();
+  const stripe = getStripe();
+  const corrected: { studio: string; from: string | null; to: string }[] = [];
+  // One studio failing (e.g. a subscription made with the test key) never stops the rest.
+  const failed: { studio: string; error: string }[] = [];
+  const { data: studios } = await admin
+    .from("organizations")
+    .select("id, name, billing_status, stripe_subscription_id")
+    .not("stripe_subscription_id", "is", null);
+  for (const studio of studios ?? []) {
+    try {
+      const subscription = await stripe.subscriptions.retrieve(studio.stripe_subscription_id!);
+      if (subscription.status !== studio.billing_status) {
+        await syncSubscriptionStatus(subscription);
+        corrected.push({ studio: studio.name ?? studio.id, from: studio.billing_status, to: subscription.status });
+      }
+    } catch (error) {
+      failed.push({ studio: studio.name ?? studio.id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // Signups still pending after an hour (abandoned checkouts stay pending
+  // and are skipped once Stripe says unpaid).
+  const provisioned: string[] = [];
+  const { data: pending } = await admin
+    .from("studio_signups")
+    .select("checkout_session_id, name")
+    .eq("status", "pending")
+    .not("checkout_session_id", "is", null)
+    .lt("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString())
+    .gt("created_at", new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString());
+  for (const signup of pending ?? []) {
+    try {
+      const result = await provisionCheckout(signup.checkout_session_id!, inviteRedirect);
+      if (result.status === "provisioned") provisioned.push(signup.name);
+    } catch (error) {
+      failed.push({ studio: signup.name, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { checked: studios?.length ?? 0, corrected, provisioned, failed };
 }
