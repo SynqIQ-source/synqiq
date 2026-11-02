@@ -9,6 +9,7 @@ import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scope
 import { formatClassTime } from "@/lib/format-class-time";
 import { DateNav } from "./date-nav";
 import { SubRequestButton } from "./sub-request-button";
+import { requireModule } from "@/lib/modules";
 
 const TITLE = "My Schedule";
 const DESCRIPTION =
@@ -83,6 +84,8 @@ export default async function SchedulePage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   const params = await searchParams;
 
   // middleware.ts already guarantees a real Supabase Auth session for

@@ -1,3 +1,4 @@
+import { isModuleKey, type ModuleKey } from "@/lib/plans";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 // Adding a studio (platform admins only): the organization, its modules,
@@ -21,7 +22,7 @@ export type NewStudio = {
   name: string;
   timezone: string;
   mindbodySiteId: number | null;
-  crm: boolean;
+  modules: ModuleKey[];
   owner: { firstName: string; lastName: string; email: string };
 };
 
@@ -46,7 +47,7 @@ export function parseNewStudio(body: Record<string, unknown> | null): NewStudio 
     name,
     timezone,
     mindbodySiteId: siteRaw ? Number(siteRaw) : null,
-    crm: body?.crm === true,
+    modules: Array.isArray(body?.modules) ? [...new Set(body.modules.filter(isModuleKey))] : [],
     owner: { firstName, lastName, email },
   };
 }
@@ -80,8 +81,10 @@ export async function createStudio(
     .single();
   if (orgError) throw orgError;
 
-  if (studio.crm) {
-    const { error } = await admin.from("org_modules").insert({ organization_id: org.id, module: "crm" });
+  if (studio.modules.length) {
+    const { error } = await admin
+      .from("org_modules")
+      .insert(studio.modules.map((module) => ({ organization_id: org.id, module })));
     if (error) throw error;
   }
 

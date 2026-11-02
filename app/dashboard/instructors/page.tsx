@@ -10,6 +10,7 @@ import { isJunkClassName, normalizeClassName } from "@/lib/excluded-class-names"
 import { RangeSelect } from "./range-select";
 import { ClassFilterSelect } from "./class-filter-select";
 import { InstructorTable } from "./instructor-table";
+import { requireModule } from "@/lib/modules";
 
 type StaffRow = { id: string; display_name: string };
 type SubstitutionRequestRow = {
@@ -351,6 +352,8 @@ export default async function InstructorsPage({
     class?: string;
   }>;
 }) {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   const params = await searchParams;
 
   const currentStaff = await getCurrentStaff();

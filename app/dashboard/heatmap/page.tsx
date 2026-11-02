@@ -6,6 +6,7 @@ import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scope
 import { RoomSelect } from "./room-select";
 import { RangeSelect } from "./range-select";
 import { WeekNav } from "./week-nav";
+import { requireModule } from "@/lib/modules";
 
 type Room = { id: string; name: string };
 
@@ -209,6 +210,8 @@ export default async function HeatmapPage({
     week?: string;
   }>;
 }) {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   const params = await searchParams;
 
   // Adam's real session -> RLS-scoped client, so the same-org select

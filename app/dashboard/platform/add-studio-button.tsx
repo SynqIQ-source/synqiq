@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { listPrice, MODULES, type ModuleKey } from "@/lib/plans";
 
 const EMPTY = { name: "", timezone: "America/Chicago", mindbodySiteId: "", firstName: "", lastName: "", email: "" };
 
@@ -24,7 +25,7 @@ export function AddStudioButton({ timezones }: { timezones: { value: string; lab
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(EMPTY);
-  const [crm, setCrm] = useState(true);
+  const [modules, setModules] = useState<ModuleKey[]>(["group_fitness"]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -43,7 +44,7 @@ export function AddStudioButton({ timezones }: { timezones: { value: string; lab
           name: form.name,
           timezone: form.timezone,
           mindbodySiteId: form.mindbodySiteId,
-          crm,
+          modules,
           owner: { firstName: form.firstName, lastName: form.lastName, email: form.email },
         }),
       });
@@ -69,7 +70,7 @@ export function AddStudioButton({ timezones }: { timezones: { value: string; lab
         setOpen(next);
         if (next) {
           setForm(EMPTY);
-          setCrm(true);
+          setModules(["group_fitness"]);
           setError(null);
           setDone(null);
         }
@@ -144,10 +145,25 @@ export function AddStudioButton({ timezones }: { timezones: { value: string; lab
                 </div>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={crm} onChange={(event) => setCrm(event.target.checked)} />
-              Turn on the sales CRM (kiosk, guests, follow-ups)
-            </label>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">
+                Modules <span className="font-normal text-muted-foreground">· ${listPrice(modules)}/mo</span>
+              </p>
+              {MODULES.map((module) => (
+                <label key={module.key} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={modules.includes(module.key)}
+                    onChange={(event) =>
+                      setModules((current) =>
+                        event.target.checked ? [...current, module.key] : current.filter((key) => key !== module.key),
+                      )
+                    }
+                  />
+                  {module.name} <span className="text-muted-foreground">· {module.summary}</span>
+                </label>
+              ))}
+            </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setOpen(false)}>

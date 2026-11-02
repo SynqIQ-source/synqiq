@@ -5,9 +5,11 @@ import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requirePlatformAdmin } from "@/lib/platform/admin";
 import { STUDIO_TIMEZONES } from "@/lib/platform/studios";
+import { isModuleKey, listPrice, TEXT_OVERAGE, TEXTS_INCLUDED, type ModuleKey } from "@/lib/plans";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { AddStudioButton } from "./add-studio-button";
 import { MindbodyActions } from "./mindbody-actions";
+import { PlanEditor } from "./plan-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +22,7 @@ type Studio = {
   mindbody_activation_link: string | null;
   mindbody_activated_at: string | null;
   is_demo: boolean;
+  custom_monthly_price: number | null;
   created_at: string;
 };
 
@@ -29,11 +32,12 @@ type Studio = {
 export default async function PlatformStudiosPage() {
   await requirePlatformAdmin();
   const admin = createSupabaseAdminClient();
+  const monthStart = DateTime.now().setZone("America/Chicago").startOf("month").toUTC().toISO()!;
   const [studiosResult, staffResult, modulesResult] = await Promise.all([
     admin
       .from("organizations")
       .select(
-        "id, name, timezone, mindbody_site_id, mindbody_connected, mindbody_activation_link, mindbody_activated_at, is_demo, created_at",
+        "id, name, timezone, mindbody_site_id, mindbody_connected, mindbody_activation_link, mindbody_activated_at, is_demo, custom_monthly_price, created_at",
       )
       .order("created_at")
       .returns<Studio[]>(),
@@ -42,11 +46,31 @@ export default async function PlatformStudiosPage() {
   ]);
   if (studiosResult.error) throw new Error("Failed to load studios.");
   const studios = studiosResult.data ?? [];
+  // Texts sent this month, against each plan's allowance (an exact count,
+  // not rows, which would stop at 1,000).
+  const texts = new Map<string, number>();
+  await Promise.all(
+    studios.map(async (studio) => {
+      const { count } = await admin
+        .from("crm_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", studio.id)
+        .eq("channel", "sms")
+        .eq("direction", "outbound")
+        .neq("status", "failed")
+        .gte("created_at", monthStart);
+      texts.set(studio.id, count ?? 0);
+    }),
+  );
   const logins = new Map<string, number>();
   for (const row of staffResult.data ?? []) {
     if (row.auth_user_id) logins.set(row.organization_id, (logins.get(row.organization_id) ?? 0) + 1);
   }
-  const crm = new Set((modulesResult.data ?? []).filter((row) => row.module === "crm").map((row) => row.organization_id));
+  const modulesByStudio = new Map<string, ModuleKey[]>();
+  for (const row of modulesResult.data ?? []) {
+    if (!isModuleKey(row.module)) continue;
+    modulesByStudio.set(row.organization_id, [...(modulesByStudio.get(row.organization_id) ?? []), row.module]);
+  }
   const zoneLabel = (zone: string | null) => STUDIO_TIMEZONES.find((item) => item.value === zone)?.label ?? zone ?? "—";
 
   return (
@@ -63,6 +87,8 @@ export default async function PlatformStudiosPage() {
                 <TableHead>Studio</TableHead>
                 <TableHead>Time zone</TableHead>
                 <TableHead>Logins</TableHead>
+                <TableHead>Plan</TableHead>
+                <TableHead>Texts this month</TableHead>
                 <TableHead>Mindbody</TableHead>
                 <TableHead />
               </TableRow>
@@ -81,11 +107,37 @@ export default async function PlatformStudiosPage() {
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Added {DateTime.fromISO(studio.created_at).toFormat("LLL d, yyyy")}
-                      {crm.has(studio.id) ? " · CRM" : ""}
                     </p>
                   </TableCell>
                   <TableCell>{zoneLabel(studio.timezone)}</TableCell>
                   <TableCell className="tabular-nums">{logins.get(studio.id) ?? 0}</TableCell>
+                  <TableCell className="min-w-72">
+                    <p className="mb-1 font-medium tabular-nums">
+                      ${studio.custom_monthly_price ?? listPrice(modulesByStudio.get(studio.id) ?? [])}/mo
+                      {studio.custom_monthly_price !== null ? (
+                        <span className="ml-1.5 text-xs font-normal text-muted-foreground">custom</span>
+                      ) : null}
+                    </p>
+                    <PlanEditor
+                      studioId={studio.id}
+                      modules={modulesByStudio.get(studio.id) ?? []}
+                      customPrice={studio.custom_monthly_price === null ? null : Number(studio.custom_monthly_price)}
+                    />
+                  </TableCell>
+                  <TableCell className="tabular-nums">
+                    {(modulesByStudio.get(studio.id) ?? []).includes("crm") ? (
+                      <>
+                        {(texts.get(studio.id) ?? 0).toLocaleString()} / {TEXTS_INCLUDED.toLocaleString()}
+                        {(texts.get(studio.id) ?? 0) > TEXTS_INCLUDED ? (
+                          <span className="block text-xs text-destructive">
+                            +${(((texts.get(studio.id) ?? 0) - TEXTS_INCLUDED) * TEXT_OVERAGE).toFixed(2)} over
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {studio.mindbody_site_id === null ? (
                       <span className="text-muted-foreground">{studio.is_demo ? "Made-up data, refreshed nightly" : "No site"}</span>

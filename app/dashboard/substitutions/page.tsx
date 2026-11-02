@@ -6,6 +6,7 @@ import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scope
 import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { CandidatesButton } from "./candidates-button";
 import { RequestNewSubButton } from "./request-new-sub-button";
+import { requireModule } from "@/lib/modules";
 
 const TITLE = "Substitutions";
 const DESCRIPTION = "Open and upcoming coverage requests, soonest class first.";
@@ -93,6 +94,8 @@ function formatStartTime(startDatetime: string | null, timezone: string | null) 
 }
 
 export default async function SubstitutionsPage() {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   // middleware.ts already guarantees a real Supabase Auth session for
   // anything under /dashboard/* -- currentStaff can still be null here in
   // one narrow case (a valid session with no linked staff row), handled

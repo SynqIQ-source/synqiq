@@ -18,6 +18,9 @@ export function SiteFooter() {
           </a>
         </p>
         <nav className="flex items-center gap-5">
+          <Link href="/pricing" className="hover:text-zinc-950">
+            Pricing
+          </Link>
           <Link href="/privacy" className="hover:text-zinc-950">
             Privacy
           </Link>

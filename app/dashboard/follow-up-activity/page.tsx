@@ -12,6 +12,7 @@ import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scope
 import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { cn } from "@/lib/utils";
 import { FollowUpRangeSelect } from "./range-select";
+import { requireModule } from "@/lib/modules";
 
 const PAGE_SIZE = 1000;
 const RANGE_DAYS: Record<string, number> = { "7": 7, "30": 30, "90": 90 };
@@ -107,6 +108,8 @@ export default async function FollowUpActivityPage({
 }: {
   searchParams: Promise<{ range?: string; instructor?: string }>;
 }) {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   const currentStaff = await getCurrentStaff();
 
   // Admin-only: this page exposes every instructor's messages to members.

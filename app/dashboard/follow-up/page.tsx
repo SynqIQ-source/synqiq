@@ -6,6 +6,8 @@ import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scope
 import { FollowUpComposer } from "./follow-up-composer";
 import { FollowUpTabs } from "@/components/crm/follow-up-tabs";
 import { isCrmEnabled } from "@/lib/crm/module";
+import { redirect } from "next/navigation";
+import { getEnabledModules, requireModule } from "@/lib/modules";
 
 const TITLE = "Follow Up";
 const DESCRIPTION =
@@ -42,6 +44,12 @@ async function getOrgTimezone(supabase: ScopedSupabaseClient) {
 }
 
 export default async function FollowUpPage() {
+  // Class follow-ups are the group fitness module; a CRM-only studio's
+  // trainers land on their New members tab instead.
+  const moduleStaff = await requireModule("group_fitness", "crm");
+  if (!(await getEnabledModules(moduleStaff.organizationId)).has("group_fitness")) {
+    redirect("/dashboard/follow-up/new-members");
+  }
   const currentStaff = await getCurrentStaff();
 
   if (!currentStaff) {

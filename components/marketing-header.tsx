@@ -13,6 +13,9 @@ export function MarketingHeader() {
           <span className="text-lg font-semibold text-zinc-950">SynqIQ</span>
         </Link>
         <nav className="flex items-center gap-6 text-sm font-medium text-zinc-600">
+          <Link href="/pricing" className="hover:text-zinc-950">
+            Pricing
+          </Link>
           <Link href="/about" className="hover:text-zinc-950">
             About
           </Link>

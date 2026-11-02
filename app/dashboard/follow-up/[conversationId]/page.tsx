@@ -6,6 +6,7 @@ import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { ReplyBox } from "./reply-box";
+import { requireModule } from "@/lib/modules";
 
 const TITLE = "Follow Up";
 
@@ -34,6 +35,8 @@ export default async function FollowUpThreadPage({
 }: {
   params: Promise<{ conversationId: string }>;
 }) {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   const { conversationId } = await params;
   const currentStaff = await getCurrentStaff();
 

@@ -5,6 +5,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { loadItemClassifier } from "@/lib/mindbody/item-types";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { TrainerHealthTable } from "./trainer-health-table";
+import { requireModule } from "@/lib/modules";
 
 const MONTHS_SHOWN = 6;
 const PAGE_SIZE = 1000;
@@ -347,6 +348,8 @@ function buildStudioSummary(
 }
 
 export default async function TrainerHealthPage() {
+  // Part of the trainer module: 404 when the studio doesn't have it.
+  await requireModule("trainer");
   const currentStaff = await getCurrentStaff();
 
   if (!currentStaff || currentStaff.role !== "admin") {

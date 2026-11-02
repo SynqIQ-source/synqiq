@@ -4,8 +4,11 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { isExcludedDepartmentName } from "@/lib/excluded-departments";
 import { EligibilityTable, type DepartmentRow } from "./eligibility-table";
+import { requireModule } from "@/lib/modules";
 
 export default async function EligibilitySettingsPage() {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   const currentStaff = await getCurrentStaff();
 
   // Real page-level guard, same as /dashboard/settings and

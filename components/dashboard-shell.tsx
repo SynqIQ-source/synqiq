@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { getEnabledModules } from "@/lib/modules";
+import type { ModuleKey } from "@/lib/plans";
 import { getPlatformAdmin } from "@/lib/platform/admin";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
@@ -11,7 +13,13 @@ import { unreadGuestMessageCount } from "@/lib/crm/unread";
 // crm: shown only when the org has the CRM module -- "staff" to admins and
 // sellers (can_sell), "admin" to admins only.
 // platform: shown only to SynqIQ platform admins (lib/platform/admin.ts).
-type NavEntry = NavItem & { adminOnly: boolean; crm?: "staff" | "admin"; platform?: boolean };
+// modules: shown only when the studio has at least one of these modules on.
+type NavEntry = NavItem & {
+  adminOnly: boolean;
+  crm?: "staff" | "admin";
+  platform?: boolean;
+  modules?: ModuleKey[];
+};
 
 // Grouped so the sidebar reads as "what I do every day" / "how the studio is
 // doing" / "setup", instead of one flat list of 16 links.
@@ -29,10 +37,10 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
   {
     label: "Teaching",
     items: [
-      { href: "/dashboard/schedule", label: "My Schedule", adminOnly: false },
-      { href: "/dashboard/classes", label: "Classes", adminOnly: false },
-      { href: "/dashboard/sub-requests", label: "Sub Requests", adminOnly: false },
-      { href: "/dashboard/follow-up", label: "Follow Up", adminOnly: false },
+      { href: "/dashboard/schedule", label: "My Schedule", adminOnly: false, modules: ["group_fitness"] },
+      { href: "/dashboard/classes", label: "Classes", adminOnly: false, modules: ["group_fitness"] },
+      { href: "/dashboard/sub-requests", label: "Sub Requests", adminOnly: false, modules: ["group_fitness"] },
+      { href: "/dashboard/follow-up", label: "Follow Up", adminOnly: false, modules: ["group_fitness", "crm"] },
       { href: "/dashboard/messages", label: "Message Boards", adminOnly: false },
       { href: "/dashboard/notifications", label: "Notifications", adminOnly: false },
     ],
@@ -52,11 +60,11 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
   {
     label: "Insights",
     items: [
-      { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true },
-      { href: "/dashboard/instructors", label: "Instructors", adminOnly: true },
-      { href: "/dashboard/trainer-health", label: "Trainer Health", adminOnly: true },
-      { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true },
-      { href: "/dashboard/follow-up-activity", label: "Follow-ups", adminOnly: true },
+      { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true, modules: ["group_fitness"] },
+      { href: "/dashboard/instructors", label: "Instructors", adminOnly: true, modules: ["group_fitness"] },
+      { href: "/dashboard/trainer-health", label: "Trainer Health", adminOnly: true, modules: ["trainer"] },
+      { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true, modules: ["group_fitness"] },
+      { href: "/dashboard/follow-up-activity", label: "Follow-ups", adminOnly: true, modules: ["group_fitness"] },
       { href: "/dashboard/comp-audit", label: "Comp Audit", adminOnly: true },
     ],
   },
@@ -65,7 +73,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     items: [
       { href: "/dashboard/settings", label: "Settings", adminOnly: true },
       { href: "/dashboard/settings/staff", label: "Staff Logins", adminOnly: true },
-      { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true },
+      { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true, modules: ["group_fitness"] },
       { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
       { href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", adminOnly: true },
       { href: "/dashboard/settings/crm", label: "CRM", adminOnly: true, crm: "admin" },
@@ -119,6 +127,8 @@ export async function DashboardShell({ children, title, description, actions }: 
   const crmEnabled = currentStaff ? await isCrmEnabled(currentStaff.organizationId) : false;
   // Platform admins are always admins of their own studio, so only admins pay for the lookup.
   const isPlatformAdmin = isAdmin && Boolean(await getPlatformAdmin());
+  // No session (dropdown mode) keeps the full nav, as before modules existed.
+  const enabledModules = currentStaff ? await getEnabledModules(currentStaff.organizationId) : null;
   // Unread guest texts/emails, shown as a count on "Guests" -- or, for
   // trainers (who work assigned new members), on "Follow Up".
   const guestUnread = currentStaff && crmEnabled ? await unreadGuestMessageCount(currentStaff) : 0;
@@ -130,7 +140,9 @@ export async function DashboardShell({ children, title, description, actions }: 
     .map((group) => ({
       label: group.label,
       items: group.items
-        .filter((item) => (!item.adminOnly || isAdmin) && showCrm(item) && (!item.platform || isPlatformAdmin))
+        .filter((item) => (!item.adminOnly || isAdmin) && showCrm(item) && (!item.platform || isPlatformAdmin) &&
+            (!item.modules || !enabledModules || item.modules.some((module) => enabledModules.has(module))),
+        )
         .map(({ href, label }) => ({ href, label, badge: href === unreadHref ? guestUnread : undefined })),
     }))
     .filter((group) => group.items.length > 0);

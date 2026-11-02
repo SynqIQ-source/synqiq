@@ -10,6 +10,7 @@ import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scope
 import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { HistoryWindowSelect } from "./history-window-select";
 import { PeriodNav } from "./period-nav";
+import { requireModule } from "@/lib/modules";
 
 type TableOccurrenceRow = {
   id: string;
@@ -238,6 +239,8 @@ export default async function ClassesPage({
     historyEnd?: string;
   }>;
 }) {
+  // Part of the group fitness module: 404 when the studio doesn't have it.
+  await requireModule("group_fitness");
   const params = await searchParams;
 
   // Adam's real session -> RLS-scoped client, so the same-org select
