@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { percent } from "@/lib/crm/funnel";
-import { requireCrmStaff } from "@/lib/crm/module";
+import { requireModule } from "@/lib/modules";
 import { loadNewMembers, newMemberStats } from "@/lib/crm/new-members";
 import { INTRO_LABELS } from "@/lib/crm/onboarding";
 import { getCrmOrg } from "@/lib/crm/org";
@@ -36,7 +36,8 @@ export default async function NewMembersPage({
 }: {
   searchParams: Promise<{ range?: string; start?: string; end?: string; trainer?: string }>;
 }) {
-  const staff = await requireCrmStaff();
+  // Part of the Trainer module (admins): 404 otherwise.
+  const staff = await requireModule("trainer");
   if (staff.role !== "admin") notFound();
   const params = await searchParams;
   const supabase = await getScopedClient(staff);

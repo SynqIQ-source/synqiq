@@ -3,7 +3,7 @@ import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { delay, withRetry } from "@/lib/retry";
 import { siteIdOr } from "@/lib/sync/sites";
-import { isCrmEnabled } from "@/lib/crm/module";
+import { getEnabledModules } from "@/lib/modules";
 import { recordEnrollments } from "@/lib/crm/onboarding";
 import type { MindbodyClientRecord } from "@/types/mindbody";
 
@@ -69,7 +69,8 @@ export async function syncClients(
       .from("clients")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", org.id);
-    const detectEnrollments = (knownClients ?? 0) > 0 && (await isCrmEnabled(org.id));
+    // New-member onboarding is part of the Trainer module.
+    const detectEnrollments = (knownClients ?? 0) > 0 && (await getEnabledModules(org.id)).has("trainer");
     const newlyActive: MindbodyClientRecord[] = [];
 
     let imported = 0;

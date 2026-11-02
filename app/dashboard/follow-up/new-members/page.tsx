@@ -5,7 +5,7 @@ import { FollowUpTabs } from "@/components/crm/follow-up-tabs";
 import { PresetRangeSelect } from "@/components/dashboard/preset-range-select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { requireCrmModuleStaff } from "@/lib/crm/module";
+import { requireModule } from "@/lib/modules";
 import { loadNewMembers, newMemberStats } from "@/lib/crm/new-members";
 import { INTRO_LABELS, type IntroStatus } from "@/lib/crm/onboarding";
 import { getCrmOrg } from "@/lib/crm/org";
@@ -38,7 +38,8 @@ export default async function TrainerNewMembersPage({
 }: {
   searchParams: Promise<{ range?: string; start?: string; end?: string }>;
 }) {
-  const staff = await requireCrmModuleStaff();
+  // Part of the Trainer module: 404 when the studio doesn't have it.
+  const staff = await requireModule("trainer");
   const params = await searchParams;
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);

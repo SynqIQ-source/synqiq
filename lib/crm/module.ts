@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { getEnabledModules } from "@/lib/modules";
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStaff, type CurrentStaff } from "@/lib/current-staff";
@@ -67,9 +68,16 @@ async function isAssignedTrainer(staff: CurrentStaff, contactId: string): Promis
 
 // For a profile page: CRM staff, or the member's assigned trainer, in an
 // org with the module; else 404.
+// Member profiles exist with the CRM (guests) or the Trainer module (new
+// members and their trainers' follow-up), so either one opens them.
+async function hasContactModule(organizationId: string): Promise<boolean> {
+  const modules = await getEnabledModules(organizationId);
+  return modules.has("crm") || modules.has("trainer");
+}
+
 export async function requireContactViewer(contactId: string): Promise<ContactViewer> {
   const staff = await getCurrentStaff();
-  if (!staff || !(await isCrmEnabled(staff.organizationId))) notFound();
+  if (!staff || !(await hasContactModule(staff.organizationId))) notFound();
   if (canUseCrm(staff)) return { staff, full: true };
   if (await isAssignedTrainer(staff, contactId)) return { staff, full: false };
   notFound();
@@ -78,7 +86,7 @@ export async function requireContactViewer(contactId: string): Promise<ContactVi
 // Same check for API routes on one contact; null when not allowed.
 export async function getContactViewerForApi(contactId: string): Promise<ContactViewer | null> {
   const staff = await getCurrentStaff();
-  if (!staff || !(await isCrmEnabled(staff.organizationId))) return null;
+  if (!staff || !(await hasContactModule(staff.organizationId))) return null;
   if (canUseCrm(staff)) return { staff, full: true };
   return (await isAssignedTrainer(staff, contactId)) ? { staff, full: false } : null;
 }

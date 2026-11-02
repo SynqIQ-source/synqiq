@@ -5,7 +5,6 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { FollowUpComposer } from "./follow-up-composer";
 import { FollowUpTabs } from "@/components/crm/follow-up-tabs";
-import { isCrmEnabled } from "@/lib/crm/module";
 import { redirect } from "next/navigation";
 import { getEnabledModules, requireModule } from "@/lib/modules";
 
@@ -44,9 +43,9 @@ async function getOrgTimezone(supabase: ScopedSupabaseClient) {
 }
 
 export default async function FollowUpPage() {
-  // Class follow-ups are the group fitness module; a CRM-only studio's
+  // Class follow-ups are the group fitness module; a Trainer-only studio's
   // trainers land on their New members tab instead.
-  const moduleStaff = await requireModule("group_fitness", "crm");
+  const moduleStaff = await requireModule("group_fitness", "trainer");
   if (!(await getEnabledModules(moduleStaff.organizationId)).has("group_fitness")) {
     redirect("/dashboard/follow-up/new-members");
   }
@@ -161,9 +160,10 @@ export default async function FollowUpPage() {
 
   // With the CRM module, a second tab lists new members assigned to this
   // trainer; the badge counts the ones they haven't reached out to yet.
-  const crmEnabled = await isCrmEnabled(currentStaff.organizationId);
+  // The New members tab is the Trainer module.
+  const newMembersTab = (await getEnabledModules(currentStaff.organizationId)).has("trainer");
   let awaitingOutreach = 0;
-  if (crmEnabled) {
+  if (newMembersTab) {
     const { data: assigned } = await supabase
       .from("crm_contacts")
       .select("id, trainer_assigned_at")
@@ -193,7 +193,7 @@ export default async function FollowUpPage() {
 
   return (
     <DashboardShell title={TITLE} description={DESCRIPTION}>
-      {crmEnabled ? <FollowUpTabs active="classes" newMembersBadge={awaitingOutreach} /> : null}
+      {newMembersTab ? <FollowUpTabs active="classes" newMembersBadge={awaitingOutreach} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           Checked in during the last {ROSTER_WINDOW_DAYS} days

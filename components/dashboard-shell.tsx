@@ -40,7 +40,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/schedule", label: "My Schedule", adminOnly: false, modules: ["group_fitness"] },
       { href: "/dashboard/classes", label: "Classes", adminOnly: false, modules: ["group_fitness"] },
       { href: "/dashboard/sub-requests", label: "Sub Requests", adminOnly: false, modules: ["group_fitness"] },
-      { href: "/dashboard/follow-up", label: "Follow Up", adminOnly: false, modules: ["group_fitness", "crm"] },
+      { href: "/dashboard/follow-up", label: "Follow Up", adminOnly: false, modules: ["group_fitness", "trainer"] },
       { href: "/dashboard/messages", label: "Message Boards", adminOnly: false },
       { href: "/dashboard/notifications", label: "Notifications", adminOnly: false },
     ],
@@ -54,7 +54,6 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/sales/calendar", label: "Calendar", adminOnly: false, crm: "staff" },
       { href: "/dashboard/sales/lead-status", label: "Lead Status", adminOnly: false, crm: "staff" },
       { href: "/dashboard/sales/follow-ups", label: "Lead Follow-ups", adminOnly: false, crm: "staff" },
-      { href: "/dashboard/sales/new-members", label: "New Members", adminOnly: true, crm: "admin" },
     ],
   },
   {
@@ -63,6 +62,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true, modules: ["group_fitness"] },
       { href: "/dashboard/instructors", label: "Instructors", adminOnly: true, modules: ["group_fitness"] },
       { href: "/dashboard/trainer-health", label: "Trainer Health", adminOnly: true, modules: ["trainer"] },
+      { href: "/dashboard/sales/new-members", label: "New Members", adminOnly: true, modules: ["trainer"] },
       { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true, modules: ["group_fitness"] },
       { href: "/dashboard/follow-up-activity", label: "Follow-ups", adminOnly: true, modules: ["group_fitness"] },
       { href: "/dashboard/comp-audit", label: "Comp Audit", adminOnly: true },
@@ -131,8 +131,10 @@ export async function DashboardShell({ children, title, description, actions }: 
   const enabledModules = currentStaff ? await getEnabledModules(currentStaff.organizationId) : null;
   // Unread guest texts/emails, shown as a count on "Guests" -- or, for
   // trainers (who work assigned new members), on "Follow Up".
-  const guestUnread = currentStaff && crmEnabled ? await unreadGuestMessageCount(currentStaff) : 0;
-  const unreadHref = currentStaff && canUseCrm(currentStaff) ? "/dashboard/guests" : "/dashboard/follow-up";
+  const guestUnread =
+    currentStaff && (crmEnabled || enabledModules?.has("trainer")) ? await unreadGuestMessageCount(currentStaff) : 0;
+  const unreadHref =
+    currentStaff && crmEnabled && canUseCrm(currentStaff) ? "/dashboard/guests" : "/dashboard/follow-up";
   const showCrm = (entry: NavEntry) =>
     !entry.crm || (crmEnabled && currentStaff !== null && (entry.crm === "admin" ? isAdmin : canUseCrm(currentStaff)));
 

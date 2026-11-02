@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmStaffForApi } from "@/lib/crm/module";
+import { getCurrentStaff } from "@/lib/current-staff";
+import { getEnabledModules } from "@/lib/modules";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 import { sendPushToStaff } from "@/lib/push/send";
 
@@ -9,8 +10,11 @@ import { sendPushToStaff } from "@/lib/push/send";
 // member's profile, and the trainer gets a push notification.
 export async function POST(request: NextRequest) {
   try {
-    const staff = await getCrmStaffForApi({ adminOnly: true });
-    if (!staff) return jsonError("Not found.", 404);
+    // Admins of a studio with the Trainer module.
+    const staff = await getCurrentStaff();
+    if (!staff || staff.role !== "admin" || !(await getEnabledModules(staff.organizationId)).has("trainer")) {
+      return jsonError("Not found.", 404);
+    }
 
     const body = await readJsonBody(request);
     const contactIds = Array.isArray(body?.contactIds) ? body.contactIds : null;
