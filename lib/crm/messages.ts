@@ -136,7 +136,13 @@ export async function sendGuestMessage(
 
 // Who hears about a guest's new message: a member's assigned trainer, else
 // their salesperson, or every admin when nobody's assigned.
-async function notifyStaff(admin: SupabaseClient, organizationId: string, contactId: string, channel: "sms" | "email") {
+async function notifyStaff(
+  admin: SupabaseClient,
+  organizationId: string,
+  contactId: string,
+  channel: "sms" | "email" | "web",
+  isNewLead = false,
+) {
   const { data: contact } = await admin
     .from("crm_contacts")
     .select("first_name, last_name, assigned_staff_id, trainer_staff_id")
@@ -155,8 +161,11 @@ async function notifyStaff(admin: SupabaseClient, organizationId: string, contac
     staffIds = (admins ?? []).map((row) => row.id);
   }
   await sendPushToStaff(staffIds, {
-    title: `New ${channel === "sms" ? "text" : "email"} from ${contact.first_name} ${contact.last_name.charAt(0)}.`,
-    body: "Open the guest to reply.",
+    title:
+      channel === "web"
+        ? `${isNewLead ? "New website lead" : "Website form"}: ${contact.first_name} ${contact.last_name.charAt(0)}.`.replace(/ \.$/, "")
+        : `New ${channel === "sms" ? "text" : "email"} from ${contact.first_name} ${contact.last_name.charAt(0)}.`,
+    body: channel === "web" ? "Open the guest to follow up." : "Open the guest to reply.",
     url: `/dashboard/guests/${contactId}`,
   });
 }
@@ -166,10 +175,11 @@ export async function recordInbound(
   params: {
     organizationId: string;
     contactId: string;
-    channel: "sms" | "email";
+    channel: "sms" | "email" | "web";
     body: string;
     subject?: string | null;
     providerMessageId?: string | null;
+    isNewLead?: boolean;
   },
 ) {
   const now = new Date().toISOString();
@@ -194,5 +204,7 @@ export async function recordInbound(
   });
   if (error) throw error;
   await admin.from("crm_contacts").update({ last_message_at: now }).eq("id", params.contactId);
-  await notifyStaff(admin, params.organizationId, params.contactId, params.channel).catch(() => undefined);
+  await notifyStaff(admin, params.organizationId, params.contactId, params.channel, params.isNewLead).catch(
+    () => undefined,
+  );
 }

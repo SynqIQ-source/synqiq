@@ -252,7 +252,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   }
   const threadMessages: ThreadMessage[] = rawMessages.map((m) => ({
     id: m.id,
-    channel: m.channel as "sms" | "email" | "call",
+    channel: m.channel as ThreadMessage["channel"],
     direction: m.direction as "outbound" | "inbound",
     body: m.body,
     subject: m.subject,

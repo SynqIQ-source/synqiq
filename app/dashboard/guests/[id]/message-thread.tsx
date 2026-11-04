@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, MessageSquare, Phone } from "lucide-react";
+import { Globe, Mail, MessageSquare, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 export type ThreadMessage = {
   id: string;
-  channel: "sms" | "email" | "call";
+  channel: "sms" | "email" | "call" | "web";
   direction: "outbound" | "inbound";
   body: string;
   subject: string | null;
@@ -89,7 +89,14 @@ export function MessageThread({
         ) : (
           messages.map((message) => {
             const outbound = message.direction === "outbound";
-            const Icon = message.channel === "sms" ? MessageSquare : message.channel === "call" ? Phone : Mail;
+            const Icon =
+              message.channel === "sms"
+                ? MessageSquare
+                : message.channel === "call"
+                  ? Phone
+                  : message.channel === "web"
+                    ? Globe
+                    : Mail;
             return (
               <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
                 <div
@@ -102,6 +109,9 @@ export function MessageThread({
                     <p className="text-xs font-semibold">{message.subject}</p>
                   ) : null}
                   {message.channel === "call" ? <p className="text-xs font-semibold">Call logged</p> : null}
+                  {message.channel === "web" ? (
+                    <p className="text-xs font-semibold">{message.subject ?? "Website form"}</p>
+                  ) : null}
                   <p className="whitespace-pre-wrap">{message.body}</p>
                   <p
                     className={cn(

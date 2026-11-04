@@ -404,3 +404,211 @@ export function EmailCheckCard() {
     </Card>
   );
 }
+
+// --- Website forms -------------------------------------------------------------
+
+type LeadForm = {
+  id: string;
+  name: string;
+  how_heard_label: string | null;
+  assigned_staff_id: string | null;
+  revoked_at: string | null;
+  last_received_at: string | null;
+  submission_count: number;
+};
+
+const FIELD_HELP =
+  "fullName (or firstName + lastName), email, phone, message, optInToEmailCommunications, optInToSMSCommunications";
+
+export function LeadFormsCard({
+  forms,
+  sources,
+  staff,
+  timezone,
+}: {
+  forms: LeadForm[];
+  sources: { label: string; active: boolean }[];
+  staff: { id: string; display_name: string; can_sell: boolean }[];
+  timezone: string;
+}) {
+  const { busy, error, run } = useAction();
+  const [name, setName] = useState("");
+  const [howHeard, setHowHeard] = useState("");
+  const [owner, setOwner] = useState("");
+  const [shown, setShown] = useState<{ formName: string; url: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const local = (iso: string) => DateTime.fromISO(iso).setZone(timezone).toFormat("LLL d, h:mm a");
+  const active = forms.filter((form) => !form.revoked_at);
+  const sellers = staff.filter((member) => member.can_sell);
+  const staffName = (id: string | null) => staff.find((member) => member.id === id)?.display_name ?? null;
+  const selectClass =
+    "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+  async function create(event: React.FormEvent) {
+    event.preventDefault();
+    const result = await run(() =>
+      send("/api/crm/lead-forms", "POST", { name, howHeardLabel: howHeard || null, assignedStaffId: owner || null }),
+    );
+    if (result) {
+      setShown({ formName: name, url: result.url });
+      setCopied(false);
+      setName("");
+    }
+  }
+
+  async function newUrl(form: LeadForm) {
+    const result = await run(() => send(`/api/crm/lead-forms/${form.id}`, "PATCH", { action: "new_url" }));
+    if (result) {
+      setShown({ formName: form.name, url: result.url });
+      setCopied(false);
+    }
+  }
+
+  async function revoke(form: LeadForm) {
+    await run(() => send(`/api/crm/lead-forms/${form.id}`, "PATCH", { action: "revoke" }));
+    setConfirmRevoke(null);
+  }
+
+  async function copy() {
+    if (!shown) return;
+    try {
+      await navigator.clipboard.writeText(shown.url);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Website forms</CardTitle>
+        <CardDescription>
+          Send your website&apos;s contact or tour form straight into the CRM. Add the form here, then paste its URL into
+          your form tool&apos;s webhook setting (Craft Freeform, WordPress, Zapier and so on), sent as a POST. Each
+          submission becomes a web lead. If the visitor is already a guest, their message is added to their thread
+          instead of creating a duplicate.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {shown ? (
+          <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-4">
+            <p className="text-sm">Webhook URL for {shown.formName}:</p>
+            <p className="break-all rounded bg-background p-2 font-mono text-xs">{shown.url}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" type="button" onClick={() => void copy()}>
+                {copied ? "Copied" : "Copy URL"}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                It won&apos;t be shown again. Anyone with it can add leads, so treat it like a password.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {active.length > 0 ? (
+          <ul className="divide-y rounded-lg border">
+            {active.map((form) => (
+              <li key={form.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm">
+                  <p className="font-medium">
+                    {form.name}{" "}
+                    <Badge variant={form.last_received_at ? "secondary" : "outline"} className="ml-1">
+                      {form.last_received_at ? "Receiving" : "Waiting for first lead"}
+                    </Badge>
+                  </p>
+                  <p className="text-muted-foreground">
+                    {form.last_received_at
+                      ? `${form.submission_count} received · last ${local(form.last_received_at)}`
+                      : "Nothing received yet"}
+                    {form.how_heard_label ? ` · Heard: ${form.how_heard_label}` : ""}
+                    {staffName(form.assigned_staff_id)
+                      ? ` · Goes to ${staffName(form.assigned_staff_id)}`
+                      : " · Unassigned"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void newUrl(form)}>
+                    New URL
+                  </Button>
+                  {confirmRevoke === form.id ? (
+                    <>
+                      <Button size="sm" variant="destructive" disabled={busy} onClick={() => void revoke(form)}>
+                        Confirm turn off
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmRevoke(null)}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirmRevoke(form.id)}>
+                      Turn off
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <form onSubmit={create} className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="lead-form-name">Add a form</Label>
+            <Input
+              id="lead-form-name"
+              placeholder="Website contact form"
+              value={name}
+              maxLength={80}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="lead-form-heard">How did you hear (optional)</Label>
+            <select
+              id="lead-form-heard"
+              className={selectClass}
+              value={howHeard}
+              onChange={(event) => setHowHeard(event.target.value)}
+            >
+              <option value="">None</option>
+              {sources
+                .filter((source) => source.active)
+                .map((source) => (
+                  <option key={source.label} value={source.label}>
+                    {source.label}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="lead-form-owner">Assign new leads to (optional)</Label>
+            <select
+              id="lead-form-owner"
+              className={selectClass}
+              value={owner}
+              onChange={(event) => setOwner(event.target.value)}
+            >
+              <option value="">Nobody (admins are notified)</option>
+              {sellers.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-2">
+            <Button type="submit" disabled={busy || !name.trim()}>
+              Get webhook URL
+            </Button>
+          </div>
+        </form>
+        <p className="text-xs text-muted-foreground">
+          Fields we read: {FIELD_HELP}. Common variants work too, and any other fields are kept in the guest&apos;s
+          thread.
+        </p>
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
