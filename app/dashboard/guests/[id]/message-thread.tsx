@@ -188,7 +188,7 @@ export function MessageThread({
               ) : (
                 <span className="text-xs text-muted-foreground">
                   {channel === "sms"
-                    ? `${text.length}/1000 · texts send 8 AM–9 PM`
+                    ? `${text.length}/1000 · texts send 8 AM–9 PM (replies from 6 AM)`
                     : channel === "email"
                       ? "Sent from your name at the studio"
                       : "Saved to the thread; nothing is sent"}

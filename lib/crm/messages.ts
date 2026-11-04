@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendRelayEmail, formatOutboundMessageId } from "@/lib/email/relay";
 import { sendPushToStaff } from "@/lib/push/send";
-import { sendSms, withinTextingHours } from "@/lib/crm/sms";
+import { REPLY_START_HOUR, sendSms, withinTextingHours } from "@/lib/crm/sms";
 import { getCrmOrg } from "@/lib/crm/org";
 
 // Guest messaging: one thread per guest mixing texts and emails. Outbound
@@ -10,6 +10,9 @@ import { getCrmOrg } from "@/lib/crm/org";
 // Twilio and Resend webhooks and are recorded by recordInbound().
 
 export const GUEST_ALIAS_PREFIX = "g-";
+
+// A guest who texted in within this many hours can get a reply from 6 AM.
+const REPLY_WINDOW_HOURS = 12;
 
 export class MessageError extends Error {
   constructor(
@@ -80,7 +83,25 @@ export async function sendGuestMessage(
     if (!contact.phone_e164) throw new MessageError("This guest has no mobile number.");
     if (contact.sms_opted_out_at) throw new MessageError("This guest replied STOP, so they can't be texted.");
     if (!contact.sms_consent) throw new MessageError("This guest didn't agree to texts.");
-    if (!withinTextingHours(org.timezone)) throw new MessageError("Texts can only be sent between 8 AM and 9 PM.");
+    if (!withinTextingHours(org.timezone)) {
+      const since = new Date(Date.now() - REPLY_WINDOW_HOURS * 3_600_000).toISOString();
+      const { count: recentInbound } = await admin
+        .from("crm_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", params.organizationId)
+        .eq("contact_id", contact.id)
+        .eq("channel", "sms")
+        .eq("direction", "inbound")
+        .gte("created_at", since);
+      const isReply = (recentInbound ?? 0) > 0;
+      if (!isReply || !withinTextingHours(org.timezone, new Date(), REPLY_START_HOUR)) {
+        throw new MessageError(
+          isReply
+            ? "Replies can be sent between 6 AM and 9 PM."
+            : "Texts can only be sent between 8 AM and 9 PM (6 AM if you're replying to a text they sent).",
+        );
+      }
+    }
     const { data: orgRow } = await admin.from("organizations").select("crm_sms_number").eq("id", params.organizationId).single();
     const result = await sendSms({
       to: contact.phone_e164,

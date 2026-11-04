@@ -10,7 +10,7 @@ import { resolveRequestOrigin } from "@/lib/request-origin";
 type RouteParams = { params: Promise<{ id: string }> };
 
 // Sends a text or email to a guest from their profile thread (admins,
-// sellers, and a member's assigned trainer). Texts respect SMS consent, STOP and 8 AM-9 PM quiet hours.
+// sellers, and a member's assigned trainer). Texts respect SMS consent, STOP and 8 AM-9 PM quiet hours (replies from 6 AM).
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;

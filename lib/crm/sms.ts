@@ -69,8 +69,14 @@ export function optKeyword(body: string): "out" | "in" | null {
   return null;
 }
 
-// Texts only go out 8 AM-9 PM in the studio's time zone (TCPA quiet hours).
-export function withinTextingHours(timezone: string, now = new Date()): boolean {
+// Texts go out 8 AM-9 PM in the studio's time zone (TCPA quiet hours). A
+// reply to a guest who texted in recently isn't a solicitation, so replies
+// may start at 6 AM (see REPLY_WINDOW_HOURS in lib/crm/messages.ts).
+export const TEXTING_START_HOUR = 8;
+export const REPLY_START_HOUR = 6;
+export const TEXTING_END_HOUR = 21;
+
+export function withinTextingHours(timezone: string, now = new Date(), startHour = TEXTING_START_HOUR): boolean {
   const hour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: timezone }).format(now));
-  return hour >= 8 && hour < 21;
+  return hour >= startHour && hour < TEXTING_END_HOUR;
 }
