@@ -592,6 +592,11 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
               Not required to buy anything. Message frequency varies. Message and data rates may apply. Reply HELP for
               help or STOP to opt out.
             </CheckRow>
+            {/* Plain text, not links: tapping a link would leave the kiosk. */}
+            <p className="px-1 text-sm text-muted-foreground">
+              Terms: synqiq.co/terms · Privacy: synqiq.co/privacy. We never share your mobile number or text consent
+              with third parties for marketing.
+            </p>
           </div>
           <Button className="h-14 w-full text-lg" onClick={() => go("waiver")}>
             Continue
