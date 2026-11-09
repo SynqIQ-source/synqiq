@@ -437,7 +437,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                     {introLine ?? "—"}
                     {introStatus && introStatus !== "booked" && introStatus !== "done" ? (
                       <span className="mt-1 block">
-                        <IntroDeclineButton contactId={contact.id} declined={introStatus === "declined"} size="xs" />
+                        <IntroDeclineButton contactId={contact.id} declined={introStatus === "declined"} />
                       </span>
                     ) : null}
                   </Item>

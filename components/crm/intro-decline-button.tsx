@@ -17,6 +17,7 @@ export function IntroDeclineButton({
   declined: boolean;
   size?: "sm" | "xs";
 }) {
+  const buttonSize = size === "xs" ? "xs" : "sm";
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -44,19 +45,12 @@ export function IntroDeclineButton({
     }
   }
 
-  const linkClass = size === "xs" ? "text-xs" : "text-sm";
-
   if (declined) {
     return (
       <span className="inline-flex flex-col items-start gap-0.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void save(false)}
-          className={`${linkClass} text-muted-foreground hover:text-foreground hover:underline disabled:opacity-60`}
-        >
+        <Button type="button" variant="outline" size={buttonSize} disabled={busy} onClick={() => void save(false)}>
           {busy ? "Saving…" : "Undo declined"}
-        </button>
+        </Button>
         {error ? <span className="text-xs text-destructive">{error}</span> : null}
       </span>
     );
@@ -64,13 +58,9 @@ export function IntroDeclineButton({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={`${linkClass} text-muted-foreground hover:text-foreground hover:underline`}
-      >
-        Mark declined intro
-      </button>
+      <Button type="button" variant="outline" size={buttonSize} onClick={() => setOpen(true)}>
+        Declined intro
+      </Button>
     );
   }
 
