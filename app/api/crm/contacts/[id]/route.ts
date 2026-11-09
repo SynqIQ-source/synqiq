@@ -3,12 +3,20 @@ import { DateTime } from "luxon";
 import { getCrmOrg } from "@/lib/crm/org";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { canWorkContact, getCrmStaffForApi } from "@/lib/crm/module";
-import { managesSales } from "@/lib/permissions";
+import { isClubAdmin, managesSales } from "@/lib/permissions";
 import { cleanDateOfBirth, cleanState, cleanText, cleanZip, normalizeEmail, normalizePhone } from "@/lib/crm/normalize";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 import { enqueueEmailCheck, enqueueMindbodyPush, runJobById } from "@/lib/crm/jobs";
 
 type RouteParams = { params: Promise<{ id: string }> };
+
+// How someone agreed to texts/emails when a club admin records it.
+const CONSENT_METHODS = {
+  in_person: "agreed in person",
+  written: "signed a written form",
+  email: "agreed by email",
+  phone: "agreed on a phone call",
+} as const;
 
 // Edits a guest from their profile.
 //   details (admins and sellers): name, email, phone, birth date, address.
@@ -33,7 +41,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const admin = createSupabaseAdminClient();
     const { data: contact, error } = await admin
       .from("crm_contacts")
-      .select("id, email_normalized, phone_e164, mindbody_client_id, mindbody_sync_status, merged_into_id, deleted_at")
+      .select("id, email_normalized, phone_e164, sms_opted_out_at, mindbody_client_id, mindbody_sync_status, merged_into_id, deleted_at")
       .eq("id", id)
       .eq("organization_id", staff.organizationId)
       .maybeSingle();
@@ -186,6 +194,34 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         statusNote = "Reopened as a lead.";
       } else {
         return jsonError("Invalid status.", 400);
+      }
+    }
+
+    // Consent recorded by a club admin for someone who agreed outside the
+    // kiosk (e.g. a staff member). Must say how they agreed; saved as a note
+    // with who recorded it. Someone who replied STOP has to text START.
+    if ("consent" in body) {
+      if (!isClubAdmin(staff)) return jsonError("Only club admins can record consent.", 403);
+      const consent = body.consent as { channel?: unknown; agreed?: unknown; method?: unknown; note?: unknown } | null;
+      const channel = consent?.channel;
+      if ((channel !== "sms" && channel !== "email") || typeof consent?.agreed !== "boolean") {
+        return jsonError("Invalid request.", 400);
+      }
+      const label = channel === "sms" ? "Text" : "Email marketing";
+      if (consent.agreed) {
+        const method = CONSENT_METHODS[consent.method as keyof typeof CONSENT_METHODS];
+        if (!method) return jsonError("Pick how they agreed.", 400);
+        if (channel === "sms" && contact.sms_opted_out_at) {
+          return jsonError("They replied STOP. They need to text START to the studio number to get texts again.", 409);
+        }
+        const note = typeof consent.note === "string" ? cleanText(consent.note.trim(), 500) : null;
+        updates[`${channel}_consent`] = true;
+        updates[`${channel}_consent_at`] = new Date().toISOString();
+        statusNote = `${label} opt-in recorded (${method}${note ? `: ${note}` : ""}).`;
+      } else {
+        updates[`${channel}_consent`] = false;
+        updates[`${channel}_consent_at`] = null;
+        statusNote = `${label} opt-out recorded.`;
       }
     }
 

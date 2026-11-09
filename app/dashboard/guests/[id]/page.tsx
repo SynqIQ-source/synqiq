@@ -41,6 +41,7 @@ import {
 } from "./profile-actions";
 import { PendingMatchActions } from "../pending-match-actions";
 import { TrainerSelect } from "./trainer-select";
+import { ConsentControl } from "./consent-control";
 import { FirstContactBadge, NextFollowUp } from "@/components/crm/follow-up-status";
 import { RescheduleFollowUp } from "@/components/crm/reschedule-follow-up";
 import { combinedActivity, firstContactFor, followUpFor, loadLeadActivity } from "@/lib/crm/follow-ups";
@@ -642,8 +643,23 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
             </CardHeader>
             <CardContent>
               <dl className="space-y-3">
-                <Item label="Email marketing">{consent(contact.email_consent, contact.email_consent_at)}</Item>
-                <Item label="SMS">{consent(contact.sms_consent, contact.sms_consent_at)}</Item>
+                <Item label="Email marketing">
+                  {consent(contact.email_consent, contact.email_consent_at)}
+                  {isAdmin ? (
+                    <ConsentControl contactId={contact.id} channel="email" given={contact.email_consent} />
+                  ) : null}
+                </Item>
+                <Item label="SMS">
+                  {consent(contact.sms_consent, contact.sms_consent_at)}
+                  {isAdmin ? (
+                    <ConsentControl
+                      contactId={contact.id}
+                      channel="sms"
+                      given={contact.sms_consent}
+                      optedOut={Boolean(contact.sms_opted_out_at)}
+                    />
+                  ) : null}
+                </Item>
                 <Item label="Photo">{consent(contact.photo_consent, contact.photo_consent_at)}</Item>
               </dl>
             </CardContent>
