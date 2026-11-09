@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
-import { loadIntros, type Intro } from "@/lib/crm/onboarding";
+import { applyIntroDecline, loadIntros, type Intro } from "@/lib/crm/onboarding";
 
 // Members who enrolled in a period, with their trainer, outreach and intro
 // status -- for Sales → New Members (admins, everyone) and Follow Up → New
@@ -23,6 +23,8 @@ export type NewMemberRow = {
   contactCount: number;
   unread: number;
   intro: Intro;
+  // Why they declined the intro, when they did (intro.status "declined").
+  introDeclinedReason: string | null;
 };
 
 export type NewMemberStats = {
@@ -32,6 +34,7 @@ export type NewMemberStats = {
   contactedWithin48h: number;
   introBooked: number; // booked or done
   introDone: number;
+  introDeclined: number;
 };
 
 type MemberContact = {
@@ -46,6 +49,8 @@ type MemberContact = {
   trainer_staff_id: string | null;
   trainer_assigned_at: string | null;
   mindbody_client_id: string | null;
+  intro_declined_at: string | null;
+  intro_declined_reason: string | null;
 };
 
 export async function loadNewMembers(
@@ -55,7 +60,7 @@ export async function loadNewMembers(
   let query = supabase
     .from("crm_contacts")
     .select(
-      "id, first_name, last_name, member_enrolled_at, enrollment_status, enrollment_kind, membership_name, membership_sold_by_staff_id, trainer_staff_id, trainer_assigned_at, mindbody_client_id",
+      "id, first_name, last_name, member_enrolled_at, enrollment_status, enrollment_kind, membership_name, membership_sold_by_staff_id, trainer_staff_id, trainer_assigned_at, mindbody_client_id, intro_declined_at, intro_declined_reason",
     )
     .not("member_enrolled_at", "is", null)
     .gte("member_enrolled_at", options.fromIso)
@@ -114,7 +119,8 @@ export async function loadNewMembers(
       lastContactAt: outreach.at(-1)?.created_at ?? null,
       contactCount: outreach.length,
       unread: mine.filter((m) => m.direction === "inbound" && !m.read_at).length,
-      intro: intros.get(contact.id) ?? { status: "none", at: null, trainerStaffId: null },
+      intro: applyIntroDecline(intros.get(contact.id), contact.intro_declined_at),
+      introDeclinedReason: contact.intro_declined_reason,
     };
   });
 }
@@ -132,5 +138,6 @@ export function newMemberStats(rows: NewMemberRow[]): NewMemberStats {
     ).length,
     introBooked: rows.filter((row) => row.intro.status === "booked" || row.intro.status === "done").length,
     introDone: rows.filter((row) => row.intro.status === "done").length,
+    introDeclined: rows.filter((row) => row.intro.status === "declined").length,
   };
 }

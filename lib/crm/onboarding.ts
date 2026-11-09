@@ -277,7 +277,7 @@ export async function runMemberContractLookup(admin: SupabaseClient, organizatio
 
 // --- Intro Workout status ------------------------------------------------
 
-export type IntroStatus = "none" | "booked" | "done" | "no_show" | "late_cancel";
+export type IntroStatus = "none" | "booked" | "done" | "no_show" | "late_cancel" | "declined";
 export type Intro = { status: IntroStatus; at: string | null; trainerStaffId: string | null };
 
 export const INTRO_LABELS: Record<IntroStatus, string> = {
@@ -286,7 +286,17 @@ export const INTRO_LABELS: Record<IntroStatus, string> = {
   done: "Intro done",
   no_show: "No-show",
   late_cancel: "Late cancel",
+  declined: "Declined intro",
 };
+
+// A member marked as having declined the intro (crm_contacts.intro_declined_at)
+// shows as "declined" unless a real intro is booked or done in Mindbody,
+// which always wins.
+export function applyIntroDecline(intro: Intro | undefined, declinedAt: string | null): Intro {
+  const base = intro ?? { status: "none" as const, at: null, trainerStaffId: null };
+  if (!declinedAt || base.status === "booked" || base.status === "done") return base;
+  return { status: "declined", at: declinedAt, trainerStaffId: null };
+}
 
 // Intro status per contact, from Mindbody appointments of the org's intro
 // type on or after (enrolled date - 14 days). Completed beats booked beats
@@ -329,7 +339,7 @@ export async function loadIntros(
                 ? "booked"
                 : "none";
       if (status === "none") continue;
-      const rank = { done: 3, booked: 2, no_show: 1, late_cancel: 1, none: 0 };
+      const rank = { done: 3, booked: 2, no_show: 1, late_cancel: 1, none: 0, declined: 0 };
       const current = intros.get(contact.id);
       if (!current || rank[status] > rank[current.status]) {
         intros.set(contact.id, {

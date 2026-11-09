@@ -175,6 +175,8 @@ export default async function FollowUpPage() {
       .from("crm_contacts")
       .select("id, trainer_assigned_at")
       .eq("trainer_staff_id", currentStaff.id)
+      // Declined the intro: nothing left to reach out about.
+      .is("intro_declined_at", null)
       .is("deleted_at", null)
       .is("merged_into_id", null)
       .limit(500);

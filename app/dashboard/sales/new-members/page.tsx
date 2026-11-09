@@ -100,7 +100,8 @@ export default async function NewMembersPage({
     unread: row.unread,
     introStatus: row.intro.status,
     introLabel: INTRO_LABELS[row.intro.status],
-    introAt: local(row.intro.at, "LLL d, h:mm a"),
+    introAt: local(row.intro.at, row.intro.status === "declined" ? "LLL d" : "LLL d, h:mm a"),
+    introDeclinedReason: row.introDeclinedReason,
   }));
 
   const periodLabel = `${period.from.toFormat("LLL d")} – ${period.to.toFormat("LLL d, yyyy")}`;
@@ -132,7 +133,7 @@ export default async function NewMembersPage({
               Members who enrolled in this period (by contract start date) and how far their intro got.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <Stat label="Enrolled" value={String(stats.enrolled)} />
             <Stat
               label="Assigned"
@@ -155,6 +156,11 @@ export default async function NewMembersPage({
               sub={`${percent(stats.introDone, stats.introBooked)} of booked`}
               highlight
             />
+            <Stat
+              label="Declined intro"
+              value={String(stats.introDeclined)}
+              sub={`${percent(stats.introDeclined, stats.enrolled)} of new members`}
+            />
           </CardContent>
         </Card>
 
@@ -174,6 +180,7 @@ export default async function NewMembersPage({
                     <TableHead className="text-right">Within 48h</TableHead>
                     <TableHead className="text-right">Intro booked</TableHead>
                     <TableHead className="text-right">Intro done</TableHead>
+                    <TableHead className="text-right">Declined</TableHead>
                     <TableHead className="text-right">Done %</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -186,6 +193,7 @@ export default async function NewMembersPage({
                       <TableCell className="text-right tabular-nums">{row.stats.contactedWithin48h}</TableCell>
                       <TableCell className="text-right tabular-nums">{row.stats.introBooked}</TableCell>
                       <TableCell className="text-right tabular-nums">{row.stats.introDone}</TableCell>
+                      <TableCell className="text-right tabular-nums">{row.stats.introDeclined}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {percent(row.stats.introDone, row.stats.enrolled)}
                       </TableCell>

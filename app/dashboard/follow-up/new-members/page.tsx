@@ -10,6 +10,7 @@ import { requireAccess } from "@/lib/require-access";
 import { isInstructorAccess, isTrainerAccess } from "@/lib/permissions";
 import { loadNewMembers, newMemberStats } from "@/lib/crm/new-members";
 import { INTRO_LABELS, type IntroStatus } from "@/lib/crm/onboarding";
+import { IntroDeclineButton } from "@/components/crm/intro-decline-button";
 import { getCrmOrg } from "@/lib/crm/org";
 import { resolvePeriod } from "@/lib/crm/period";
 import { getScopedClient } from "@/lib/supabase/scoped";
@@ -29,6 +30,7 @@ const INTRO_VARIANT: Record<IntroStatus, "default" | "secondary" | "outline" | "
   none: "outline",
   no_show: "destructive",
   late_cancel: "destructive",
+  declined: "outline",
 };
 
 // A trainer's new members: the ones an admin assigned to them for an intro
@@ -71,7 +73,7 @@ export default async function TrainerNewMembersPage({
     <DashboardShell title="Follow Up" description="New members assigned to you. Reach out to book their intro workout.">
       <FollowUpTabs
         active="new-members"
-        newMembersBadge={rows.filter((row) => !row.firstContactAt).length}
+        newMembersBadge={rows.filter((row) => !row.firstContactAt && row.intro.status !== "declined").length}
         showClasses={isInstructorAccess(staff) && (await getEnabledModules(staff.organizationId)).has("group_fitness")}
       />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -102,11 +104,8 @@ export default async function TrainerNewMembersPage({
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
           {rows.map((row) => (
-            <li key={row.id}>
-              <Link
-                href={`/dashboard/guests/${row.id}`}
-                className="flex flex-wrap items-center justify-between gap-3 p-4 hover:bg-muted/40"
-              >
+            <li key={row.id} className="flex flex-wrap items-start justify-between gap-3 p-4 hover:bg-muted/40">
+              <Link href={`/dashboard/guests/${row.id}`} className="min-w-0 flex-1">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">
                     {row.name}
@@ -127,13 +126,23 @@ export default async function TrainerNewMembersPage({
                       : "You haven't reached out yet"}
                   </p>
                 </div>
-                <div className="text-right">
-                  <Badge variant={INTRO_VARIANT[row.intro.status]}>{INTRO_LABELS[row.intro.status]}</Badge>
-                  {row.intro.at ? (
-                    <p className="mt-1 text-xs text-muted-foreground">{local(row.intro.at, "ccc, LLL d, h:mm a")}</p>
-                  ) : null}
-                </div>
               </Link>
+              <div className="flex flex-col items-end gap-1 text-right">
+                <Link href={`/dashboard/guests/${row.id}`}>
+                  <Badge variant={INTRO_VARIANT[row.intro.status]}>{INTRO_LABELS[row.intro.status]}</Badge>
+                </Link>
+                {row.intro.at ? (
+                  <p className="text-xs text-muted-foreground">
+                    {local(row.intro.at, row.intro.status === "declined" ? "LLL d" : "ccc, LLL d, h:mm a")}
+                  </p>
+                ) : null}
+                {row.intro.status === "declined" && row.introDeclinedReason ? (
+                  <p className="max-w-[220px] text-xs text-muted-foreground">{row.introDeclinedReason}</p>
+                ) : null}
+                {row.intro.status !== "booked" && row.intro.status !== "done" ? (
+                  <IntroDeclineButton contactId={row.id} declined={row.intro.status === "declined"} size="xs" />
+                ) : null}
+              </div>
             </li>
           ))}
         </ul>

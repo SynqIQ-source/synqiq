@@ -18,7 +18,8 @@ import {
   VISIT_TYPE_LABELS,
 } from "@/lib/crm/labels";
 import { requireContactViewer } from "@/lib/crm/module";
-import { INTRO_LABELS, loadIntros } from "@/lib/crm/onboarding";
+import { applyIntroDecline, INTRO_LABELS, loadIntros } from "@/lib/crm/onboarding";
+import { IntroDeclineButton } from "@/components/crm/intro-decline-button";
 import { formatPhoneForDisplay } from "@/lib/crm/normalize";
 import { getCrmOrg } from "@/lib/crm/org";
 import { signedPhotoUrls } from "@/lib/crm/photos";
@@ -95,6 +96,8 @@ type Contact = {
   enrollment_status: string | null;
   trainer_staff_id: string | null;
   trainer_assigned_at: string | null;
+  intro_declined_at: string | null;
+  intro_declined_reason: string | null;
   referring_client: { first_name: string; last_name: string; mindbody_unique_id: number; status: string } | null;
 };
 
@@ -125,7 +128,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
        email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, follow_up_on, follow_up_set_at, close_source, merged_into_id, created_at,
-       member_enrolled_at, membership_name, membership_sold_by_staff_id, enrollment_status, trainer_staff_id, trainer_assigned_at,
+       member_enrolled_at, membership_name, membership_sold_by_staff_id, enrollment_status, trainer_staff_id, trainer_assigned_at, intro_declined_at, intro_declined_reason,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
     .eq("id", id)
@@ -223,22 +226,32 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
     )
     .map((member) => ({ id: member.id, name: member.display_name as string }));
   let introLine: string | null = null;
+  let introStatus: string | null = null;
   if (contact.member_enrolled_at) {
     const { data: orgRow } = await supabase
       .from("organizations")
       .select("crm_intro_session_type_id")
       .eq("id", staff.organizationId)
       .maybeSingle();
-    const intro = (
-      await loadIntros(supabase, (orgRow?.crm_intro_session_type_id as number | null) ?? null, [
-        { id: contact.id, mindbody_client_id: contact.mindbody_client_id, member_enrolled_at: contact.member_enrolled_at },
-      ])
-    ).get(contact.id);
-    introLine = intro
-      ? `${INTRO_LABELS[intro.status]} · ${DateTime.fromISO(intro.at!).setZone(org.timezone).toFormat("ccc, LLL d, h:mm a")}${
-          intro.trainerStaffId ? ` with ${staffNames.get(intro.trainerStaffId) ?? "staff"}` : ""
-        }`
-      : INTRO_LABELS.none;
+    const intro = applyIntroDecline(
+      (
+        await loadIntros(supabase, (orgRow?.crm_intro_session_type_id as number | null) ?? null, [
+          { id: contact.id, mindbody_client_id: contact.mindbody_client_id, member_enrolled_at: contact.member_enrolled_at },
+        ])
+      ).get(contact.id),
+      contact.intro_declined_at,
+    );
+    introStatus = intro.status;
+    introLine =
+      intro.status === "declined"
+        ? `${INTRO_LABELS.declined} · ${DateTime.fromISO(intro.at!).setZone(org.timezone).toFormat("LLL d, yyyy")}${
+            contact.intro_declined_reason ? ` · ${contact.intro_declined_reason}` : ""
+          }`
+        : intro.at
+          ? `${INTRO_LABELS[intro.status]} · ${DateTime.fromISO(intro.at).setZone(org.timezone).toFormat("ccc, LLL d, h:mm a")}${
+              intro.trainerStaffId ? ` with ${staffNames.get(intro.trainerStaffId) ?? "staff"}` : ""
+            }`
+          : INTRO_LABELS.none;
   }
   const mindbodyPending = contact.mindbody_sync_status === "pending";
   // Leads only: members who joined in Mindbody have trainers, not follow-ups.
@@ -420,7 +433,14 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                       </span>
                     ) : null}
                   </Item>
-                  <Item label="Intro workout">{introLine ?? "—"}</Item>
+                  <Item label="Intro workout">
+                    {introLine ?? "—"}
+                    {introStatus && introStatus !== "booked" && introStatus !== "done" ? (
+                      <span className="mt-1 block">
+                        <IntroDeclineButton contactId={contact.id} declined={introStatus === "declined"} size="xs" />
+                      </span>
+                    ) : null}
+                  </Item>
                 </dl>
               </CardContent>
             </Card>

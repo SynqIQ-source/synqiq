@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { IntroStatus } from "@/lib/crm/onboarding";
+import { IntroDeclineButton } from "@/components/crm/intro-decline-button";
 
 export type MemberTableRow = {
   id: string;
@@ -27,6 +28,7 @@ export type MemberTableRow = {
   introStatus: IntroStatus;
   introLabel: string;
   introAt: string | null;
+  introDeclinedReason: string | null;
 };
 
 const INTRO_VARIANT: Record<IntroStatus, "default" | "secondary" | "outline" | "destructive"> = {
@@ -35,6 +37,7 @@ const INTRO_VARIANT: Record<IntroStatus, "default" | "secondary" | "outline" | "
   none: "outline",
   no_show: "destructive",
   late_cancel: "destructive",
+  declined: "outline",
 };
 
 async function assign(contactIds: string[], trainerStaffId: string | null) {
@@ -216,9 +219,21 @@ export function NewMembersTable({
                       <span className="text-muted-foreground">{row.trainerId ? "Not contacted yet" : "—"}</span>
                     )}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap">
+                  <TableCell className="min-w-[160px]">
                     <Badge variant={INTRO_VARIANT[row.introStatus]}>{row.introLabel}</Badge>
                     {row.introAt ? <span className="block text-xs text-muted-foreground">{row.introAt}</span> : null}
+                    {row.introStatus === "declined" && row.introDeclinedReason ? (
+                      <span className="block max-w-[220px] text-xs text-muted-foreground">{row.introDeclinedReason}</span>
+                    ) : null}
+                    {row.introStatus !== "booked" && row.introStatus !== "done" ? (
+                      <span className="mt-1 block">
+                        <IntroDeclineButton
+                          contactId={row.id}
+                          declined={row.introStatus === "declined"}
+                          size="xs"
+                        />
+                      </span>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}
