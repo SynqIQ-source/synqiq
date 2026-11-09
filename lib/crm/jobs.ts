@@ -4,6 +4,7 @@ import { checkEmail, EmailCheckRetryableError } from "@/lib/crm/email-check";
 import { logCrmError } from "@/lib/crm/http";
 import { MindbodyPushBlockedError, pushContactToMindbody, sanitizeMindbodyError } from "@/lib/crm/mindbody-push";
 import { runMemberContractLookup } from "@/lib/crm/onboarding";
+import { loadItemClassifier } from "@/lib/mindbody/item-types";
 
 // Background work for the CRM (crm_jobs). A job is queued when a contact is
 // created, attempted right after the response is sent, and retried by the
@@ -247,14 +248,30 @@ export async function runDueJobs(limit = 50): Promise<{ ran: number }> {
   return { ran: data?.length ?? 0 };
 }
 
-// A guest whose linked Mindbody client is now an Active member has enrolled:
-// count it as a close ("closed" on the Sales dashboard) if staff haven't
-// marked it already. Uses the nightly-synced clients table, so it shows up
-// the morning after they join in Mindbody.
+// A guest whose linked Mindbody client bought a membership, or is now an
+// Active member, has enrolled: count it as a close ("closed" on the Sales
+// dashboard) if staff haven't marked it already. Both read the nightly-synced
+// tables, so a close shows up the morning after the sale.
+//
+// The sale is checked first because a membership can be sold with a future
+// start date: the client stays Non-Member in Mindbody until it activates, so
+// waiting for Active would count a November sale in December. A sale close
+// is dated to the sale and credited to its sales rep. New-member onboarding
+// (lib/crm/onboarding.ts) still starts when the client turns Active, i.e.
+// on the membership's activation date.
+//
+// Sales made more than this long before the guest's profile was created
+// don't count -- they predate the CRM relationship.
+const SALE_BEFORE_PROFILE_SLACK_HOURS = 24;
+
+type OpenContact = { id: string; organization_id: string; mindbody_client_id: string; created_at: string };
+type ClientKeys = { organization_id: string; mindbody_unique_id: number; mindbody_client_id: string | null; status: string | null };
+type SaleClose = { closedAt: string; repStaffId: string | null };
+
 async function detectMindbodyCloses(admin: SupabaseClient) {
-  const { data: open, error } = await admin
+  const { data: openRows, error } = await admin
     .from("crm_contacts")
-    .select("id, organization_id, mindbody_client_id")
+    .select("id, organization_id, mindbody_client_id, created_at")
     .not("mindbody_client_id", "is", null)
     .eq("mindbody_member_at_link", false)
     .is("closed_at", null)
@@ -262,37 +279,125 @@ async function detectMindbodyCloses(admin: SupabaseClient) {
     .is("merged_into_id", null)
     .limit(1000);
   if (error) throw error;
-  const ids = (open ?? [])
-    .map((row) => Number(row.mindbody_client_id))
-    .filter((value) => Number.isInteger(value));
+  const open = (openRows ?? []) as OpenContact[];
+  const ids = open.map((row) => Number(row.mindbody_client_id)).filter((value) => Number.isInteger(value));
   if (ids.length === 0) return;
 
   // A contact's mindbody_client_id is Mindbody's client Id, which for older
   // clients isn't the UniqueId -- match on either.
+  const clientFields = "organization_id, mindbody_unique_id, mindbody_client_id, status";
   const [byUnique, byClientId] = await Promise.all([
-    admin.from("clients").select("organization_id, mindbody_unique_id, mindbody_client_id").in("mindbody_unique_id", ids).eq("status", "Active"),
-    admin
-      .from("clients")
-      .select("organization_id, mindbody_unique_id, mindbody_client_id")
-      .in("mindbody_client_id", ids.map(String))
-      .eq("status", "Active"),
+    admin.from("clients").select(clientFields).in("mindbody_unique_id", ids),
+    admin.from("clients").select(clientFields).in("mindbody_client_id", ids.map(String)),
   ]);
   if (byUnique.error) throw byUnique.error;
   if (byClientId.error) throw byClientId.error;
-  const activeKeys = new Set(
-    [...(byUnique.data ?? []), ...(byClientId.data ?? [])].flatMap((row) => [
-      `${row.organization_id}:${row.mindbody_unique_id}`,
-      ...(row.mindbody_client_id ? [`${row.organization_id}:${row.mindbody_client_id}`] : []),
-    ]),
-  );
+
+  // org:id (either id form) -> the client row, so a contact finds its client
+  // whichever id it stored, and its sales whichever id they carry.
+  const clientByKey = new Map<string, ClientKeys>();
+  for (const row of [...(byUnique.data ?? []), ...(byClientId.data ?? [])] as ClientKeys[]) {
+    clientByKey.set(`${row.organization_id}:${row.mindbody_unique_id}`, row);
+    if (row.mindbody_client_id) clientByKey.set(`${row.organization_id}:${row.mindbody_client_id}`, row);
+  }
+  const keysFor = (contact: OpenContact) => {
+    const client = clientByKey.get(`${contact.organization_id}:${contact.mindbody_client_id}`);
+    return new Set(
+      [contact.mindbody_client_id, client ? String(client.mindbody_unique_id) : null, client?.mindbody_client_id ?? null].filter(
+        (key): key is string => Boolean(key),
+      ),
+    );
+  };
+
+  const saleCloses = await findMembershipSaleCloses(admin, open, keysFor);
 
   const now = new Date().toISOString();
-  for (const contact of open ?? []) {
-    if (!activeKeys.has(`${contact.organization_id}:${contact.mindbody_client_id}`)) continue;
+  for (const contact of open) {
+    const sale = saleCloses.get(contact.id);
+    const client = clientByKey.get(`${contact.organization_id}:${contact.mindbody_client_id}`);
+    const update = sale
+      ? { closed_at: sale.closedAt, closed_by_staff_id: sale.repStaffId }
+      : client?.status === "Active"
+        ? { closed_at: now }
+        : null;
+    if (!update) continue;
     await admin
       .from("crm_contacts")
-      .update({ closed_at: now, close_source: "mindbody", status: "member", updated_at: now })
+      .update({ ...update, close_source: "mindbody", status: "member", updated_at: now })
       .eq("id", contact.id)
       .is("closed_at", null);
   }
+}
+
+// Each open contact's earliest membership sale (a sale line tied to a
+// Mindbody contract whose name counts as a membership -- Settings ->
+// Mindbody items), made no earlier than a day before their profile.
+async function findMembershipSaleCloses(
+  admin: SupabaseClient,
+  open: OpenContact[],
+  keysFor: (contact: OpenContact) => Set<string>,
+): Promise<Map<string, SaleClose>> {
+  const closes = new Map<string, SaleClose>();
+  const allKeys = [...new Set(open.flatMap((contact) => [...keysFor(contact)]))];
+  type SaleRow = {
+    mindbody_sale_id: string;
+    organization_id: string;
+    client_id: string;
+    sale_datetime: string;
+    sales_rep_staff_id: string | null;
+  };
+  const sales: SaleRow[] = [];
+  for (let index = 0; index < allKeys.length; index += 200) {
+    const { data, error } = await admin
+      .from("sales")
+      .select("mindbody_sale_id, organization_id, client_id, sale_datetime, sales_rep_staff_id")
+      .in("client_id", allKeys.slice(index, index + 200));
+    if (error) throw error;
+    sales.push(...((data ?? []) as SaleRow[]));
+  }
+  if (sales.length === 0) return closes;
+
+  // Sales with a membership line, per org (each org has its own item settings).
+  const membershipSaleKeys = new Set<string>();
+  for (const organizationId of new Set(sales.map((sale) => sale.organization_id))) {
+    const saleIds = sales.filter((sale) => sale.organization_id === organizationId).map((sale) => sale.mindbody_sale_id);
+    const isMembership = await loadItemClassifier(admin, organizationId, "contract");
+    for (let index = 0; index < saleIds.length; index += 200) {
+      const { data, error } = await admin
+        .from("sale_items")
+        .select("mindbody_sale_id, description")
+        .eq("organization_id", organizationId)
+        .in("mindbody_sale_id", saleIds.slice(index, index + 200))
+        .not("client_contract_id", "is", null);
+      if (error) throw error;
+      for (const item of data ?? []) {
+        if (isMembership(item.description as string | null)) {
+          membershipSaleKeys.add(`${organizationId}:${item.mindbody_sale_id}`);
+        }
+      }
+    }
+  }
+
+  for (const contact of open) {
+    const keys = keysFor(contact);
+    const earliestAllowed = new Date(
+      new Date(contact.created_at).getTime() - SALE_BEFORE_PROFILE_SLACK_HOURS * 3_600_000,
+    ).toISOString();
+    const earliest = sales
+      .filter(
+        (sale) =>
+          sale.organization_id === contact.organization_id &&
+          keys.has(sale.client_id) &&
+          membershipSaleKeys.has(`${sale.organization_id}:${sale.mindbody_sale_id}`) &&
+          new Date(sale.sale_datetime).toISOString() >= earliestAllowed,
+      )
+      .sort((a, b) => new Date(a.sale_datetime).getTime() - new Date(b.sale_datetime).getTime())[0];
+    if (earliest) {
+      closes.set(contact.id, {
+        closedAt: new Date(earliest.sale_datetime).toISOString(),
+        repStaffId: earliest.sales_rep_staff_id,
+      });
+    }
+  }
+  return closes;
 }
