@@ -55,6 +55,78 @@ async function getOccurrencesInWindow(
   return allRows;
 }
 
+// One occurrence's visits: fetch from Mindbody, store in class_visits.
+// Shared by the nightly sync below and the post-class follow-up reminder
+// (lib/followup/post-class-reminders.ts), which needs a class's attendance
+// a couple of hours after it ends rather than waiting for tonight's sync.
+// Throws when Mindbody fails; an upsert failure is logged, not thrown.
+export async function fetchAndStoreOccurrenceVisits({
+  mindbody,
+  accessToken,
+  supabase,
+  organizationId,
+  occurrence,
+  syncedAt,
+}: {
+  mindbody: ReturnType<typeof createMindbodyClient>;
+  accessToken: string;
+  supabase: SupabaseAdminClient;
+  organizationId: string;
+  occurrence: OccurrenceRow;
+  syncedAt: string;
+}): Promise<{ imported: number; signedInCount: number }> {
+  const page = await withRetry(() =>
+    mindbody.getClassVisits(asOccurrenceId(occurrence.mindbody_occurrence_id), accessToken),
+  );
+  const rawVisits = (page.Class?.Visits ?? []) as MindbodyClassVisit[];
+
+  // A single occurrence can legitimately list the same client twice
+  // (confirmed empirically during backfill testing -- e.g. a normal
+  // booking plus a separate walk-in/badge-scan record) -- upserting both
+  // in one batch throws "ON CONFLICT DO UPDATE command cannot affect row a
+  // second time", which failed the WHOLE occurrence's batch. De-duped here
+  // first, signed_in=true winning over false on a collision since "did
+  // they attend" should reflect either record saying yes.
+  const visitsByClient = new Map<number, MindbodyClassVisit>();
+  for (const visit of rawVisits) {
+    const existing = visitsByClient.get(visit.ClientUniqueId);
+    if (!existing || (!existing.SignedIn && visit.SignedIn)) {
+      visitsByClient.set(visit.ClientUniqueId, visit);
+    }
+  }
+  const visits = Array.from(visitsByClient.values());
+  const signedInCount = visits.filter((visit) => visit.SignedIn).length;
+
+  // One upsert per occurrence's whole visit list, not one per visit.
+  if (visits.length === 0) {
+    return { imported: 0, signedInCount };
+  }
+
+  const { data: upserted, error } = await supabase
+    .from("class_visits")
+    .upsert(
+      visits.map((visit) => ({
+        organization_id: organizationId,
+        occurrence_id: occurrence.id,
+        client_mindbody_unique_id: visit.ClientUniqueId,
+        signed_in: visit.SignedIn,
+        synced_at: syncedAt,
+      })),
+      { onConflict: "organization_id,occurrence_id,client_mindbody_unique_id" },
+    )
+    .select("id");
+
+  if (error) {
+    console.error(
+      `class_visits upsert failed for occurrence ${occurrence.mindbody_occurrence_id} (${occurrence.id}): raw=${rawVisits.length} deduped=${visits.length} clientIds=${JSON.stringify(visits.map((v) => v.ClientUniqueId))}`,
+      error,
+    );
+    return { imported: 0, signedInCount };
+  }
+
+  return { imported: upserted?.length ?? 0, signedInCount };
+}
+
 export type SyncClassVisitsOptions = {
   // Mindbody site to sync; MINDBODY_SITE_ID when omitted.
   siteId?: number;
@@ -117,7 +189,7 @@ export async function syncClassVisits(options: SyncClassVisitsOptions = {}): Pro
 
     const since = options.since ?? DateTime.utc().minus({ days: DEFAULT_LOOKBACK_DAYS }).toISO() ?? "";
     const occurrences = await getOccurrencesInWindow(supabase, org.id, since);
-    const syncedAt = DateTime.utc().toISO();
+    const syncedAt = DateTime.utc().toISO() ?? "";
 
     let visitsImported = 0;
     let occurrencesFailed = 0;
@@ -129,58 +201,15 @@ export async function syncClassVisits(options: SyncClassVisitsOptions = {}): Pro
       // every occurrence still queued behind it. One bad occurrence out of
       // several thousand shouldn't cost the rest of the sync.
       try {
-        const page = await withRetry(() =>
-          mindbody.getClassVisits(asOccurrenceId(occurrence.mindbody_occurrence_id), visitsAccessToken),
-        );
-        const rawVisits = (page.Class?.Visits ?? []) as MindbodyClassVisit[];
-
-        // A single occurrence can legitimately list the same client twice
-        // (confirmed empirically during backfill testing -- e.g. a normal
-        // booking plus a separate walk-in/badge-scan record) -- upserting
-        // both in one batch throws "ON CONFLICT DO UPDATE command cannot
-        // affect row a second time" (Postgres can't apply two conflicting
-        // values in a single INSERT), which failed the WHOLE occurrence's
-        // batch, not just the duplicate row. De-duped here first,
-        // signed_in=true winning over false on a collision since "did they
-        // attend" should reflect either record saying yes.
-        const visitsByClient = new Map<number, MindbodyClassVisit>();
-        for (const visit of rawVisits) {
-          const existing = visitsByClient.get(visit.ClientUniqueId);
-          if (!existing || (!existing.SignedIn && visit.SignedIn)) {
-            visitsByClient.set(visit.ClientUniqueId, visit);
-          }
-        }
-        const visits = Array.from(visitsByClient.values());
-
-        // One upsert call per occurrence's whole visit list, not one per
-        // visit -- same reasoning as lib/sync/clients.ts's page-level
-        // batching. Matters more here: the backfill runs this across
-        // thousands of occurrences, so trimming even a few round trips per
-        // occurrence adds up.
-        if (visits.length > 0) {
-          const { data: upserted, error } = await supabase
-            .from("class_visits")
-            .upsert(
-              visits.map((visit) => ({
-                organization_id: org.id,
-                occurrence_id: occurrence.id,
-                client_mindbody_unique_id: visit.ClientUniqueId,
-                signed_in: visit.SignedIn,
-                synced_at: syncedAt,
-              })),
-              { onConflict: "organization_id,occurrence_id,client_mindbody_unique_id" },
-            )
-            .select("id");
-
-          if (!error) {
-            visitsImported += upserted?.length ?? 0;
-          } else {
-            console.error(
-              `class_visits upsert failed for occurrence ${occurrence.mindbody_occurrence_id} (${occurrence.id}): raw=${rawVisits.length} deduped=${visits.length} clientIds=${JSON.stringify(visits.map((v) => v.ClientUniqueId))}`,
-              error,
-            );
-          }
-        }
+        const { imported } = await fetchAndStoreOccurrenceVisits({
+          mindbody,
+          accessToken: visitsAccessToken,
+          supabase,
+          organizationId: org.id,
+          occurrence,
+          syncedAt,
+        });
+        visitsImported += imported;
       } catch (occurrenceError) {
         occurrencesFailed++;
         console.error(

@@ -5,6 +5,10 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 import { withRetry } from "@/lib/retry";
 import { asOccurrenceId } from "@/lib/mindbody/types";
 import { sendPushToStaff } from "@/lib/push/send";
+import { sendEmailToRecipients } from "@/lib/email/send";
+import { substitutionRequestNotSelectedEmail, substitutionRequestSelectedEmail } from "@/lib/email/templates";
+import { getOptionalEnv } from "@/lib/env";
+import { resolveRequestOrigin } from "@/lib/request-origin";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -89,7 +93,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { data: occurrence, error: occurrenceError } = await supabase
       .from("class_occurrences")
-      .select("mindbody_occurrence_id, organization_id, class_name")
+      .select("mindbody_occurrence_id, organization_id, class_name, start_datetime")
       .eq("id", substitutionRequest.occurrence_id)
       .single();
 
@@ -294,6 +298,68 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       console.error(
         `[select/route] Failed to send push for substitution_request ${requestId}:`,
         pushError instanceof Error ? pushError.message : pushError,
+      );
+    }
+
+    // Non-critical, best-effort emails, same reasoning as the push above:
+    //  - the chosen instructor gets a confirmation (the push only reaches
+    //    instructors who installed the app on their phone);
+    //  - every other volunteer hears the class is covered so they stop
+    //    holding the time. Only 'interested' responders -- people who
+    //    declined or never answered weren't waiting on this.
+    try {
+      if (occurrence.class_name && occurrence.start_datetime) {
+        const { data: volunteers, error: volunteersError } = await supabase
+          .from("substitution_interests")
+          .select("staff_id, staff:staff!substitution_interests_staff_id_fkey ( display_name, email, archived_at )")
+          .eq("request_id", requestId)
+          .eq("status", "interested")
+          .returns<
+            {
+              staff_id: string;
+              staff: { display_name: string | null; email: string | null; archived_at: string | null } | null;
+            }[]
+          >();
+
+        if (volunteersError) {
+          throw new Error(volunteersError.message);
+        }
+
+        const reachable = (volunteers ?? []).filter(
+          (row): row is typeof row & { staff: { display_name: string | null; email: string; archived_at: null } } =>
+            Boolean(row.staff?.email && !row.staff.archived_at),
+        );
+        const toRecipient = (row: (typeof reachable)[number]) => ({
+          email: row.staff.email,
+          displayName: row.staff.display_name,
+        });
+        const chosen = reachable.filter((row) => row.staff_id === staffId).map(toRecipient);
+        const notChosen = reachable.filter((row) => row.staff_id !== staffId).map(toRecipient);
+
+        if (chosen.length > 0 || notChosen.length > 0) {
+          const { data: org } = await supabase
+            .from("organizations")
+            .select("timezone")
+            .eq("id", occurrence.organization_id)
+            .maybeSingle();
+
+          const classInfo = {
+            className: occurrence.class_name,
+            startDatetime: occurrence.start_datetime,
+            timezone: org?.timezone ?? "utc",
+            siteUrl: getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? resolveRequestOrigin(request),
+          };
+
+          await Promise.all([
+            sendEmailToRecipients(chosen, substitutionRequestSelectedEmail(classInfo)),
+            sendEmailToRecipients(notChosen, substitutionRequestNotSelectedEmail(classInfo)),
+          ]);
+        }
+      }
+    } catch (volunteerEmailError) {
+      console.error(
+        `[select/route] Failed to email volunteers for substitution_request ${requestId}:`,
+        volunteerEmailError instanceof Error ? volunteerEmailError.message : volunteerEmailError,
       );
     }
 

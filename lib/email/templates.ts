@@ -157,6 +157,71 @@ export function substitutionRequestVolunteerEmail({
   };
 }
 
+// Sent to every instructor who volunteered ("interested") for a request
+// when an admin approves someone else. Without it they'd have no way to
+// know the class is handled and could keep holding the time open. The
+// chosen instructor isn't named -- the point is "you're free", not who
+// won the slot.
+export function substitutionRequestNotSelectedEmail({ className, startDatetime, timezone, siteUrl }: ClassInfo): {
+  subject: string;
+  html: string;
+} {
+  const when = formatClassTime(startDatetime, timezone);
+
+  return {
+    subject: `Thanks for offering to cover ${className}`,
+    html: `
+      <p>Thank you for offering to cover <strong>${escapeHtml(className)}</strong> on ${when}.</p>
+      <p>Another instructor was able to pick it up, so there's nothing you need to do.</p>
+      <p>We appreciate you stepping up. You can see other open requests here:</p>
+      <p><a href="${siteUrl}/dashboard/sub-requests">${siteUrl}/dashboard/sub-requests</a></p>
+    `,
+  };
+}
+
+// Sent to the instructor an admin approved. Mirrors the push sent at the
+// same moment, for instructors without the app installed on a phone.
+export function substitutionRequestSelectedEmail({ className, startDatetime, timezone, siteUrl }: ClassInfo): {
+  subject: string;
+  html: string;
+} {
+  const when = formatClassTime(startDatetime, timezone);
+
+  return {
+    subject: `You're confirmed to cover ${className}`,
+    html: `
+      <p>Thank you for picking up <strong>${escapeHtml(className)}</strong> on ${when}.</p>
+      <p>You're confirmed as the instructor for this class, and the schedule has been updated.</p>
+      <p>See it on your schedule here:</p>
+      <p><a href="${siteUrl}/dashboard/schedule">${siteUrl}/dashboard/schedule</a></p>
+    `,
+  };
+}
+
+// Sent ~2 hours after a class ends to the instructor who taught it (the
+// approved sub when there was one), when at least one member checked in.
+// Points at Follow Up, where that class's attendees now appear.
+export function postClassFollowUpEmail({
+  className,
+  startDatetime,
+  timezone,
+  siteUrl,
+  checkedInCount,
+}: ClassInfo & { checkedInCount: number }): { subject: string; html: string } {
+  const when = formatClassTime(startDatetime, timezone);
+  const people = checkedInCount === 1 ? "1 member" : `${checkedInCount} members`;
+
+  return {
+    subject: `Follow up with your ${className} class`,
+    html: `
+      <p>Thanks for teaching <strong>${escapeHtml(className)}</strong> on ${when}. ${people} checked in.</p>
+      <p>A quick personal note after class goes a long way. Send a follow-up to the people who attended here:</p>
+      <p><a href="${siteUrl}/dashboard/follow-up">${siteUrl}/dashboard/follow-up</a></p>
+      <p>Members see your name and the studio. Your email address stays private.</p>
+    `,
+  };
+}
+
 type NewLead = {
   name: string;
   studioName: string;
