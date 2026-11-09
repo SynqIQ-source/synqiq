@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmStaffForApi } from "@/lib/crm/module";
+import { canWorkContact, getCrmStaffForApi } from "@/lib/crm/module";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 
 type RouteParams = { params: Promise<{ id: string }> };
@@ -29,6 +29,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .maybeSingle();
     if (error) throw error;
     if (!appointment) return jsonError("Appointment not found.", 404);
+    if (!(await canWorkContact(staff, appointment.contact_id))) return jsonError("Appointment not found.", 404);
 
     const update: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
     if (status === "showed" && !appointment.visit_id) {

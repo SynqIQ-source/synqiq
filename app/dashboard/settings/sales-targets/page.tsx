@@ -44,7 +44,7 @@ export default async function SalesTargetsPage({
     .order("display_name");
   if (staffError) throw new Error("Failed to load staff.");
   const salespeople = (staffRows ?? [])
-    .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
+    .filter((member) => !member.archived_at && member.can_sell)
     .map((member) => ({
       id: member.id as string,
       name: member.display_name as string,

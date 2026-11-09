@@ -3,17 +3,22 @@ import { cn } from "@/lib/utils";
 
 // Follow Up's two lists: class check-ins (the instructor email relay) and,
 // with the CRM module, new members assigned to this trainer for an intro.
+// showClasses: instructors (and club admins); the New members tab is shown
+// to trainers. A tab bar with one tab isn't rendered.
 export function FollowUpTabs({
   active,
   newMembersBadge,
+  showClasses = true,
 }: {
   active: "classes" | "new-members";
   newMembersBadge?: number;
+  showClasses?: boolean;
 }) {
   const tabs = [
     { key: "classes", href: "/dashboard/follow-up", label: "Class check-ins" },
     { key: "new-members", href: "/dashboard/follow-up/new-members", label: "New members" },
-  ] as const;
+  ].filter((tab) => showClasses || tab.key !== "classes");
+  if (tabs.length < 2) return null;
   return (
     <nav aria-label="Follow Up" className="mb-6 flex gap-1 border-b">
       {tabs.map((tab) => (

@@ -7,6 +7,7 @@ import { FollowUpComposer } from "./follow-up-composer";
 import { FollowUpTabs } from "@/components/crm/follow-up-tabs";
 import { redirect } from "next/navigation";
 import { getEnabledModules, requireModule } from "@/lib/modules";
+import { homePath, isInstructorAccess, isTrainerAccess } from "@/lib/permissions";
 
 const TITLE = "Follow Up";
 const DESCRIPTION =
@@ -46,8 +47,13 @@ export default async function FollowUpPage() {
   // Class follow-ups are the group fitness module; a Trainer-only studio's
   // trainers land on their New members tab instead.
   const moduleStaff = await requireModule("group_fitness", "trainer");
-  if (!(await getEnabledModules(moduleStaff.organizationId)).has("group_fitness")) {
-    redirect("/dashboard/follow-up/new-members");
+  // Class check-ins are for instructors (and club admins); a trainer who
+  // doesn't teach classes goes to their New members tab.
+  if (
+    !(await getEnabledModules(moduleStaff.organizationId)).has("group_fitness") ||
+    !isInstructorAccess(moduleStaff)
+  ) {
+    redirect(isTrainerAccess(moduleStaff) ? "/dashboard/follow-up/new-members" : homePath(moduleStaff));
   }
   const currentStaff = await getCurrentStaff();
 
@@ -161,7 +167,8 @@ export default async function FollowUpPage() {
   // With the CRM module, a second tab lists new members assigned to this
   // trainer; the badge counts the ones they haven't reached out to yet.
   // The New members tab is the Trainer module.
-  const newMembersTab = (await getEnabledModules(currentStaff.organizationId)).has("trainer");
+  const newMembersTab =
+    isTrainerAccess(currentStaff) && (await getEnabledModules(currentStaff.organizationId)).has("trainer");
   let awaitingOutreach = 0;
   if (newMembersTab) {
     const { data: assigned } = await supabase

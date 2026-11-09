@@ -19,12 +19,14 @@ export function NewMembersFilters({
   end,
   trainer,
   trainers,
+  showTrainerFilter = true,
 }: {
   range: string;
   start: string;
   end: string;
   trainer: string;
   trainers: { id: string; name: string }[];
+  showTrainerFilter?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -47,6 +49,7 @@ export function NewMembersFilters({
         end={end}
         ariaLabel="Enrolled"
       />
+      {showTrainerFilter ? (
       <Select value={trainer} onValueChange={setTrainer}>
         <SelectTrigger aria-label="Trainer" className="min-w-[170px] bg-card">
           <span className="flex items-center gap-2">
@@ -64,6 +67,7 @@ export function NewMembersFilters({
           ))}
         </SelectContent>
       </Select>
+      ) : null}
     </div>
   );
 }

@@ -1,11 +1,12 @@
 "use client";
+import type { StaffRole } from "@/lib/permissions";
 
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type CurrentUserBannerProps = {
   displayName: string;
-  role: "admin" | "instructor";
+  role: StaffRole;
 };
 
 export function CurrentUserBanner({ displayName, role }: CurrentUserBannerProps) {

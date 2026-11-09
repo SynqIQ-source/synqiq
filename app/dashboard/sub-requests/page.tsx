@@ -12,6 +12,8 @@ import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { CancelRequestButton } from "./cancel-request-button";
 import { ResponseButtons, type ResponseStatus } from "./response-buttons";
 import { requireModule } from "@/lib/modules";
+import { requireAccess } from "@/lib/require-access";
+import { isInstructorAccess } from "@/lib/permissions";
 
 const TITLE = "Sub Requests";
 const DESCRIPTION = "Your own coverage requests, and open requests you're qualified to cover.";
@@ -213,6 +215,7 @@ async function getOpenRequestsQualifiedFor(
 export default async function SubRequestsPage() {
   // Part of the group fitness module: 404 when the studio doesn't have it.
   await requireModule("group_fitness");
+  await requireAccess(isInstructorAccess);
   // middleware.ts already guarantees a real Supabase Auth session for
   // anything under /dashboard/* -- currentStaff can still be null here in
   // one narrow case (a valid session with no linked staff row), handled

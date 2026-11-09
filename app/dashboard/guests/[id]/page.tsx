@@ -1,3 +1,4 @@
+import { isClubAdmin, managesSales } from "@/lib/permissions";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { DateTime } from "luxon";
@@ -161,7 +162,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       .select("id, signed_at, template_version, is_minor, guardian_name")
       .in("contact_id", contactIds)
       .order("signed_at", { ascending: false }),
-    supabase.from("staff").select("id, display_name, can_sell, role, archived_at, auth_user_id").order("display_name"),
+    supabase.from("staff").select("id, display_name, can_sell, role, archived_at, auth_user_id, is_trainer").order("display_name"),
     supabase
       .from("crm_pending_matches")
       .select(
@@ -203,18 +204,22 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
 
   const staffRows = staffResult.data ?? [];
   const staffNames = new Map(staffRows.map((member) => [member.id, member.display_name as string]));
-  // Salesperson choices: active sellers and admins, plus whoever is assigned now.
+  // Salesperson choices: active salespeople, plus whoever is assigned now.
   const salespeople = staffRows
     .filter(
       (member) =>
-        (!member.archived_at && (member.can_sell || member.role === "admin")) || member.id === contact.assigned_staff_id,
+        (!member.archived_at && member.can_sell) || member.id === contact.assigned_staff_id,
     )
     .map((member) => ({ id: member.id, name: member.display_name as string }));
   const notes = notesResult.data ?? [];
-  const isAdmin = staff.role === "admin";
-  // Anyone who can sign in can be a member's trainer.
+  const isAdmin = isClubAdmin(staff);
+  const canReassign = managesSales(staff);
+  // Trainer choices: staff tagged Trainer who can sign in, plus whoever is assigned now.
   const trainers = staffRows
-    .filter((member) => (!member.archived_at && member.auth_user_id) || member.id === contact.trainer_staff_id)
+    .filter(
+      (member) =>
+        (!member.archived_at && member.auth_user_id && member.is_trainer) || member.id === contact.trainer_staff_id,
+    )
     .map((member) => ({ id: member.id, name: member.display_name as string }));
   let introLine: string | null = null;
   if (contact.member_enrolled_at) {
@@ -364,7 +369,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                           "unknown"
                         )}
                       </p>
-                      <PendingMatchActions matchId={match.id} canMerge={staff.role === "admin"} />
+                      <PendingMatchActions matchId={match.id} canMerge={isAdmin} />
                     </div>
                   );
                 })}
@@ -502,7 +507,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                   ) : null}
                 </Item>
                 <Item label="Salesperson">
-                  {isAdmin ? (
+                  {canReassign ? (
                     <SalespersonSelect contactId={contact.id} current={contact.assigned_staff_id} options={salespeople} />
                   ) : contact.assigned_staff_id ? (
                     (staffNames.get(contact.assigned_staff_id) ?? "—")

@@ -1,4 +1,5 @@
 "use client";
+import { ROLE_LABELS, type StaffRole } from "@/lib/permissions";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -7,7 +8,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type AccountMenuProps = {
   displayName: string;
-  role: "admin" | "instructor";
+  role: StaffRole;
   title: string | null;
   photoUrl: string | null;
 };
@@ -68,7 +69,7 @@ export function AccountMenu({ displayName, role, title, photoUrl }: AccountMenuP
             <p className="truncate text-sm font-medium">{displayName}</p>
             <p className="truncate text-xs text-muted-foreground">
               {title ? `${title} · ` : ""}
-              {role === "admin" ? "Admin" : "Instructor"}
+              {ROLE_LABELS[role]}
             </p>
           </div>
           <Link

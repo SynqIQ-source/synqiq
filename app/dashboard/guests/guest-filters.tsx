@@ -32,7 +32,8 @@ export function GuestFilters({
   end: string;
   seller: string;
   status: string;
-  salespeople: { id: string; name: string }[];
+  // null hides the salesperson filter (Sales see only their own guests).
+  salespeople: { id: string; name: string }[] | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -56,6 +57,7 @@ export function GuestFilters({
         ariaLabel="Date range"
         className="justify-start"
       />
+      {salespeople ? (
       <Select value={seller} onValueChange={(value) => set("seller", value, "all")}>
         <SelectTrigger aria-label="Salesperson" className="min-w-[180px] bg-card">
           <span className="flex items-center gap-2">
@@ -73,6 +75,7 @@ export function GuestFilters({
           ))}
         </SelectContent>
       </Select>
+      ) : null}
       <Select value={status} onValueChange={(value) => set("status", value, "open")}>
         <SelectTrigger aria-label="Status" className="min-w-[180px] bg-card">
           <SelectValue />

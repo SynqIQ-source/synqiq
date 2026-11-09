@@ -11,6 +11,8 @@ import { getExcludedDepartmentIds } from "@/lib/excluded-departments";
 import { HistoryWindowSelect } from "./history-window-select";
 import { PeriodNav } from "./period-nav";
 import { requireModule } from "@/lib/modules";
+import { requireAccess } from "@/lib/require-access";
+import { isInstructorAccess } from "@/lib/permissions";
 
 type TableOccurrenceRow = {
   id: string;
@@ -241,6 +243,7 @@ export default async function ClassesPage({
 }) {
   // Part of the group fitness module: 404 when the studio doesn't have it.
   await requireModule("group_fitness");
+  await requireAccess(isInstructorAccess);
   const params = await searchParams;
 
   // Adam's real session -> RLS-scoped client, so the same-org select

@@ -65,17 +65,18 @@ const LAST_NAMES = [
   "Fleming", "Garrett", "Holland", "Irwin", "Jensen", "Kirby", "Lowell", "Monroe", "Norris", "Porter", "Ramsey",
 ] as const;
 
-// 1 owner (admin), 2 salespeople, instructors and a personal trainer.
+// 1 owner (club admin, also trains), a sales lead, a salesperson, instructors
+// and a personal trainer. Roles and tags as in lib/permissions.ts.
 const STAFF = [
-  { key: "owner", first: "Jordan", last: "Avery", role: "admin", sells: true, title: "Owner" },
-  { key: "sales1", first: "Maya", last: "Chen", role: "instructor", sells: true, title: "Membership Advisor" },
-  { key: "sales2", first: "Luis", last: "Ortega", role: "instructor", sells: true, title: "Membership Advisor" },
-  { key: "yoga", first: "Priya", last: "Shah", role: "instructor", sells: false, title: "Yoga Instructor" },
-  { key: "strength", first: "Ben", last: "Carter", role: "instructor", sells: false, title: "Strength Coach" },
-  { key: "pilates", first: "Sofia", last: "Ramos", role: "instructor", sells: false, title: "Pilates Instructor" },
-  { key: "hiit", first: "Theo", last: "Brooks", role: "instructor", sells: false, title: "HIIT Coach" },
-  { key: "mat", first: "Ava", last: "Nguyen", role: "instructor", sells: false, title: "Pilates Instructor" },
-  { key: "pt", first: "Marcus", last: "Lee", role: "instructor", sells: false, title: "Personal Trainer" },
+  { key: "owner", first: "Jordan", last: "Avery", role: "admin", sells: true, instructor: false, trainer: true, title: "Owner" },
+  { key: "sales1", first: "Maya", last: "Chen", role: "sales_lead", sells: true, instructor: false, trainer: false, title: "Membership Director" },
+  { key: "sales2", first: "Luis", last: "Ortega", role: "sales", sells: true, instructor: false, trainer: false, title: "Membership Advisor" },
+  { key: "yoga", first: "Priya", last: "Shah", role: "staff", sells: false, instructor: true, trainer: false, title: "Yoga Instructor" },
+  { key: "strength", first: "Ben", last: "Carter", role: "staff", sells: false, instructor: true, trainer: true, title: "Strength Coach" },
+  { key: "pilates", first: "Sofia", last: "Ramos", role: "staff", sells: false, instructor: true, trainer: false, title: "Pilates Instructor" },
+  { key: "hiit", first: "Theo", last: "Brooks", role: "staff", sells: false, instructor: true, trainer: false, title: "HIIT Coach" },
+  { key: "mat", first: "Ava", last: "Nguyen", role: "staff", sells: false, instructor: true, trainer: false, title: "Pilates Instructor" },
+  { key: "pt", first: "Marcus", last: "Lee", role: "staff", sells: false, instructor: false, trainer: true, title: "Personal Trainer" },
 ] as const;
 type StaffKey = (typeof STAFF)[number]["key"];
 
@@ -220,6 +221,9 @@ async function ensureBase(admin: Admin): Promise<Base & { generatedThrough: stri
         display_name: `${person.first} ${person.last}`,
         role: person.role,
         can_sell: person.sells,
+        is_instructor: person.instructor,
+        is_trainer: person.trainer,
+        teaching_roles_set_at: new Date().toISOString(),
         title: person.title,
         active: true,
         location_id: locationId,

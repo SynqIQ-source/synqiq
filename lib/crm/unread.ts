@@ -1,3 +1,4 @@
+import { managesSales } from "@/lib/permissions";
 import { cache } from "react";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { CurrentStaff } from "@/lib/current-staff";
@@ -19,7 +20,9 @@ export const unreadGuestMessageCount = cache(async function unreadGuestMessageCo
     .eq("direction", "inbound")
     .is("read_at", null)
     .is("contact.deleted_at", null);
-  if (staff.role !== "admin") {
+  // Club admins and sales leads: every unread message. Others: their own
+  // guests (as salesperson) and members (as trainer).
+  if (!managesSales(staff)) {
     query = staff.canSell
       ? query.or(`assigned_staff_id.eq.${staff.id},trainer_staff_id.eq.${staff.id}`, { referencedTable: "contact" })
       : query.eq("contact.trainer_staff_id", staff.id);

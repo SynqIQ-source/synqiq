@@ -1,4 +1,5 @@
 "use client";
+import type { StaffRole } from "@/lib/permissions";
 
 import { useEffect, useRef, useState } from "react";
 import { DateTime } from "luxon";
@@ -32,7 +33,7 @@ type Message = {
 
 type MessageBoardsClientProps = {
   currentStaffId: string;
-  currentStaffRole: "admin" | "instructor";
+  currentStaffRole: StaffRole;
   initialBoards: Board[];
   staffDirectory: StaffOption[];
 };

@@ -1,3 +1,4 @@
+import { managesSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -38,7 +39,8 @@ export default async function FollowUpsPage({
 }) {
   const staff = await requireCrmStaff();
   const params = await searchParams;
-  const isAdmin = staff.role === "admin";
+  // Club admins and sales leads see every salesperson; Sales see their own.
+  const isAdmin = managesSales(staff);
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);
 
@@ -52,7 +54,7 @@ export default async function FollowUpsPage({
     .order("display_name");
   const staffNames = new Map((staffRows ?? []).map((member) => [member.id, member.display_name as string]));
   const salespeople = (staffRows ?? [])
-    .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
+    .filter((member) => !member.archived_at && member.can_sell)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
 
   // Everyone open, so the per-salesperson counts cover the whole club; the

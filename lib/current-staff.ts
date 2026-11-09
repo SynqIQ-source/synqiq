@@ -1,16 +1,21 @@
 import { cache } from "react";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { StaffRole } from "@/lib/permissions";
 
 export type CurrentStaff = {
   id: string;
   displayName: string;
-  role: "admin" | "instructor";
+  // Access level; see lib/permissions.ts for what each allows.
+  role: StaffRole;
   organizationId: string;
   title: string | null;
   photoUrl: string | null;
-  // Sells memberships: sees the CRM (Guests) and appears as a kiosk seller.
+  // Counts as a salesperson: seller lists, lead assignment, sales credit.
   canSell: boolean;
+  // Teaching tags -- combine with any role.
+  isInstructor: boolean;
+  isTrainer: boolean;
 };
 
 // Wrapped in React's cache() (same pattern as getOrgBranding in
@@ -42,7 +47,7 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
   const adminSupabase = createSupabaseAdminClient();
   const { data: staff } = await adminSupabase
     .from("staff")
-    .select("id, display_name, role, organization_id, title, photo_url, can_sell")
+    .select("id, display_name, role, organization_id, title, photo_url, can_sell, is_instructor, is_trainer")
     .eq("auth_user_id", user.id)
     .maybeSingle();
 
@@ -53,10 +58,12 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
   return {
     id: staff.id,
     displayName: staff.display_name,
-    role: staff.role as "admin" | "instructor",
+    role: staff.role as StaffRole,
     organizationId: staff.organization_id,
     title: staff.title,
     photoUrl: staff.photo_url,
     canSell: staff.can_sell === true,
+    isInstructor: staff.is_instructor === true,
+    isTrainer: staff.is_trainer === true,
   };
 });

@@ -73,7 +73,8 @@ export async function GET(request: NextRequest) {
       supabase
         .from("staff")
         .select("id, display_name")
-        .eq("role", "instructor")
+        // Staff tagged Instructor, whatever their role (club admins teach too).
+        .eq("is_instructor", true)
         // Archived (let-go / inactive) instructors are gone from Staff
         // Logins -- keep them off this list too instead of leaving a
         // stale toggle row visible for someone no longer here. A deleted

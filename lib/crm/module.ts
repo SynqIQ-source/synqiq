@@ -3,6 +3,9 @@ import { getEnabledModules } from "@/lib/modules";
 import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStaff, type CurrentStaff } from "@/lib/current-staff";
+import { canUseCrm, managesSales } from "@/lib/permissions";
+
+export { canUseCrm };
 
 // The CRM is a separately sold module (org_modules.module = 'crm'). Every CRM
 // page, API route and nav item checks this; an org without it gets a 404, as
@@ -18,12 +21,9 @@ export const isCrmEnabled = cache(async function isCrmEnabled(organizationId: st
   return data?.status === "enabled";
 });
 
-export function canUseCrm(staff: CurrentStaff): boolean {
-  return staff.role === "admin" || staff.canSell;
-}
-
-// For CRM dashboard pages: signed-in admin or sales staff in an org with the
-// module, else 404.
+// For CRM dashboard pages: signed-in club admin, sales lead or salesperson in
+// an org with the module, else 404. Pages limit Sales to their own guests
+// and numbers (lib/permissions.ts seesOnlyOwnSales).
 export async function requireCrmStaff(): Promise<CurrentStaff> {
   const staff = await getCurrentStaff();
   if (!staff || !canUseCrm(staff) || !(await isCrmEnabled(staff.organizationId))) {
@@ -33,38 +33,60 @@ export async function requireCrmStaff(): Promise<CurrentStaff> {
 }
 
 // Same check for API routes; returns null instead of throwing a 404 page.
-export async function getCrmStaffForApi(options: { adminOnly?: boolean } = {}): Promise<CurrentStaff | null> {
+// adminOnly: club admins only. managers: club admins and sales leads.
+export async function getCrmStaffForApi(
+  options: { adminOnly?: boolean; managers?: boolean } = {},
+): Promise<CurrentStaff | null> {
   const staff = await getCurrentStaff();
-  if (!staff || !canUseCrm(staff) || (options.adminOnly && staff.role !== "admin")) {
+  if (
+    !staff ||
+    !canUseCrm(staff) ||
+    (options.adminOnly && staff.role !== "admin") ||
+    (options.managers && !managesSales(staff))
+  ) {
     return null;
   }
   return (await isCrmEnabled(staff.organizationId)) ? staff : null;
 }
 
-// Who may open one guest/member profile: full CRM staff (admins and
-// sellers), or the trainer assigned to that member -- who gets the same
-// page with fewer actions (message, call, note; no edit, assign, sell,
-// merge or delete). `full` says which.
+// Whether CRM staff may work this one contact: club admins and sales leads
+// any of them; Sales only guests assigned to them (or merged into one that is).
+export async function canWorkContact(staff: CurrentStaff, contactId: string): Promise<boolean> {
+  if (managesSales(staff)) return true;
+  if (!canUseCrm(staff)) return false;
+  return isAssignedTo(staff, contactId, "assigned_staff_id");
+}
+
+// Who may open one guest/member profile: club admins and sales leads (any
+// guest), Sales (guests assigned to them), or the trainer assigned to that
+// member -- who gets the same page with fewer actions (message, call, note;
+// no edit, assign, sell, merge or delete). `full` says which.
 export type ContactViewer = { staff: CurrentStaff; full: boolean };
 
-async function isAssignedTrainer(staff: CurrentStaff, contactId: string): Promise<boolean> {
+async function isAssignedTo(
+  staff: CurrentStaff,
+  contactId: string,
+  column: "trainer_staff_id" | "assigned_staff_id",
+): Promise<boolean> {
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("crm_contacts")
-    .select("id, trainer_staff_id, merged_into_id")
+    .select(`id, ${column}, merged_into_id`)
     .eq("id", contactId)
     .eq("organization_id", staff.organizationId)
-    .maybeSingle();
+    .maybeSingle<{ id: string; merged_into_id: string | null } & Record<typeof column, string | null>>();
   if (!data) return false;
-  if (data.trainer_staff_id === staff.id) return true;
+  if (data[column] === staff.id) return true;
   if (!data.merged_into_id) return false;
   const { data: parent } = await admin
     .from("crm_contacts")
-    .select("trainer_staff_id")
+    .select(column)
     .eq("id", data.merged_into_id)
-    .maybeSingle();
-  return parent?.trainer_staff_id === staff.id;
+    .maybeSingle<Record<typeof column, string | null>>();
+  return parent?.[column] === staff.id;
 }
+
+const isAssignedTrainer = (staff: CurrentStaff, contactId: string) => isAssignedTo(staff, contactId, "trainer_staff_id");
 
 // For a profile page: CRM staff, or the member's assigned trainer, in an
 // org with the module; else 404.
@@ -78,7 +100,7 @@ async function hasContactModule(organizationId: string): Promise<boolean> {
 export async function requireContactViewer(contactId: string): Promise<ContactViewer> {
   const staff = await getCurrentStaff();
   if (!staff || !(await hasContactModule(staff.organizationId))) notFound();
-  if (canUseCrm(staff)) return { staff, full: true };
+  if (await canWorkContact(staff, contactId)) return { staff, full: true };
   if (await isAssignedTrainer(staff, contactId)) return { staff, full: false };
   notFound();
 }
@@ -87,7 +109,7 @@ export async function requireContactViewer(contactId: string): Promise<ContactVi
 export async function getContactViewerForApi(contactId: string): Promise<ContactViewer | null> {
   const staff = await getCurrentStaff();
   if (!staff || !(await hasContactModule(staff.organizationId))) return null;
-  if (canUseCrm(staff)) return { staff, full: true };
+  if (await canWorkContact(staff, contactId)) return { staff, full: true };
   return (await isAssignedTrainer(staff, contactId)) ? { staff, full: false } : null;
 }
 

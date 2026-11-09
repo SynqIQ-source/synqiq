@@ -10,6 +10,8 @@ import { formatClassTime } from "@/lib/format-class-time";
 import { DateNav } from "./date-nav";
 import { SubRequestButton } from "./sub-request-button";
 import { requireModule } from "@/lib/modules";
+import { requireAccess } from "@/lib/require-access";
+import { isInstructorAccess } from "@/lib/permissions";
 
 const TITLE = "My Schedule";
 const DESCRIPTION =
@@ -86,6 +88,7 @@ export default async function SchedulePage({
 }) {
   // Part of the group fitness module: 404 when the studio doesn't have it.
   await requireModule("group_fitness");
+  await requireAccess(isInstructorAccess);
   const params = await searchParams;
 
   // middleware.ts already guarantees a real Supabase Auth session for

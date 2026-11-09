@@ -11,6 +11,8 @@ import { RangeSelect } from "./range-select";
 import { ClassFilterSelect } from "./class-filter-select";
 import { InstructorTable } from "./instructor-table";
 import { requireModule } from "@/lib/modules";
+import { requireAccess } from "@/lib/require-access";
+import { isClubAdmin } from "@/lib/permissions";
 
 type StaffRow = { id: string; display_name: string };
 type SubstitutionRequestRow = {
@@ -44,8 +46,9 @@ async function getOrgTimezone(supabase: ScopedSupabaseClient) {
   return data?.timezone ?? "utc";
 }
 
+// Staff tagged Instructor, whatever their role (club admins teach too).
 async function getInstructors(supabase: ScopedSupabaseClient): Promise<StaffRow[]> {
-  const { data, error } = await supabase.from("staff").select("id, display_name").eq("role", "instructor");
+  const { data, error } = await supabase.from("staff").select("id, display_name").eq("is_instructor", true);
 
   if (error) {
     throw new Error(`Failed to load staff: ${error.message}`);
@@ -354,6 +357,7 @@ export default async function InstructorsPage({
 }) {
   // Part of the group fitness module: 404 when the studio doesn't have it.
   await requireModule("group_fitness");
+  await requireAccess(isClubAdmin);
   const params = await searchParams;
 
   const currentStaff = await getCurrentStaff();

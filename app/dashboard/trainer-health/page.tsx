@@ -1,11 +1,11 @@
-import { redirect } from "next/navigation";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { getCurrentStaff } from "@/lib/current-staff";
 import { loadItemClassifier } from "@/lib/mindbody/item-types";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { TrainerHealthTable } from "./trainer-health-table";
 import { requireModule } from "@/lib/modules";
+import { requireAccess } from "@/lib/require-access";
+import { isTrainerAccess } from "@/lib/permissions";
 
 const MONTHS_SHOWN = 6;
 const PAGE_SIZE = 1000;
@@ -34,8 +34,9 @@ async function getOrg(supabase: ScopedSupabaseClient, organizationId: string) {
   return data;
 }
 
+// Staff tagged Trainer (any role -- a club admin can train too).
 async function getInstructors(supabase: ScopedSupabaseClient): Promise<StaffRow[]> {
-  const { data, error } = await supabase.from("staff").select("id, display_name").eq("role", "instructor");
+  const { data, error } = await supabase.from("staff").select("id, display_name").eq("is_trainer", true);
 
   if (error) {
     throw new Error(`Failed to load staff: ${error.message}`);
@@ -350,11 +351,8 @@ function buildStudioSummary(
 export default async function TrainerHealthPage() {
   // Part of the trainer module: 404 when the studio doesn't have it.
   await requireModule("trainer");
-  const currentStaff = await getCurrentStaff();
-
-  if (!currentStaff || currentStaff.role !== "admin") {
-    redirect("/dashboard");
-  }
+  // Club admins and every trainer (trainers see all trainers' numbers).
+  const currentStaff = await requireAccess(isTrainerAccess);
 
   const supabase = await getScopedClient(currentStaff);
   const org = await getOrg(supabase, currentStaff.organizationId);

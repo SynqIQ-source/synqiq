@@ -17,7 +17,7 @@ export default async function StaffSettingsPage() {
   const supabase = await getScopedClient(currentStaff);
   const { data: staff, error } = await supabase
     .from("staff")
-    .select("id, display_name, role, email, mindbody_staff_id, auth_user_id, active, archived_at")
+    .select("id, display_name, role, can_sell, is_instructor, is_trainer, email, mindbody_staff_id, auth_user_id, active, archived_at")
     .order("display_name", { ascending: true })
     .returns<StaffLinkingRow[]>();
 
@@ -27,8 +27,8 @@ export default async function StaffSettingsPage() {
 
   return (
     <DashboardShell
-      title="Staff Logins"
-      description="Link each staff member's synced Mindbody record to a real SynqIQ login. Staff join by invite only."
+      title="Staff & Roles"
+      description="Set each person's role and what they do (Instructor, Trainer, Sells), and send their SynqIQ login. Staff join by invite only."
     >
       <StaffLinkingTable staff={staff ?? []} />
     </DashboardShell>

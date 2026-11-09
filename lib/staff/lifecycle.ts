@@ -1,3 +1,4 @@
+import type { StaffRole } from "@/lib/permissions";
 import type { CurrentStaff } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -7,7 +8,7 @@ export type TargetStaff = {
   id: string;
   organization_id: string;
   display_name: string;
-  role: "admin" | "instructor";
+  role: StaffRole;
   auth_user_id: string | null;
   mindbody_staff_id: number | null;
   archived_at: string | null;

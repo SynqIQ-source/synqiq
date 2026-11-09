@@ -7,95 +7,105 @@ import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { BottomNav, type NavItem } from "@/components/bottom-nav";
 import { SidebarNav, type NavGroup } from "@/components/sidebar-nav";
 import { AccountMenu } from "@/components/account-menu";
-import { canUseCrm, isCrmEnabled } from "@/lib/crm/module";
+import { isCrmEnabled } from "@/lib/crm/module";
+import type { CurrentStaff } from "@/lib/current-staff";
+import {
+  canUseCrm,
+  canViewOverview,
+  isClubAdmin,
+  isInstructorAccess,
+  isTrainerAccess,
+} from "@/lib/permissions";
 import { unreadGuestMessageCount } from "@/lib/crm/unread";
 
-// crm: shown only when the org has the CRM module -- "staff" to admins and
-// sellers (can_sell), "admin" to admins only.
+// who: which staff see the link (lib/permissions.ts); omitted = everyone.
+// The pages enforce the same rule themselves -- hiding a link is not the
+// access control.
+// crm: shown only when the org has the CRM module.
 // platform: shown only to SynqIQ platform admins (lib/platform/admin.ts).
 // modules: shown only when the studio has at least one of these modules on.
 type NavEntry = NavItem & {
-  adminOnly: boolean;
-  crm?: "staff" | "admin";
+  who?: (staff: CurrentStaff) => boolean;
+  crm?: boolean;
   platform?: boolean;
   modules?: ModuleKey[];
 };
 
+const instructorOrTrainer = (staff: CurrentStaff) => isInstructorAccess(staff) || isTrainerAccess(staff);
+
 // Grouped so the sidebar reads as "what I do every day" / "how the studio is
 // doing" / "setup", instead of one flat list of 16 links.
-//
-// adminOnly is a nav-visibility simplification, not an access-control
-// boundary -- none of these pages check role themselves, so hiding a link
-// doesn't change what a direct URL visit can reach. Real access control
-// (where it exists) lives in RLS/route handlers, same as everywhere else in
-// this app.
 const navigation: { label: string | null; items: NavEntry[] }[] = [
   {
     label: null,
-    items: [{ href: "/dashboard", label: "Overview", adminOnly: true }],
+    items: [{ href: "/dashboard", label: "Overview", who: canViewOverview }],
   },
   {
     label: "Teaching",
     items: [
-      { href: "/dashboard/schedule", label: "My Schedule", adminOnly: false, modules: ["group_fitness"] },
-      { href: "/dashboard/classes", label: "Classes", adminOnly: false, modules: ["group_fitness"] },
-      { href: "/dashboard/sub-requests", label: "Sub Requests", adminOnly: false, modules: ["group_fitness"] },
-      { href: "/dashboard/follow-up", label: "Follow Up", adminOnly: false, modules: ["group_fitness", "trainer"] },
-      { href: "/dashboard/messages", label: "Message Boards", adminOnly: false },
-      { href: "/dashboard/notifications", label: "Notifications", adminOnly: false },
+      { href: "/dashboard/schedule", label: "My Schedule", who: isInstructorAccess, modules: ["group_fitness"] },
+      { href: "/dashboard/classes", label: "Classes", who: isInstructorAccess, modules: ["group_fitness"] },
+      { href: "/dashboard/sub-requests", label: "Sub Requests", who: isInstructorAccess, modules: ["group_fitness"] },
+      { href: "/dashboard/follow-up", label: "Follow Up", who: instructorOrTrainer, modules: ["group_fitness", "trainer"] },
+      { href: "/dashboard/messages", label: "Message Boards" },
+      { href: "/dashboard/notifications", label: "Notifications" },
     ],
   },
   {
     label: "Sales",
     items: [
-      { href: "/dashboard/sales", label: "Sales Dashboard", adminOnly: false, crm: "staff" },
-      { href: "/dashboard/sales/history", label: "Sales History", adminOnly: false, crm: "staff" },
-      { href: "/dashboard/guests", label: "Guests", adminOnly: false, crm: "staff" },
-      { href: "/dashboard/sales/calendar", label: "Calendar", adminOnly: false, crm: "staff" },
-      { href: "/dashboard/sales/lead-status", label: "Lead Status", adminOnly: false, crm: "staff" },
-      { href: "/dashboard/sales/follow-ups", label: "Lead Follow-ups", adminOnly: false, crm: "staff" },
+      { href: "/dashboard/sales", label: "Sales Dashboard", who: canUseCrm, crm: true },
+      { href: "/dashboard/sales/history", label: "Sales History", who: canUseCrm, crm: true },
+      { href: "/dashboard/guests", label: "Guests", who: canUseCrm, crm: true },
+      { href: "/dashboard/sales/calendar", label: "Calendar", who: canUseCrm, crm: true },
+      { href: "/dashboard/sales/lead-status", label: "Lead Status", who: canUseCrm, crm: true },
+      { href: "/dashboard/sales/follow-ups", label: "Lead Follow-ups", who: canUseCrm, crm: true },
     ],
   },
   {
     label: "Insights",
     items: [
-      { href: "/dashboard/heatmap", label: "Heat Map", adminOnly: true, modules: ["group_fitness"] },
-      { href: "/dashboard/instructors", label: "Instructors", adminOnly: true, modules: ["group_fitness"] },
-      { href: "/dashboard/trainer-health", label: "Trainer Health", adminOnly: true, modules: ["trainer"] },
-      { href: "/dashboard/sales/new-members", label: "New Members", adminOnly: true, modules: ["trainer"] },
-      { href: "/dashboard/substitutions", label: "Substitutions", adminOnly: true, modules: ["group_fitness"] },
-      { href: "/dashboard/follow-up-activity", label: "Follow-ups", adminOnly: true, modules: ["group_fitness"] },
-      { href: "/dashboard/comp-audit", label: "Comp Audit", adminOnly: true },
+      { href: "/dashboard/heatmap", label: "Heat Map", who: isClubAdmin, modules: ["group_fitness"] },
+      { href: "/dashboard/instructors", label: "Instructors", who: isClubAdmin, modules: ["group_fitness"] },
+      { href: "/dashboard/trainer-health", label: "Trainer Health", who: isTrainerAccess, modules: ["trainer"] },
+      { href: "/dashboard/sales/new-members", label: "New Members", who: isTrainerAccess, modules: ["trainer"] },
+      { href: "/dashboard/substitutions", label: "Substitutions", who: isClubAdmin, modules: ["group_fitness"] },
+      { href: "/dashboard/follow-up-activity", label: "Follow-ups", who: isClubAdmin, modules: ["group_fitness"] },
+      { href: "/dashboard/comp-audit", label: "Comp Audit", who: isClubAdmin },
     ],
   },
   {
     label: "Admin",
     items: [
-      { href: "/dashboard/settings", label: "Settings", adminOnly: true },
-      { href: "/dashboard/settings/staff", label: "Staff Logins", adminOnly: true },
-      { href: "/dashboard/settings/billing", label: "Billing", adminOnly: true },
-      { href: "/dashboard/settings/eligibility", label: "Class Eligibility", adminOnly: true, modules: ["group_fitness"] },
-      { href: "/dashboard/settings/imports", label: "Imports", adminOnly: true },
-      { href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", adminOnly: true },
-      { href: "/dashboard/settings/crm", label: "CRM", adminOnly: true, crm: "admin" },
-      { href: "/dashboard/settings/sales-targets", label: "Sales Targets", adminOnly: true, crm: "admin" },
+      { href: "/dashboard/settings", label: "Settings", who: isClubAdmin },
+      { href: "/dashboard/settings/staff", label: "Staff & Roles", who: isClubAdmin },
+      { href: "/dashboard/settings/billing", label: "Billing", who: isClubAdmin },
+      { href: "/dashboard/settings/eligibility", label: "Class Eligibility", who: isClubAdmin, modules: ["group_fitness"] },
+      { href: "/dashboard/settings/imports", label: "Imports", who: isClubAdmin },
+      { href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", who: isClubAdmin },
+      { href: "/dashboard/settings/crm", label: "CRM", who: isClubAdmin, crm: true },
+      { href: "/dashboard/settings/sales-targets", label: "Sales Targets", who: isClubAdmin, crm: true },
     ],
   },
   {
     label: "SynqIQ",
-    items: [{ href: "/dashboard/platform", label: "Studios", adminOnly: false, platform: true }],
+    items: [{ href: "/dashboard/platform", label: "Studios", platform: true }],
   },
 ];
 
-// Fixed, identical across roles -- solves the mobile bottom-bar width
-// problem uniformly (every role gets the same 4-tab-plus-More bar) instead
-// of admin getting a wider bar than instructors. Everything else lands in
-// the "More" popover, filtered by the same adminOnly rule as the desktop
-// sidebar -- nothing becomes unreachable on mobile, just not primary.
-const PRIMARY_MOBILE_HREFS = [
+// The mobile bottom bar shows the first four of these the person can see
+// (instructors get their teaching pages, sales staff their sales pages);
+// everything else is in the "More" popover, so nothing becomes unreachable
+// on mobile, just not primary.
+const MOBILE_PRIMARY_PREFERENCE = [
   "/dashboard/classes",
   "/dashboard/schedule",
   "/dashboard/sub-requests",
+  "/dashboard/sales",
+  "/dashboard/guests",
+  "/dashboard/sales/calendar",
+  "/dashboard/sales/new-members",
+  "/dashboard/follow-up",
   "/dashboard/messages",
 ];
 
@@ -124,7 +134,7 @@ export async function DashboardShell({ children, title, description, actions }: 
   // independently; getCurrentStaff() is React-cache()d per request.
   // No session (dropdown mode) is treated as instructor-level nav.
   const currentStaff = await getCurrentStaff();
-  const isAdmin = currentStaff?.role === "admin";
+  const isAdmin = currentStaff ? isClubAdmin(currentStaff) : false;
   const crmEnabled = currentStaff ? await isCrmEnabled(currentStaff.organizationId) : false;
   // Platform admins are always admins of their own studio, so only admins pay for the lookup.
   const isPlatformAdmin = isAdmin && Boolean(await getPlatformAdmin());
@@ -136,14 +146,13 @@ export async function DashboardShell({ children, title, description, actions }: 
     currentStaff && (crmEnabled || enabledModules?.has("trainer")) ? await unreadGuestMessageCount(currentStaff) : 0;
   const unreadHref =
     currentStaff && crmEnabled && canUseCrm(currentStaff) ? "/dashboard/guests" : "/dashboard/follow-up";
-  const showCrm = (entry: NavEntry) =>
-    !entry.crm || (crmEnabled && currentStaff !== null && (entry.crm === "admin" ? isAdmin : canUseCrm(currentStaff)));
+  const allowed = (entry: NavEntry) => !entry.who || (currentStaff !== null && entry.who(currentStaff));
 
   const visibleGroups: NavGroup[] = navigation
     .map((group) => ({
       label: group.label,
       items: group.items
-        .filter((item) => (!item.adminOnly || isAdmin) && showCrm(item) && (!item.platform || isPlatformAdmin) &&
+        .filter((item) => allowed(item) && (!item.crm || crmEnabled) && (!item.platform || isPlatformAdmin) &&
             (!item.modules || !enabledModules || item.modules.some((module) => enabledModules.has(module))),
         )
         .map(({ href, label }) => ({ href, label, badge: href === unreadHref ? guestUnread : undefined })),
@@ -151,10 +160,11 @@ export async function DashboardShell({ children, title, description, actions }: 
     .filter((group) => group.items.length > 0);
 
   const visibleItems = visibleGroups.flatMap((group) => group.items);
-  const primaryMobileItems = PRIMARY_MOBILE_HREFS.map((href) =>
-    visibleItems.find((item) => item.href === href),
-  ).filter((item): item is NavItem => Boolean(item));
-  const moreMobileItems = visibleItems.filter((item) => !PRIMARY_MOBILE_HREFS.includes(item.href));
+  const primaryMobileItems = MOBILE_PRIMARY_PREFERENCE.map((href) => visibleItems.find((item) => item.href === href))
+    .filter((item): item is NavItem => Boolean(item))
+    .slice(0, 4);
+  const primaryHrefs = new Set(primaryMobileItems.map((item) => item.href));
+  const moreMobileItems = visibleItems.filter((item) => !primaryHrefs.has(item.href));
 
   return (
     <div className="min-h-screen bg-background">

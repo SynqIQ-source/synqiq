@@ -1,3 +1,4 @@
+import { autoTagTeachingRoles } from "@/lib/staff/teaching-roles";
 import { DateTime } from "luxon";
 import { MindbodyClient, createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -663,6 +664,11 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
         last_result: { imported, total: totalClasses, newClassTypes, archivedSubBoards },
       },
       { onConflict: "organization_id,sync_name" },
+    );
+
+    // Best-effort: tag new Instructors (never fails the sync).
+    await autoTagTeachingRoles(supabase, org.id, "instructor").catch((tagError) =>
+      console.error("[sync/classes] Instructor auto-tag failed:", tagError),
     );
 
     return { success: true, skipped: false, imported, total: totalClasses };

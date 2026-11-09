@@ -1,3 +1,4 @@
+import { isClubAdmin, managesSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -134,7 +135,8 @@ export default async function SalesDashboardPage({
 }) {
   const staff = await requireCrmStaff();
   const params = await searchParams;
-  const isAdmin = staff.role === "admin";
+  // Club admins and sales leads see every salesperson; Sales see their own.
+  const isAdmin = managesSales(staff);
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);
   const now = DateTime.now().setZone(org.timezone);
@@ -173,7 +175,7 @@ export default async function SalesDashboardPage({
     .select("id, display_name, can_sell, role, archived_at")
     .order("display_name");
   const salespeople = (staffRows ?? [])
-    .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
+    .filter((member) => !member.archived_at && member.can_sell)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
 
   const [funnel, followUps] = await Promise.all([
@@ -242,7 +244,7 @@ export default async function SalesDashboardPage({
           progress: metric.kind === "count" && target > 0 && actual !== null ? (actual / target) * 100 : null,
         };
       });
-    return <TargetColumn rows={rows} monthLabel={targetMonthLabel} isAdmin={isAdmin} />;
+    return <TargetColumn rows={rows} monthLabel={targetMonthLabel} isAdmin={isClubAdmin(staff)} />;
   };
 
   return (

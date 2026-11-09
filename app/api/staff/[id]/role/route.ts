@@ -1,70 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isClubAdmin, isStaffRole, ROLE_LABELS, type StaffRole } from "@/lib/permissions";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
-const VALID_ROLES = ["admin", "instructor"] as const;
-type Role = (typeof VALID_ROLES)[number];
-
-// Promotes/demotes a staff member between 'admin' and 'instructor'. Mindbody
-// has no permission concept that maps onto this (see
-// 20260716040000_staff_role_and_auth_linkage.sql) -- a staff member's
-// Mindbody manager access, if any, was never going to carry over
-// automatically, so this is the only way to grant SynqIQ-admin access short of
-// a direct DB edit.
+// Club admins set a staff member's access: role (Club Admin / Sales Lead /
+// Sales / Staff), whether they count as a salesperson, and the Instructor /
+// Trainer tags. Only keys present in the body change. See lib/permissions.ts
+// for what each grants. Mindbody has no permission concept that maps onto
+// this, so this is the only way to grant access short of a direct DB edit.
 //
-// Admin client throughout, same reasoning as the invite route: `staff` has a
-// SELECT RLS policy but no UPDATE policy at all today, so the explicit role
-// check below is the real authorization boundary, not RLS.
+// Admin client throughout: `staff` has a SELECT RLS policy but no UPDATE
+// policy, so the club-admin check below is the real authorization boundary.
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { id: staffId } = await params;
     const currentStaff = await getCurrentStaff();
 
-    if (!currentStaff || currentStaff.role !== "admin") {
+    if (!currentStaff || !isClubAdmin(currentStaff)) {
       return NextResponse.json(
-        { success: false, error: "Only an authenticated admin can change staff roles." },
+        { success: false, error: "Only a club admin can change staff roles." },
         { status: 403 },
       );
     }
 
     const body = await request.json().catch(() => ({}));
     const role: unknown = body?.role;
-
-    if (typeof role !== "string" || !VALID_ROLES.includes(role as Role)) {
-      return NextResponse.json(
-        { success: false, error: "role must be 'admin' or 'instructor'." },
-        { status: 400 },
-      );
+    if (role !== undefined && !isStaffRole(role)) {
+      return NextResponse.json({ success: false, error: "Pick a role from the list." }, { status: 400 });
+    }
+    for (const key of ["canSell", "isInstructor", "isTrainer"] as const) {
+      if (body?.[key] !== undefined && typeof body[key] !== "boolean") {
+        return NextResponse.json({ success: false, error: "Invalid request." }, { status: 400 });
+      }
     }
 
     const admin = createSupabaseAdminClient();
 
     const { data: targetStaff, error: staffError } = await admin
       .from("staff")
-      .select("id, organization_id, display_name, role")
+      .select("id, organization_id, display_name, role, can_sell")
       .eq("id", staffId)
       .maybeSingle();
 
-    if (staffError || !targetStaff) {
+    if (staffError || !targetStaff || targetStaff.organization_id !== currentStaff.organizationId) {
       return NextResponse.json({ success: false, error: "Staff member not found." }, { status: 404 });
     }
 
-    if (targetStaff.organization_id !== currentStaff.organizationId) {
-      return NextResponse.json({ success: false, error: "Staff member not found." }, { status: 404 });
-    }
+    const nextRole = (role ?? targetStaff.role) as StaffRole;
 
-    // Demoting the last remaining admin would permanently lock every admin
-    // page (including this one) behind a role only an admin can grant --
-    // there'd be no way back in short of a direct DB edit, the exact
-    // situation this route exists to avoid.
-    if (targetStaff.role === "admin" && role === "instructor") {
+    // Demoting the last remaining club admin would lock every admin page
+    // (including this one) behind a role only a club admin can grant.
+    if (targetStaff.role === "admin" && nextRole !== "admin") {
       const { count, error: countError } = await admin
         .from("staff")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", currentStaff.organizationId)
-        .eq("role", "admin");
+        .eq("role", "admin")
+        .is("archived_at", null);
 
       if (countError) {
         throw new Error(countError.message);
@@ -74,20 +68,55 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json(
           {
             success: false,
-            error: `${targetStaff.display_name} is the only remaining admin -- promote someone else to admin first.`,
+            error: `${targetStaff.display_name} is the only ${ROLE_LABELS.admin} -- make someone else a ${ROLE_LABELS.admin} first.`,
           },
           { status: 409 },
         );
       }
     }
 
-    const { error: updateError } = await admin.from("staff").update({ role }).eq("id", staffId);
+    // Sales always count as salespeople. Becoming Sales turns selling on;
+    // leaving Sales for Staff turns it off; Club Admins and Sales Leads keep
+    // whatever the switch says.
+    let canSell: boolean = typeof body?.canSell === "boolean" ? body.canSell : targetStaff.can_sell;
+    if (nextRole === "sales") {
+      if (body?.canSell === false) {
+        return NextResponse.json(
+          { success: false, error: "Sales staff always count as salespeople. Change their role to stop." },
+          { status: 400 },
+        );
+      }
+      canSell = true;
+    } else if (nextRole === "staff" && role !== undefined && targetStaff.role === "sales") {
+      canSell = false;
+    }
+
+    const update: Record<string, unknown> = { role: nextRole, can_sell: canSell };
+    if (typeof body?.isInstructor === "boolean" || typeof body?.isTrainer === "boolean") {
+      if (typeof body.isInstructor === "boolean") update.is_instructor = body.isInstructor;
+      if (typeof body.isTrainer === "boolean") update.is_trainer = body.isTrainer;
+      // Hand-set from now on: the nightly auto-detect leaves this person alone.
+      update.teaching_roles_set_at = new Date().toISOString();
+    }
+
+    const { data: updated, error: updateError } = await admin
+      .from("staff")
+      .update(update)
+      .eq("id", staffId)
+      .select("role, can_sell, is_instructor, is_trainer")
+      .single();
 
     if (updateError) {
       throw new Error(updateError.message);
     }
 
-    return NextResponse.json({ success: true, role });
+    return NextResponse.json({
+      success: true,
+      role: updated.role,
+      canSell: updated.can_sell,
+      isInstructor: updated.is_instructor,
+      isTrainer: updated.is_trainer,
+    });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Unknown error" },

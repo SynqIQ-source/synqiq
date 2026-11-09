@@ -5,7 +5,9 @@ import { FollowUpTabs } from "@/components/crm/follow-up-tabs";
 import { PresetRangeSelect } from "@/components/dashboard/preset-range-select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { requireModule } from "@/lib/modules";
+import { getEnabledModules, requireModule } from "@/lib/modules";
+import { requireAccess } from "@/lib/require-access";
+import { isInstructorAccess, isTrainerAccess } from "@/lib/permissions";
 import { loadNewMembers, newMemberStats } from "@/lib/crm/new-members";
 import { INTRO_LABELS, type IntroStatus } from "@/lib/crm/onboarding";
 import { getCrmOrg } from "@/lib/crm/org";
@@ -39,7 +41,8 @@ export default async function TrainerNewMembersPage({
   searchParams: Promise<{ range?: string; start?: string; end?: string }>;
 }) {
   // Part of the Trainer module: 404 when the studio doesn't have it.
-  const staff = await requireModule("trainer");
+  await requireModule("trainer");
+  const staff = await requireAccess(isTrainerAccess);
   const params = await searchParams;
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);
@@ -66,7 +69,11 @@ export default async function TrainerNewMembersPage({
 
   return (
     <DashboardShell title="Follow Up" description="New members assigned to you. Reach out to book their intro workout.">
-      <FollowUpTabs active="new-members" newMembersBadge={rows.filter((row) => !row.firstContactAt).length} />
+      <FollowUpTabs
+        active="new-members"
+        newMembersBadge={rows.filter((row) => !row.firstContactAt).length}
+        showClasses={isInstructorAccess(staff) && (await getEnabledModules(staff.organizationId)).has("group_fitness")}
+      />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {stats.enrolled} assigned · {stats.contacted} contacted · {stats.introBooked} intro booked · {stats.introDone}{" "}

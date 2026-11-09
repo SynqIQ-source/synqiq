@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmStaffForApi } from "@/lib/crm/module";
+import { canWorkContact, getCrmStaffForApi } from "@/lib/crm/module";
 import { getCrmOrg } from "@/lib/crm/org";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 
@@ -16,6 +16,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     if (!isUuid(id)) return jsonError("Guest not found.", 404);
+    if (!(await canWorkContact(staff, id))) return jsonError("Guest not found.", 404);
     const body = await readJsonBody(request);
     const raw = typeof body?.scheduledAt === "string" ? body.scheduledAt : "";
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return jsonError("Pick a date and time.", 400);

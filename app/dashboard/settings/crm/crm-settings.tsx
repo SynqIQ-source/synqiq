@@ -337,9 +337,9 @@ export function SellersCard({ staff }: { staff: StaffRow[] }) {
             <li key={member.id} className="flex items-center justify-between px-3 py-2 text-sm">
               <span>
                 {member.display_name}
-                {member.role === "admin" ? (
+                {member.role === "admin" || member.role === "sales_lead" ? (
                   <Badge variant="outline" className="ml-2">
-                    Admin
+                    {member.role === "admin" ? "Club Admin" : "Sales Lead"}
                   </Badge>
                 ) : null}
               </span>

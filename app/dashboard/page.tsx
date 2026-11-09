@@ -1,7 +1,8 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { GuestMessagesFeed } from "@/components/crm/guest-messages-feed";
-import { getCurrentStaff } from "@/lib/current-staff";
+import { requireAccess } from "@/lib/require-access";
+import { canViewOverview, canViewPay } from "@/lib/permissions";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { excludedDepartmentIds } from "@/lib/excluded-departments";
 import { OverviewRangeSelect } from "./overview-range-select";
@@ -525,7 +526,10 @@ export default async function DashboardPage({
   // Adam's real session -> RLS-scoped client, so the same-org select
   // policies on class_occurrences/departments are the actual enforcement.
   // No session -> the admin client, same as before.
-  const currentStaff = await getCurrentStaff();
+  // Club admins and instructors. Instructors see everything but pay (the
+  // Cost tab and its payroll reads).
+  const currentStaff = await requireAccess(canViewOverview);
+  const showPay = canViewPay(currentStaff);
   const supabase = await getScopedClient(currentStaff);
   const timezone = await getOrgTimezone(supabase);
 
@@ -565,9 +569,11 @@ export default async function DashboardPage({
   const priorWindow = resolvePriorWindow(range, rangeStart, rangeEnd, timezone);
 
   const [currentPayrollRows, priorAllRows, priorPayrollRows] = await Promise.all([
-    getPayrollRows(supabase, rangeStartDT, rangeEndDT),
+    showPay ? getPayrollRows(supabase, rangeStartDT, rangeEndDT) : Promise.resolve<PayrollCostRow[]>([]),
     priorWindow ? getOverviewRows(supabase, priorWindow.start, priorWindow.end) : Promise.resolve<OverviewRow[]>([]),
-    priorWindow ? getPayrollRows(supabase, priorWindow.start, priorWindow.end) : Promise.resolve<PayrollCostRow[]>([]),
+    priorWindow && showPay
+      ? getPayrollRows(supabase, priorWindow.start, priorWindow.end)
+      : Promise.resolve<PayrollCostRow[]>([]),
   ]);
 
   const priorRows = priorAllRows.filter((row) => !row.department_id || !hiddenDepartmentIds.has(row.department_id));
@@ -725,7 +731,7 @@ export default async function DashboardPage({
               <TabsList>
                 <TabsTrigger value="classes">Classes</TabsTrigger>
                 <TabsTrigger value="clients">Clients</TabsTrigger>
-                <TabsTrigger value="cost">Cost</TabsTrigger>
+                {showPay ? <TabsTrigger value="cost">Cost</TabsTrigger> : null}
               </TabsList>
             </CardHeader>
             <CardContent>
@@ -778,6 +784,7 @@ export default async function DashboardPage({
                   footnote="Participation = share of active members who took at least one class in the department. Visits / client = visits ÷ unique clients."
                 />
               </TabsContent>
+              {showPay ? (
               <TabsContent value="cost">
                 <DepartmentTable
                   columns={["Instructor pay", "Per class", "vs. prior period"]}
@@ -808,6 +815,7 @@ export default async function DashboardPage({
                   }
                 />
               </TabsContent>
+              ) : null}
             </CardContent>
           </Tabs>
         </Card>

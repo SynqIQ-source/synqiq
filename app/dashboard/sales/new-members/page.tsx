@@ -1,10 +1,11 @@
-import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { percent } from "@/lib/crm/funnel";
 import { requireModule } from "@/lib/modules";
+import { requireAccess } from "@/lib/require-access";
+import { isClubAdmin, isTrainerAccess } from "@/lib/permissions";
 import { loadNewMembers, newMemberStats } from "@/lib/crm/new-members";
 import { INTRO_LABELS } from "@/lib/crm/onboarding";
 import { getCrmOrg } from "@/lib/crm/org";
@@ -36,26 +37,30 @@ export default async function NewMembersPage({
 }: {
   searchParams: Promise<{ range?: string; start?: string; end?: string; trainer?: string }>;
 }) {
-  // Part of the Trainer module (admins): 404 otherwise.
-  const staff = await requireModule("trainer");
-  if (staff.role !== "admin") notFound();
+  // Part of the Trainer module: 404 otherwise. Club admins see everyone and
+  // assign trainers; trainers see only the members assigned to them.
+  await requireModule("trainer");
+  const staff = await requireAccess(isTrainerAccess);
+  const isAdmin = isClubAdmin(staff);
   const params = await searchParams;
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);
   const period = resolvePeriod(params, { presets: PRESETS, fallback: "mtd", timezone: org.timezone });
 
   const [{ data: staffRows, error: staffError }, { data: orgRow }] = await Promise.all([
-    supabase.from("staff").select("id, display_name, archived_at, auth_user_id").order("display_name"),
+    supabase.from("staff").select("id, display_name, archived_at, auth_user_id, is_trainer").order("display_name"),
     supabase.from("organizations").select("crm_intro_session_type_id").eq("id", staff.organizationId).maybeSingle(),
   ]);
   if (staffError) throw new Error("Failed to load staff.");
   const staffNames = new Map((staffRows ?? []).map((row) => [row.id as string, row.display_name as string]));
-  // Anyone who can sign in can be a member's trainer.
+  // Staff tagged Trainer who can sign in. Whoever a listed member is already
+  // assigned to is added below, so a current assignment always shows.
   const trainers = (staffRows ?? [])
-    .filter((row) => !row.archived_at && row.auth_user_id)
+    .filter((row) => !row.archived_at && row.auth_user_id && (row.is_trainer || row.id === staff.id))
     .map((row) => ({ id: row.id as string, name: row.display_name as string }));
-  const trainerParam =
-    params.trainer === "unassigned" || trainers.some((trainer) => trainer.id === params.trainer)
+  const trainerParam = !isAdmin
+    ? staff.id
+    : params.trainer === "unassigned" || trainers.some((trainer) => trainer.id === params.trainer)
       ? params.trainer!
       : "all";
 
@@ -66,6 +71,9 @@ export default async function NewMembersPage({
     introSessionTypeId: (orgRow?.crm_intro_session_type_id as number | null) ?? null,
   });
   const stats = newMemberStats(rows);
+  for (const id of new Set(rows.map((row) => row.trainerId).filter((value): value is string => Boolean(value)))) {
+    if (!trainers.some((trainer) => trainer.id === id)) trainers.push({ id, name: staffNames.get(id) ?? "Staff" });
+  }
 
   // Per trainer, over the members assigned to them.
   const byTrainer = [...new Set(rows.map((row) => row.trainerId).filter((id): id is string => Boolean(id)))]
@@ -100,7 +108,11 @@ export default async function NewMembersPage({
   return (
     <DashboardShell
       title="New Members"
-      description={`Enrolled ${periodLabel} · assign a trainer for each intro workout`}
+      description={
+        isAdmin
+          ? `Enrolled ${periodLabel} · assign a trainer for each intro workout`
+          : `Enrolled ${periodLabel} · your assigned members`
+      }
       actions={
         <NewMembersFilters
           range={period.preset}
@@ -108,6 +120,7 @@ export default async function NewMembersPage({
           end={period.end}
           trainer={trainerParam}
           trainers={trainers}
+          showTrainerFilter={isAdmin}
         />
       }
     >
@@ -184,7 +197,7 @@ export default async function NewMembersPage({
           </Card>
         ) : null}
 
-        <NewMembersTable rows={tableRows} trainers={trainers} />
+        <NewMembersTable rows={tableRows} trainers={trainers} canAssign={isAdmin} />
 
         <p className="text-xs text-muted-foreground">
           New members appear the morning after they turn Active in Mindbody; their enrollment date updates to the

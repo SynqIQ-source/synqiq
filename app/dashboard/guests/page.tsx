@@ -1,3 +1,4 @@
+import { isClubAdmin, seesOnlyOwnSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -108,7 +109,10 @@ export default async function GuestsPage({
   const fromIso = from.toUTC().toISO()!;
   const toIso = to.toUTC().toISO()!;
 
-  const seller = params.seller ?? "all";
+  // Sales see only the guests assigned to them; club admins and sales leads
+  // filter by any salesperson.
+  const ownOnly = seesOnlyOwnSales(staff);
+  const seller = ownOnly ? staff.id : (params.seller ?? "all");
   const status = params.status === "not_interested" || params.status === "all" ? params.status : "open";
 
   // Contacts that pass the salesperson/status filters (deleted and merged
@@ -247,7 +251,7 @@ export default async function GuestsPage({
   const staffRows = staffResult.data ?? [];
   const staffNames = new Map(staffRows.map((member) => [member.id, member.display_name as string]));
   const salespeople = staffRows
-    .filter((member) => (!member.archived_at && (member.can_sell || member.role === "admin")) || member.id === seller)
+    .filter((member) => (!member.archived_at && member.can_sell) || member.id === seller)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
 
   const formatTime = (iso: string) => {
@@ -265,7 +269,7 @@ export default async function GuestsPage({
             <OnDutySelect
               devices={kiosks}
               salespeople={staffRows
-                .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
+                .filter((member) => !member.archived_at && member.can_sell)
                 .map((member) => ({ id: member.id, name: member.display_name as string }))}
             />
           ) : null}
@@ -312,7 +316,7 @@ export default async function GuestsPage({
                       {MATCH_REASON_LABELS[match.reason] ?? match.reason} · {formatTimeLong(match.created_at, org.timezone)}
                     </p>
                   </div>
-                  <PendingMatchActions matchId={match.id} canMerge={staff.role === "admin"} />
+                  <PendingMatchActions matchId={match.id} canMerge={isClubAdmin(staff)} />
                 </div>
               ))}
             </CardContent>
@@ -326,7 +330,7 @@ export default async function GuestsPage({
             end={range === "custom" ? endParam : now.toISODate()!}
             seller={seller}
             status={status}
-            salespeople={salespeople}
+            salespeople={ownOnly ? null : salespeople}
           />
           <span className="text-sm text-muted-foreground">
             {rows.length === 1 ? "1 guest" : `${rows.length} guests`}

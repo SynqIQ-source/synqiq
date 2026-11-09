@@ -2,11 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { ROLE_LABELS, STAFF_ROLES } from "@/lib/permissions";
 
 export type StaffLinkingRow = {
   id: string;
   display_name: string;
   role: string;
+  can_sell: boolean;
+  is_instructor: boolean;
+  is_trainer: boolean;
   email: string | null;
   mindbody_staff_id: number | null;
   auth_user_id: string | null;
@@ -29,9 +33,19 @@ type RowState = {
   confirmingDelete: boolean;
   lifecycleStatus: "idle" | "working" | "error";
   lifecycleError?: string;
-  role: string;
+  access: Access;
   roleStatus: "idle" | "saving" | "error";
   roleError?: string;
+};
+
+// What a club admin sets per person (see lib/permissions.ts).
+type Access = { role: string; canSell: boolean; isInstructor: boolean; isTrainer: boolean };
+
+const ROLE_HELP: Record<string, string> = {
+  admin: "Everything in the studio: settings, staff and roles, sub approvals, every dashboard.",
+  sales_lead: "Every guest and lead, reassigning, marking sold, every salesperson's numbers.",
+  sales: "Only the guests and leads assigned to them, and their own numbers.",
+  staff: "No management or sales access. Add Instructor or Trainer below.",
 };
 
 function initialRowState(row: StaffLinkingRow): RowState {
@@ -42,7 +56,7 @@ function initialRowState(row: StaffLinkingRow): RowState {
     confirmingArchive: false,
     confirmingDelete: false,
     lifecycleStatus: "idle",
-    role: row.role,
+    access: { role: row.role, canSell: row.can_sell, isInstructor: row.is_instructor, isTrainer: row.is_trainer },
     roleStatus: "idle",
   };
 }
@@ -54,7 +68,7 @@ const EMPTY_ROW_STATE: RowState = {
   confirmingArchive: false,
   confirmingDelete: false,
   lifecycleStatus: "idle",
-  role: "instructor",
+  access: { role: "staff", canSell: false, isInstructor: false, isTrainer: false },
   roleStatus: "idle",
 };
 
@@ -84,33 +98,47 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
     patchRow(staffId, { email });
   }
 
-  async function updateRole(staffId: string, role: string) {
-    const previousRole = rowState[staffId]?.role;
-    patchRow(staffId, { role, roleStatus: "saving", roleError: undefined });
+  // Saves one change (role, selling, or a tag). The screen updates right
+  // away and rolls back if the server refuses; the server's answer wins,
+  // since a role change can switch selling on or off with it.
+  async function updateAccess(
+    staffId: string,
+    patch: Partial<{ role: string; canSell: boolean; isInstructor: boolean; isTrainer: boolean }>,
+  ) {
+    const previous = (rowState[staffId] ?? EMPTY_ROW_STATE).access;
+    patchRow(staffId, { access: { ...previous, ...patch }, roleStatus: "saving", roleError: undefined });
 
     try {
       const response = await fetch(`/api/staff/${staffId}/role`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
+        body: JSON.stringify(patch),
       });
       const result = await response.json();
 
       if (!response.ok || !result.success) {
         patchRow(staffId, {
-          role: previousRole ?? role,
+          access: previous,
           roleStatus: "error",
-          roleError: result?.error ?? "Failed to update role.",
+          roleError: result?.error ?? "Failed to update access.",
         });
         return;
       }
 
-      patchRow(staffId, { roleStatus: "idle" });
+      patchRow(staffId, {
+        access: {
+          role: result.role,
+          canSell: result.canSell,
+          isInstructor: result.isInstructor,
+          isTrainer: result.isTrainer,
+        },
+        roleStatus: "idle",
+      });
     } catch (error) {
       patchRow(staffId, {
-        role: previousRole ?? role,
+        access: previous,
         roleStatus: "error",
-        roleError: error instanceof Error ? error.message : "Failed to update role.",
+        roleError: error instanceof Error ? error.message : "Failed to update access.",
       });
     }
   }
@@ -387,7 +415,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
 
         {state.confirmingDelete ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>Not an instructor -- delete for good?</span>
+            <span>Not on staff -- delete for good?</span>
             <button
               type="button"
               onClick={() => deleteRow(row)}
@@ -442,16 +470,44 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
         </td>
         <td className="p-3">
           <select
-            value={state.role}
-            onChange={(event) => updateRole(row.id, event.target.value)}
+            value={state.access.role}
+            onChange={(event) => updateAccess(row.id, { role: event.target.value })}
             disabled={state.roleStatus === "saving" || Boolean(row.archived_at)}
-            className="rounded-md border border-border px-2 py-1.5 text-sm capitalize"
+            aria-label={`Role for ${row.display_name}`}
+            title={ROLE_HELP[state.access.role]}
+            className="rounded-md border border-border px-2 py-1.5 text-sm"
           >
-            <option value="instructor">Instructor</option>
-            <option value="admin">Admin</option>
+            {STAFF_ROLES.map((role) => (
+              <option key={role} value={role}>
+                {ROLE_LABELS[role]}
+              </option>
+            ))}
           </select>
+          <div className="mt-2 flex flex-col gap-1 text-xs text-foreground">
+            {(
+              [
+                ["isInstructor", "Instructor"],
+                ["isTrainer", "Trainer"],
+                ["canSell", "Sells"],
+              ] as const
+            ).map(([key, label]) => {
+              // Sales always sell; Staff who should sell are made Sales.
+              const locked = key === "canSell" && (state.access.role === "sales" || state.access.role === "staff");
+              return (
+                <label key={key} className="flex items-center gap-1.5" title={locked ? "Set by the role" : undefined}>
+                  <input
+                    type="checkbox"
+                    checked={state.access[key]}
+                    onChange={(event) => updateAccess(row.id, { [key]: event.target.checked })}
+                    disabled={locked || state.roleStatus === "saving" || Boolean(row.archived_at)}
+                  />
+                  <span className={locked ? "text-muted-foreground" : undefined}>{label}</span>
+                </label>
+              );
+            })}
+          </div>
           {state.roleStatus === "error" && (
-            <p className="mt-1.5 text-xs text-red-600">{state.roleError}</p>
+            <p className="mt-1.5 max-w-48 text-xs text-red-600">{state.roleError}</p>
           )}
         </td>
         <td className="p-3">
@@ -497,7 +553,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
           <thead>
             <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
               <th className="p-3 text-left">Name</th>
-              <th className="p-3 text-left">Role</th>
+              <th className="p-3 text-left">Role &amp; access</th>
               <th className="p-3 text-left">Mindbody</th>
               <th className="p-3 text-left">Login</th>
               <th className="p-3 text-left">Email</th>
@@ -529,7 +585,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               <thead>
                 <tr className="border-b bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="p-3 text-left">Name</th>
-                  <th className="p-3 text-left">Role</th>
+                  <th className="p-3 text-left">Role &amp; access</th>
                   <th className="p-3 text-left">Mindbody</th>
                   <th className="p-3 text-left">Login</th>
                   <th className="p-3 text-left">Email</th>

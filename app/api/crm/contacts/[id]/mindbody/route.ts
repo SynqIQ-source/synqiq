@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmStaffForApi } from "@/lib/crm/module";
+import { canWorkContact, getCrmStaffForApi } from "@/lib/crm/module";
 import { isUuid, jsonError, logCrmError } from "@/lib/crm/http";
 import { enqueueMindbodyPush, runJobById } from "@/lib/crm/jobs";
 
@@ -16,6 +16,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const { id } = await params;
     if (!isUuid(id)) return jsonError("Guest not found.", 404);
+    if (!(await canWorkContact(staff, id))) return jsonError("Guest not found.", 404);
 
     const admin = createSupabaseAdminClient();
     const { data: contact, error } = await admin

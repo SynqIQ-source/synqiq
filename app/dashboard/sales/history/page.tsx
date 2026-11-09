@@ -1,3 +1,4 @@
+import { managesSales } from "@/lib/permissions";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,7 +112,8 @@ export default async function SalesHistoryPage({
 }) {
   const staff = await requireCrmStaff();
   const params = await searchParams;
-  const isAdmin = staff.role === "admin";
+  // Club admins and sales leads see every salesperson; Sales see their own.
+  const isAdmin = managesSales(staff);
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);
   const now = DateTime.now().setZone(org.timezone);
@@ -127,7 +129,7 @@ export default async function SalesHistoryPage({
     leadType ? Promise.resolve([]) : allTargetRows(supabase),
   ]);
   const salespeople = (staffRows ?? [])
-    .filter((member) => !member.archived_at && (member.can_sell || member.role === "admin"))
+    .filter((member) => !member.archived_at && member.can_sell)
     .map((member) => ({
       id: member.id as string,
       name: member.display_name as string,

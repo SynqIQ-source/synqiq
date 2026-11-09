@@ -1,3 +1,4 @@
+import { managesSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { ArrowLeft, CalendarDays } from "lucide-react";
@@ -45,7 +46,8 @@ export default async function SalesDetailsPage({
 }) {
   const staff = await requireCrmStaff();
   const params = await searchParams;
-  const isAdmin = staff.role === "admin";
+  // Club admins and sales leads see every salesperson; Sales see their own.
+  const isAdmin = managesSales(staff);
   const supabase = await getScopedClient(staff);
   const org = await getCrmOrg(staff.organizationId);
   const period = resolvePeriod(params, {

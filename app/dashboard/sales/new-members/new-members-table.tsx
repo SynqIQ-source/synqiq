@@ -47,13 +47,16 @@ async function assign(contactIds: string[], trainerStaffId: string | null) {
   if (!response.ok || !result.success) throw new Error(result.error ?? "Something went wrong.");
 }
 
-// The member list with per-row and bulk trainer assignment.
+// The member list with per-row and bulk trainer assignment. canAssign is
+// false for trainers viewing their own members: same list, no assigning.
 export function NewMembersTable({
   rows,
   trainers,
+  canAssign = true,
 }: {
   rows: MemberTableRow[];
   trainers: { id: string; name: string }[];
+  canAssign?: boolean;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -90,10 +93,11 @@ export function NewMembersTable({
       <CardHeader className="pt-6">
         <CardTitle>Members</CardTitle>
         <CardDescription>
-          Pick a trainer for each member, or tick several and assign them together. The trainer is notified and sees the
-          member under Follow Up → New members.
+          {canAssign
+            ? "Pick a trainer for each member, or tick several and assign them together. The trainer is notified and sees the member under Follow Up → New members."
+            : "Members assigned to you. Reach out from their profile or Follow Up → New members."}
         </CardDescription>
-        {selected.size > 0 ? (
+        {canAssign && selected.size > 0 ? (
           <div className="flex flex-wrap items-center gap-2 pt-2">
             <span className="text-sm font-medium">{selected.size} selected</span>
             <Select value={bulkTrainer} onValueChange={setBulkTrainer}>
@@ -125,6 +129,7 @@ export function NewMembersTable({
           <Table>
             <TableHeader>
               <TableRow>
+                {canAssign ? (
                 <TableHead className="w-10">
                   <Checkbox
                     aria-label="Select all"
@@ -132,6 +137,7 @@ export function NewMembersTable({
                     onCheckedChange={(checked) => setSelected(checked ? new Set(rows.map((row) => row.id)) : new Set())}
                   />
                 </TableHead>
+                ) : null}
                 <TableHead>Member</TableHead>
                 <TableHead>Enrolled</TableHead>
                 <TableHead>Sold by</TableHead>
@@ -143,6 +149,7 @@ export function NewMembersTable({
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
+                  {canAssign ? (
                   <TableCell>
                     <Checkbox
                       aria-label={`Select ${row.name}`}
@@ -150,6 +157,7 @@ export function NewMembersTable({
                       onCheckedChange={() => toggle(row.id)}
                     />
                   </TableCell>
+                  ) : null}
                   <TableCell className="font-medium whitespace-nowrap">
                     <Link href={`/dashboard/guests/${row.id}`} className="hover:underline">
                       {row.name}
@@ -173,6 +181,7 @@ export function NewMembersTable({
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{row.soldBy ?? "—"}</TableCell>
                   <TableCell className="min-w-[180px]">
+                    {canAssign ? (
                     <Select
                       value={row.trainerId ?? "none"}
                       disabled={busy}
@@ -190,6 +199,9 @@ export function NewMembersTable({
                         ))}
                       </SelectContent>
                     </Select>
+                    ) : (
+                      <span>{trainers.find((person) => person.id === row.trainerId)?.name ?? "—"}</span>
+                    )}
                     {row.assigned ? (
                       <span className="mt-0.5 block text-xs text-muted-foreground">Assigned {row.assigned}</span>
                     ) : null}

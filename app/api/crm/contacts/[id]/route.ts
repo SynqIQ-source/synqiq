@@ -2,7 +2,8 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { DateTime } from "luxon";
 import { getCrmOrg } from "@/lib/crm/org";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmStaffForApi } from "@/lib/crm/module";
+import { canWorkContact, getCrmStaffForApi } from "@/lib/crm/module";
+import { managesSales } from "@/lib/permissions";
 import { cleanDateOfBirth, cleanState, cleanText, cleanZip, normalizeEmail, normalizePhone } from "@/lib/crm/normalize";
 import { isUuid, jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 import { enqueueEmailCheck, enqueueMindbodyPush, runJobById } from "@/lib/crm/jobs";
@@ -25,6 +26,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
     if (!isUuid(id)) return jsonError("Guest not found.", 404);
+    if (!(await canWorkContact(staff, id))) return jsonError("Guest not found.", 404);
     const body = await readJsonBody(request);
     if (!body) return jsonError("Invalid request.", 400);
 
@@ -101,7 +103,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!emailAfter && !phoneAfter) return jsonError("Keep at least an email address or a phone number.", 400);
 
     if ("assignedStaffId" in body) {
-      if (staff.role !== "admin") return jsonError("Only admins can assign a salesperson.", 403);
+      if (!managesSales(staff)) return jsonError("Only club admins and sales leads can reassign a guest.", 403);
       const assigned = body.assignedStaffId;
       if (assigned === null || assigned === "") {
         updates.assigned_staff_id = null;

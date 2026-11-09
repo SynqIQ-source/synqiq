@@ -1,3 +1,4 @@
+import { autoTagTeachingRoles } from "@/lib/staff/teaching-roles";
 import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -205,6 +206,11 @@ export async function syncAppointments(options: SyncAppointmentsOptions): Promis
         }
       }
     }
+
+    // Best-effort: tag new Trainers (never fails the sync).
+    await autoTagTeachingRoles(supabase, org.id, "trainer").catch((tagError) =>
+      console.error("[sync/appointments] Trainer auto-tag failed:", tagError),
+    );
 
     return { success: true, imported, total };
   } catch (error) {
