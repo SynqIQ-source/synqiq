@@ -12,6 +12,8 @@ export function LeadForm() {
   const [website, setWebsite] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  // Bot trap: hidden from people (and screen readers); scripts fill it in.
+  const [companyWebsite, setCompanyWebsite] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +48,7 @@ export function LeadForm() {
           website: website.trim() || null,
           phone: phone.trim() || null,
           email: email.trim(),
+          companyWebsite,
         }),
       });
       const result = await response.json();
@@ -77,6 +80,18 @@ export function LeadForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      <div aria-hidden="true" style={{ position: "absolute", left: "-10000px", width: 1, height: 1, overflow: "hidden" }}>
+        <label htmlFor="lead-company-website">Company website</label>
+        <input
+          id="lead-company-website"
+          name="company_website"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          value={companyWebsite}
+          onChange={(event) => setCompanyWebsite(event.target.value)}
+        />
+      </div>
       <div>
         <label htmlFor="name" className="block text-sm font-medium text-zinc-700">
           Name

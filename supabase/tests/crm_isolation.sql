@@ -5,7 +5,7 @@
 -- waiver, photo object, pending match) in The Preserve, then checks what
 -- each kind of caller can see and do through RLS:
 --   - a Preserve admin sees all of it
---   - a Preserve instructor without can_sell sees none of it
+--   - a Preserve staff member (no CRM access, no can_sell) sees none of it
 --   - an admin+seller of ANOTHER org (LastSpot, made temporarily for the
 --     test) sees none of it, and LastSpot has no CRM module
 --   - anon sees nothing
@@ -52,7 +52,7 @@ begin
   perform set_config('crm_test.preserve_admin',
     (select auth_user_id::text from staff where organization_id = preserve and role = 'admin' and auth_user_id is not null limit 1), true);
   perform set_config('crm_test.preserve_instructor',
-    (select auth_user_id::text from staff where organization_id = preserve and role = 'instructor' and not can_sell
+    (select auth_user_id::text from staff where organization_id = preserve and role = 'staff' and not can_sell
        and auth_user_id is not null limit 1), true);
   perform set_config('crm_test.other_org_admin', other_user::text, true);
   perform set_config('crm_test.contact', contact::text, true);
@@ -89,7 +89,7 @@ select set_config('request.jwt.claims', json_build_object('sub', current_setting
 select pg_temp.expect_visible(1, 'Preserve admin');
 reset role;
 
--- --- Preserve instructor without can_sell: sees nothing --------------------
+-- --- Preserve staff member without can_sell: sees nothing --------------------
 set local role authenticated;
 select set_config('request.jwt.claims', json_build_object('sub', current_setting('crm_test.preserve_instructor'), 'role', 'authenticated')::text, true);
 select pg_temp.expect_visible(0, 'Preserve instructor (not a seller)');
@@ -102,7 +102,11 @@ select pg_temp.expect_visible(0, 'LastSpot admin+seller');
 do $$
 begin
   if exists (select 1 from waiver_templates) or exists (select 1 from kiosk_devices)
-     or exists (select 1 from crm_marketing_sources) or exists (select 1 from org_modules) then
+     or exists (select 1 from crm_marketing_sources)
+     -- Its own non-CRM modules (group fitness, trainer) are fine to see; a CRM
+     -- module, or any other studio's module rows, are not.
+     or exists (select 1 from org_modules where module = 'crm')
+     or exists (select 1 from org_modules where organization_id <> (select organization_id from staff where auth_user_id = auth.uid())) then
     raise exception 'FAIL LastSpot admin can see another org''s CRM settings or LastSpot has a CRM module';
   end if;
   raise notice 'ok   LastSpot admin: no CRM templates/sources/devices/modules visible';

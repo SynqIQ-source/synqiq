@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getCrmStaffForApi } from "@/lib/crm/module";
+import { seesOnlyOwnSales } from "@/lib/permissions";
 import { applyNameSearch, searchTokens } from "@/lib/crm/search";
 import { jsonError, logCrmError, readJsonBody } from "@/lib/crm/http";
 
-// Guest search (admins and sellers): the admin "Merge into…" picker and
+// Guest search (club admins, sales leads, and Sales for their own guests): the admin "Merge into…" picker and
 // booking an appointment from the calendar. POST so names stay out of URLs.
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +23,11 @@ export async function POST(request: NextRequest) {
       .eq("organization_id", staff.organizationId)
       .is("merged_into_id", null)
       .is("deleted_at", null);
-    const { data, error } = await applyNameSearch(base, tokens)
+    // Sales see only their own guests here too, matching the Guests list and
+    // the profile/appointment routes (canWorkContact), which would refuse
+    // anyone else's guest anyway.
+    const scoped = seesOnlyOwnSales(staff) ? base.eq("assigned_staff_id", staff.id) : base;
+    const { data, error } = await applyNameSearch(scoped, tokens)
       .order("created_at", { ascending: false })
       .limit(10);
     if (error) throw error;

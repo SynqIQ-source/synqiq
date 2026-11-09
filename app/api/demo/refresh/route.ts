@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { isCronRequest } from "@/lib/cron-auth";
 import { refreshDemoStudio } from "@/lib/demo/generate";
 
 // Nightly top-up of the Demo Studio (lib/demo/generate.ts). Only ever adds
@@ -7,7 +7,7 @@ import { refreshDemoStudio } from "@/lib/demo/generate";
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  if (request.headers.get("authorization") !== `Bearer ${getEnv("CRON_SECRET")}`) {
+  if (!isCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {

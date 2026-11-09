@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { isCronRequest } from "@/lib/cron-auth";
 import { runDueJobs } from "@/lib/crm/jobs";
 import { logCrmError } from "@/lib/crm/http";
 
@@ -8,7 +8,7 @@ export const maxDuration = 300;
 // Cron (vercel.json): retries CRM background jobs that didn't finish right
 // after check-in -- e.g. Mailgun was down or the key wasn't set yet.
 export async function GET(request: NextRequest) {
-  if (request.headers.get("authorization") !== `Bearer ${getEnv("CRON_SECRET")}`) {
+  if (!isCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {

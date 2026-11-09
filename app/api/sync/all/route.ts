@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { isCronRequest } from "@/lib/cron-auth";
 import { syncClasses } from "@/lib/sync/classes";
 import { syncAppointments } from "@/lib/sync/appointments";
 import { syncSales } from "@/lib/sync/sales";
@@ -34,8 +34,7 @@ export const maxDuration = 300;
 // failure mode is gone; this route no longer early-returns when classes is
 // skipped.
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${getEnv("CRON_SECRET")}`) {
+  if (!isCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -4,7 +4,7 @@
 -- production. Creates two enrolled members in The Preserve -- one assigned
 -- to trainer A, one unassigned -- each with a message, note, visit and photo,
 -- then checks through RLS that:
---   - trainer A (an instructor without can_sell) sees all of their member's
+--   - trainer A (a staff member without can_sell) sees all of their member's
 --     profile data and none of the other member's
 --   - trainer B (another instructor) sees none of either
 --   - a trainer can't write CRM rows directly
@@ -23,11 +23,11 @@ declare
   other uuid := gen_random_uuid();
 begin
   select id into trainer_a from staff
-  where organization_id = preserve and role = 'instructor' and not can_sell
+  where organization_id = preserve and role = 'staff' and not can_sell
     and auth_user_id is not null and archived_at is null
   order by id limit 1;
   select id into trainer_b from staff
-  where organization_id = preserve and role = 'instructor' and not can_sell
+  where organization_id = preserve and role = 'staff' and not can_sell
     and auth_user_id is not null and archived_at is null and id <> trainer_a
   order by id limit 1;
 

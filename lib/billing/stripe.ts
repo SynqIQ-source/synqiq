@@ -12,9 +12,13 @@ import { listPrice, MODULES, type ModuleKey } from "@/lib/plans";
 export const SAAS_TAX_CODE = "txcd_10103001";
 const PRODUCT_LOOKUP = "synqiq_plan";
 
+// Pinned so a library upgrade never silently changes API behavior; this is
+// the version stripe@23.0.0 defaults to. Bump deliberately, with testing.
+export const STRIPE_API_VERSION = "2026-09-30.endive" as const;
+
 let client: Stripe | null = null;
 export function getStripe(): Stripe {
-  client ??= new Stripe(getEnv("STRIPE_SECRET_KEY"));
+  client ??= new Stripe(getEnv("STRIPE_SECRET_KEY"), { apiVersion: STRIPE_API_VERSION });
   return client;
 }
 

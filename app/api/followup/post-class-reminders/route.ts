@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { isCronRequest } from "@/lib/cron-auth";
 import { runPostClassReminders } from "@/lib/followup/post-class-reminders";
 
 // One Mindbody visits call per class since the last run (a morning's or
@@ -9,7 +9,7 @@ export const maxDuration = 300;
 // Cron (vercel.json), hourly: does work only when it's noon or 8 PM in a
 // studio's own time zone -- see lib/followup/post-class-reminders.ts.
 export async function GET(request: NextRequest) {
-  if (request.headers.get("authorization") !== `Bearer ${getEnv("CRON_SECRET")}`) {
+  if (!isCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {

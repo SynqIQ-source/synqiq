@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { isCronRequest } from "@/lib/cron-auth";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { asOccurrenceId } from "@/lib/mindbody/types";
 
 // Debugging only: live Mindbody data, so it needs the cron secret.
 export async function GET(request: NextRequest) {
-  if (request.headers.get("authorization") !== `Bearer ${getEnv("CRON_SECRET")}`) {
+  if (!isCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const occurrenceIdParam = request.nextUrl.searchParams.get("occurrenceId");

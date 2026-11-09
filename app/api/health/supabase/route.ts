@@ -12,13 +12,9 @@ export async function GET() {
       .limit(1);
 
     if (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: error.message,
-        },
-        { status: 500 }
-      );
+      // Public route: log the detail, never return it.
+      console.error("[health/supabase]", error.message);
+      return NextResponse.json({ success: false, error: "Database check failed." }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -26,12 +22,7 @@ export async function GET() {
       message: "Supabase connection successful!",
     });
   } catch (err) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    console.error("[health/supabase]", err instanceof Error ? err.message : err);
+    return NextResponse.json({ success: false, error: "Database check failed." }, { status: 500 });
   }
 }

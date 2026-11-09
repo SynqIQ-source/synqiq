@@ -10,7 +10,12 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 // A subscription changed in Stripe (payment failed, canceled, recovered):
 // mirror its status on the studio. A canceled studio is marked inactive;
 // its data is kept.
-export async function syncSubscriptionStatus(subscription: Stripe.Subscription) {
+// Mirrors a subscription's status onto its studio. Reads the subscription's
+// current state from Stripe instead of trusting the event's snapshot, so
+// webhook events arriving late or out of order can't overwrite a newer
+// status with an older one.
+export async function syncSubscriptionStatus(eventSubscription: Stripe.Subscription) {
+  const subscription = await getStripe().subscriptions.retrieve(eventSubscription.id);
   const admin = createSupabaseAdminClient();
   const update: Record<string, unknown> = { billing_status: subscription.status };
   if (subscription.status === "canceled") update.status = "inactive";

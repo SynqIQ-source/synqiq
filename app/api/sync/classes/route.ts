@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { isCronRequest } from "@/lib/cron-auth";
 import { combineSiteResults, sitesForRequest } from "@/lib/sync/sites";
 import { syncClasses } from "@/lib/sync/classes";
 
@@ -15,8 +15,7 @@ import { syncClasses } from "@/lib/sync/classes";
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${getEnv("CRON_SECRET")}`) {
+  if (!isCronRequest(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
