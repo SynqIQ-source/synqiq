@@ -32,7 +32,10 @@ type OverviewRow = {
 type Department = { id: string; name: string };
 
 const PAGE_SIZE = 1000;
-const RANGE_PRESET_DAYS: Record<string, number> = { "30": 30, "60": 60, "90": 90 };
+// To-date presets: the period's start (in the studio's time zone) through
+// today. Luxon weeks start on Monday.
+const TO_DATE_PRESETS: Record<string, "day" | "week" | "month"> = { today: "day", wtd: "week", mtd: "month" };
+const DEFAULT_RANGE = "mtd";
 
 async function getOrgTimezone(supabase: ScopedSupabaseClient) {
   const { data } = await supabase.from("organizations").select("timezone").limit(1).maybeSingle();
@@ -92,11 +95,9 @@ async function getOverviewRows(
 
 type ResolvedRange = { range: string; rangeStart: string; rangeEnd: string };
 
-// Mirrors app/dashboard/instructors/page.tsx's resolveRange, plus a "ytd"
-// preset -- see overview-range-select.tsx for why Overview has one and
-// Instructors doesn't. Default stays "all" so an existing bookmark/link with
-// no range param keeps showing the same all-synced-history view as before
-// this selector existed.
+// Today / week to date / month to date, or a custom range. Anything else
+// (including old links with the retired all/ytd/30/60/90 presets) falls
+// back to month to date.
 function resolveRange(
   params: { range?: string; rangeStart?: string; rangeEnd?: string },
   timezone: string,
@@ -105,30 +106,20 @@ function resolveRange(
     return { range: "custom", rangeStart: params.rangeStart, rangeEnd: params.rangeEnd };
   }
 
-  if (params.range === "ytd") {
-    const now = DateTime.now().setZone(timezone);
-    const start = now.startOf("year");
-    return { range: "ytd", rangeStart: start.toISODate() ?? "", rangeEnd: now.toISODate() ?? "" };
-  }
-
-  if (params.range && RANGE_PRESET_DAYS[params.range]) {
-    const now = DateTime.now().setZone(timezone);
-    const start = now.minus({ days: RANGE_PRESET_DAYS[params.range] });
-    return { range: params.range, rangeStart: start.toISODate() ?? "", rangeEnd: now.toISODate() ?? "" };
-  }
-
-  return { range: "all", rangeStart: "", rangeEnd: "" };
+  const range = params.range && TO_DATE_PRESETS[params.range] ? params.range : DEFAULT_RANGE;
+  const now = DateTime.now().setZone(timezone);
+  const start = now.startOf(TO_DATE_PRESETS[range]);
+  return { range, rangeStart: start.toISODate() ?? "", rangeEnd: now.toISODate() ?? "" };
 }
 
 type PriorWindow = { start: DateTime; end: DateTime };
 
-// The immediately-preceding period of equal length -- same shifting-window
-// idea as Heat Map's week-over-week comparison
-// (app/dashboard/heatmap/page.tsx's resolveComparisonWindow), generalized
-// from a fixed week to whatever length "This period" currently is (a 30/60/
-// 90-day preset, YTD, or a custom range). "All synced history" has no
-// rangeStart to shift back from, so it has no well-defined prior window --
-// every vs-Prior-Period figure is N/A in that case, not a guess.
+// The period to compare against: the same days one step back for the
+// to-date presets (today vs yesterday, this week so far vs the same days
+// last week, this month so far vs the same days last month), else the
+// equal-length period just before a custom range. "all" (no longer offered
+// in the selector) has no prior window -- every vs-Prior-Period figure is
+// N/A then, not a guess.
 function resolvePriorWindow(range: string, rangeStart: string, rangeEnd: string, timezone: string): PriorWindow | null {
   if (range === "all") {
     return null;
@@ -136,8 +127,16 @@ function resolvePriorWindow(range: string, rangeStart: string, rangeEnd: string,
 
   const startDate = DateTime.fromISO(rangeStart, { zone: timezone }).startOf("day");
   const endDate = DateTime.fromISO(rangeEnd, { zone: timezone }).startOf("day");
-  const inclusiveDays = Math.round(endDate.diff(startDate, "days").days) + 1;
 
+  const step = TO_DATE_PRESETS[range];
+  if (step) {
+    const shift = step === "day" ? { days: 1 } : step === "week" ? { weeks: 1 } : { months: 1 };
+    // Luxon clamps month-end (Mar 31 - 1 month = Feb 28), so a long month
+    // compares against the whole of a shorter one.
+    return { start: startDate.minus(shift).startOf("day"), end: endDate.minus(shift).endOf("day") };
+  }
+
+  const inclusiveDays = Math.round(endDate.diff(startDate, "days").days) + 1;
   const priorEndDate = startDate.minus({ days: 1 });
   const priorStartDate = priorEndDate.minus({ days: inclusiveDays - 1 });
 
@@ -803,7 +802,9 @@ export default async function DashboardPage({
                   footnote={
                     range === "all"
                       ? "From imported payroll, matched to each class taught. Pick a time frame to compare against the prior period."
-                      : "From imported payroll, matched to each class taught. Compared with the same-length period just before."
+                      : range === "custom"
+                        ? "From imported payroll, matched to each class taught. Compared with the same-length period just before."
+                        : `From imported payroll, matched to each class taught. Compared with the same days ${range === "today" ? "yesterday" : range === "wtd" ? "last week" : "last month"}.`
                   }
                 />
               </TabsContent>

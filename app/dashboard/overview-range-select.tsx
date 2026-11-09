@@ -3,16 +3,14 @@
 import { PresetRangeSelect } from "@/components/dashboard/preset-range-select";
 
 const PRESETS = [
-  { value: "all", label: "All synced history" },
-  { value: "ytd", label: "Year to date" },
-  { value: "30", label: "Last 30 days" },
-  { value: "60", label: "Last 60 days" },
-  { value: "90", label: "Last 90 days" },
+  { value: "today", label: "Today" },
+  { value: "wtd", label: "Week to date" },
+  { value: "mtd", label: "Month to date" },
   { value: "custom", label: "Custom range" },
 ];
 
-// Same preset-or-custom shape as Instructors/Heat Map, plus a "ytd" preset
-// that Overview's "studio health at a glance" framing calls for.
+// Same preset-or-custom shape as Instructors/Heat Map, with to-date presets
+// (weeks start Monday). Month to date is the default.
 export function OverviewRangeSelect({
   range,
   rangeStart,
