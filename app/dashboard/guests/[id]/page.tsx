@@ -691,7 +691,14 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
             </CardHeader>
             <CardContent>
               <dl className="space-y-3">
-                <Item label="Client ID">{contact.mindbody_client_id ?? "—"}</Item>
+                <Item label="Client ID">
+                  {contact.mindbody_client_id ?? "—"}
+                  {isAdmin && contact.mindbody_client_id ? (
+                    <Link href={`/dashboard/memberships/${contact.mindbody_client_id}`} className="ml-2 text-xs underline underline-offset-4">
+                      Billing
+                    </Link>
+                  ) : null}
+                </Item>
                 <Item label="Sync status">
                   {MINDBODY_SYNC_LABELS[contact.mindbody_sync_status] ?? contact.mindbody_sync_status}
                   {contact.mindbody_synced_at ? (

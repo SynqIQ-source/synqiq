@@ -9,6 +9,7 @@ import { isClubAdmin } from "@/lib/permissions";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { loadShadowBilling } from "@/lib/memberships/shadow-data";
 import type { ComparisonReason } from "@/lib/memberships/shadow-billing";
+import { describeAdjustment } from "@/lib/memberships/adjustments";
 
 const REASONS: Record<ComparisonReason, { label: string; explain: string; review: boolean }> = {
   match: { label: "Match", explain: "SynqIQ would charge exactly what Mindbody charges.", review: false },
@@ -165,7 +166,9 @@ export default async function ShadowBillingPage() {
                         <TableRow key={line.key}>
                           <TableCell className="whitespace-nowrap">{day(line.date)}</TableCell>
                           <TableCell>
-                            {line.clientName ?? (line.mindbodyClientId ? data.namesByClientId.get(line.mindbodyClientId) : null) ?? "—"}
+                            <MemberLink clientId={line.mindbodyClientId}>
+                              {line.clientName ?? (line.mindbodyClientId ? data.namesByClientId.get(line.mindbodyClientId) : null) ?? "—"}
+                            </MemberLink>
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{money(line.mindbodyCents)}</TableCell>
                           <TableCell className="text-right tabular-nums">{money(line.synqiqCents)}</TableCell>
@@ -191,7 +194,7 @@ export default async function ShadowBillingPage() {
           </CardHeader>
           {data.adjustments.length === 0 ? (
             <p className="px-6 pb-6 text-sm text-muted-foreground">
-              No edits yet. Club Admins will add them from a member&apos;s billing tab.
+              No edits yet. Club Admins add them from a member&apos;s page under Memberships.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -207,16 +210,10 @@ export default async function ShadowBillingPage() {
                 <TableBody>
                   {data.adjustments.map((adjustment) => (
                     <TableRow key={adjustment.id}>
-                      <TableCell>{data.namesByClientId.get(adjustment.mindbodyClientId) ?? "—"}</TableCell>
                       <TableCell>
-                        {adjustment.kind === "freeze"
-                          ? "Freeze"
-                          : adjustment.kind === "credit"
-                            ? `Credit ${money(adjustment.amountCents ?? 0)}`
-                            : `${adjustment.kind === "discount_once" ? "One-time" : "Ongoing"} discount ${
-                                adjustment.percent !== null ? `${adjustment.percent}%` : money(adjustment.amountCents ?? 0)
-                              }`}
+                        <MemberLink clientId={adjustment.mindbodyClientId}>{data.namesByClientId.get(adjustment.mindbodyClientId) ?? "—"}</MemberLink>
                       </TableCell>
+                      <TableCell>{describeAdjustment(adjustment)}</TableCell>
                       <TableCell className="whitespace-nowrap">
                         {day(adjustment.startsOn)}
                         {adjustment.endsOn ? ` – ${day(adjustment.endsOn)}` : ""}
@@ -241,5 +238,14 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
       <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
       {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
     </div>
+  );
+}
+
+function MemberLink({ clientId, children }: { clientId: string | null; children: React.ReactNode }) {
+  if (!clientId) return <>{children}</>;
+  return (
+    <Link href={`/dashboard/memberships/${clientId}`} className="underline-offset-4 hover:underline">
+      {children}
+    </Link>
   );
 }

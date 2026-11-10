@@ -1,0 +1,462 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { DateTime } from "luxon";
+import { DashboardShell } from "@/components/dashboard-shell";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { requireAccess } from "@/lib/require-access";
+import { isClubAdmin } from "@/lib/permissions";
+import { getScopedClient } from "@/lib/supabase/scoped";
+import { expectedCharges, type BillingAdjustment, type ContractSchedule } from "@/lib/memberships/shadow-billing";
+import { describeAdjustment } from "@/lib/memberships/adjustments";
+import { AddBillingEdit, CancelBillingEdit } from "./billing-edits";
+
+type Params = Promise<{ clientId: string }>;
+
+const money = (cents: number | null | undefined) =>
+  cents === null || cents === undefined
+    ? "—"
+    : (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+const day = (iso: string | null | undefined) => (iso ? DateTime.fromISO(iso).toFormat("LLL d, yyyy") : "—");
+
+const STATUS_LABEL: Record<string, string> = {
+  success: "Charged",
+  scheduled: "Scheduled",
+  suspended: "Frozen",
+  declined: "Declined",
+  other: "Other",
+};
+
+// One member's memberships and billing (Club Admin only), with SynqIQ's
+// billing edits. Keyed by Mindbody client id because most members have no
+// CRM contact record.
+export default async function MemberBillingPage({ params }: { params: Params }) {
+  const staff = await requireAccess(isClubAdmin);
+  const { clientId: rawClientId } = await params;
+  const clientId = decodeURIComponent(rawClientId);
+  if (!/^[\w-]{1,40}$/.test(clientId)) notFound();
+  const supabase = await getScopedClient(staff);
+  const orgId = staff.organizationId;
+
+  type ContractRow = {
+    id: string;
+    mindbody_client_id: string;
+    payer_mindbody_client_id: string | null;
+    contract_name: string;
+    start_date: string | null;
+    end_date: string | null;
+    termination_date: string | null;
+    original_start_date: string | null;
+    autopay_status: string | null;
+    auto_renewing: boolean | null;
+    is_month_to_month: boolean | null;
+    normal_autopay_cents: number | null;
+    next_bill_date: string | null;
+    next_bill_total_cents: number | null;
+    upcoming_autopays: { date: string; totalCents: number | null }[];
+    synced_at: string;
+  };
+  type AdjustmentRow = {
+    id: string;
+    member_contract_id: string | null;
+    kind: BillingAdjustment["kind"];
+    amount_cents: number | null;
+    percent: number | null;
+    starts_on: string;
+    ends_on: string | null;
+    reason: string;
+    created_at: string;
+    created_by_staff_id: string;
+    cancelled_at: string | null;
+    cancelled_by_staff_id: string | null;
+    cancel_reason: string | null;
+  };
+  type AutopayRow = {
+    id: string;
+    charge_date: string;
+    item: string;
+    amount_cents: number;
+    status: string;
+    status_detail: string | null;
+    card_brand: string | null;
+    card_last4: string | null;
+    card_exp_month: number | null;
+    card_exp_year: number | null;
+  };
+
+  const contractColumns =
+    "id, mindbody_client_id, payer_mindbody_client_id, contract_name, start_date, end_date, termination_date, original_start_date, autopay_status, auto_renewing, is_month_to_month, normal_autopay_cents, next_bill_date, next_bill_total_cents, upcoming_autopays, synced_at";
+  const [{ data: client }, { data: org }, { data: own }, { data: paysFor }, { data: adjustmentRows }, { data: autopays }] = await Promise.all([
+    supabase.from("clients").select("first_name, last_name, email, status").eq("organization_id", orgId).eq("mindbody_client_id", clientId).maybeSingle(),
+    supabase.from("organizations").select("timezone").eq("id", orgId).maybeSingle(),
+    supabase.from("member_contracts").select(contractColumns).eq("organization_id", orgId).eq("mindbody_client_id", clientId).returns<ContractRow[]>(),
+    supabase.from("member_contracts").select(contractColumns).eq("organization_id", orgId).eq("payer_mindbody_client_id", clientId).returns<ContractRow[]>(),
+    supabase
+      .from("billing_adjustments")
+      .select("id, member_contract_id, kind, amount_cents, percent, starts_on, ends_on, reason, created_at, created_by_staff_id, cancelled_at, cancelled_by_staff_id, cancel_reason")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .order("created_at", { ascending: false })
+      .returns<AdjustmentRow[]>(),
+    supabase
+      .from("mbo_autopay_rows")
+      .select("id, charge_date, item, amount_cents, status, status_detail, card_brand, card_last4, card_exp_month, card_exp_year")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .order("charge_date")
+      .returns<AutopayRow[]>(),
+  ]);
+  if (!client && !own?.length) notFound();
+
+  const timezone = (org?.timezone as string | undefined) ?? "America/Chicago";
+  const today = DateTime.now().setZone(timezone).toISODate()!;
+  const contracts = (own ?? []).sort((a, b) => (b.start_date ?? "").localeCompare(a.start_date ?? ""));
+  const isCurrent = (contract: ContractRow) => !contract.end_date || contract.end_date >= today;
+  const current = contracts.filter(isCurrent);
+  const past = contracts.filter((contract) => !isCurrent(contract));
+  const othersPaidFor = (paysFor ?? []).filter((contract) => contract.mindbody_client_id !== clientId && isCurrent(contract));
+
+  // Names: payers of this member's contracts, people this member pays for,
+  // and staff who made or cancelled edits.
+  const otherClientIds = [
+    ...new Set([
+      ...contracts.map((contract) => contract.payer_mindbody_client_id).filter((id): id is string => Boolean(id) && id !== clientId),
+      ...othersPaidFor.map((contract) => contract.mindbody_client_id),
+    ]),
+  ];
+  const staffIds = [
+    ...new Set((adjustmentRows ?? []).flatMap((row) => [row.created_by_staff_id, row.cancelled_by_staff_id]).filter((id): id is string => Boolean(id))),
+  ];
+  const [{ data: otherClients }, { data: staffRows }] = await Promise.all([
+    otherClientIds.length
+      ? supabase.from("clients").select("mindbody_client_id, first_name, last_name").eq("organization_id", orgId).in("mindbody_client_id", otherClientIds)
+      : Promise.resolve({ data: [] as { mindbody_client_id: string; first_name: string; last_name: string }[] }),
+    staffIds.length
+      ? supabase.from("staff").select("id, display_name").in("id", staffIds)
+      : Promise.resolve({ data: [] as { id: string; display_name: string }[] }),
+  ]);
+  const clientName = new Map((otherClients ?? []).map((row) => [row.mindbody_client_id as string, `${row.first_name} ${row.last_name}`.trim()]));
+  const staffName = new Map((staffRows ?? []).map((row) => [row.id as string, row.display_name as string]));
+  const contractName = new Map(contracts.map((contract) => [contract.id, contract.contract_name]));
+
+  const adjustments = (adjustmentRows ?? []).map((row) => ({ ...row, percent: row.percent === null ? null : Number(row.percent) }));
+  const active: BillingAdjustment[] = adjustments
+    .filter((row) => !row.cancelled_at)
+    .map((row) => ({
+      id: row.id,
+      mindbodyClientId: clientId,
+      contractId: row.member_contract_id,
+      kind: row.kind,
+      amountCents: row.amount_cents,
+      percent: row.percent,
+      startsOn: row.starts_on,
+      endsOn: row.ends_on,
+      reason: row.reason,
+    }));
+
+  // Upcoming charges for this member's own memberships over the next year,
+  // before and after SynqIQ's edits. (Mindbody lists a contract's autopays
+  // from its last refresh on.)
+  const schedules: ContractSchedule[] = current.map((contract) => ({
+    contractId: contract.id,
+    mindbodyClientId: contract.mindbody_client_id,
+    payerClientId: contract.payer_mindbody_client_id,
+    contractName: contract.contract_name,
+    autopayStatus: contract.autopay_status,
+    autopays: contract.upcoming_autopays ?? [],
+  }));
+  const window = { from: DateTime.fromISO(today).plus({ days: 1 }).toISODate()!, to: DateTime.fromISO(today).plus({ months: 12 }).toISODate()! };
+  const upcoming = expectedCharges(schedules, active, window);
+
+  const card = [...(autopays ?? [])].reverse().find((row) => row.card_last4);
+  const history = [...(autopays ?? [])].reverse();
+  const name = client ? `${client.first_name} ${client.last_name}`.trim() : `Mindbody client ${clientId}`;
+  const contractOptions = current.map((contract) => ({ id: contract.id, name: contract.contract_name }));
+
+  return (
+    <DashboardShell title={name} description={client ? [client.status, client.email].filter(Boolean).join(" · ") : "Not in the synced client list"}>
+      <div className="space-y-6">
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+          Mindbody still charges until the switch; these edits don&apos;t change charges yet.
+        </div>
+        <p className="text-sm text-muted-foreground">
+          <Link href="/dashboard/memberships" className="underline underline-offset-4">
+            ← Memberships
+          </Link>{" "}
+          · Mindbody client {clientId}
+          {contracts[0] ? ` · Memberships refreshed ${DateTime.fromISO(contracts[0].synced_at).setZone(timezone).toFormat("LLL d, h:mm a")}` : ""}
+        </p>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Card className="lg:col-span-2 py-0">
+            <CardHeader className="pt-6">
+              <CardTitle>Current memberships</CardTitle>
+            </CardHeader>
+            {current.length === 0 ? (
+              <p className="px-6 pb-6 text-sm text-muted-foreground">No current memberships.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Plan</TableHead>
+                      <TableHead>Member since</TableHead>
+                      <TableHead>This term</TableHead>
+                      <TableHead className="text-right">Dues</TableHead>
+                      <TableHead>Next bill</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {current.map((contract) => (
+                      <TableRow key={contract.id}>
+                        <TableCell>
+                          <span className="font-medium">{contract.contract_name}</span>
+                          <span className="mt-1 flex flex-wrap gap-1">
+                            {contract.autopay_status ? (
+                              <Badge variant={contract.autopay_status === "Active" ? "secondary" : "outline"}>
+                                {contract.autopay_status === "Suspended" ? "Frozen" : contract.autopay_status}
+                              </Badge>
+                            ) : null}
+                            {contract.is_month_to_month ? <Badge variant="outline">Month to month</Badge> : null}
+                            {contract.auto_renewing ? <Badge variant="outline">Renews</Badge> : null}
+                          </span>
+                          {contract.payer_mindbody_client_id && contract.payer_mindbody_client_id !== clientId ? (
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              Paid by{" "}
+                              <Link href={`/dashboard/memberships/${contract.payer_mindbody_client_id}`} className="underline underline-offset-4">
+                                {clientName.get(contract.payer_mindbody_client_id) ?? `client ${contract.payer_mindbody_client_id}`}
+                              </Link>
+                            </span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{day(contract.original_start_date ?? contract.start_date)}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {day(contract.start_date)} – {contract.end_date ? day(contract.end_date) : "open"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{money(contract.normal_autopay_cents)}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {contract.next_bill_date ? `${day(contract.next_bill_date)} · ${money(contract.next_bill_total_cents)}` : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <p className="px-6 pb-4 text-xs text-muted-foreground">Dues are before tax; next bill includes tax.</p>
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Card on file</CardTitle>
+              <CardDescription>From Mindbody&apos;s AutoPay Detail report.</CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm">
+              {card ? (
+                <>
+                  <p className="font-medium">
+                    {card.card_brand ?? "Card"} ending {card.card_last4}
+                  </p>
+                  {card.card_exp_month && card.card_exp_year ? (
+                    <p className="text-muted-foreground">
+                      Expires {String(card.card_exp_month).padStart(2, "0")}/{String(card.card_exp_year).slice(-2)}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-muted-foreground">Not in the uploaded report.</p>
+              )}
+              {othersPaidFor.length ? (
+                <div className="mt-4">
+                  <p className="font-medium">Also pays for</p>
+                  <ul className="mt-1 space-y-1">
+                    {othersPaidFor.map((contract) => (
+                      <li key={contract.id}>
+                        <Link href={`/dashboard/memberships/${contract.mindbody_client_id}`} className="underline underline-offset-4">
+                          {clientName.get(contract.mindbody_client_id) ?? `client ${contract.mindbody_client_id}`}
+                        </Link>{" "}
+                        <span className="text-muted-foreground">· {contract.contract_name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="py-0">
+          <CardHeader className="pt-6">
+            <CardTitle>Upcoming charges</CardTitle>
+            <CardDescription>What SynqIQ would charge for these memberships over the next year, with SynqIQ&apos;s edits applied. Includes tax.</CardDescription>
+          </CardHeader>
+          {upcoming.length === 0 ? (
+            <p className="px-6 pb-6 text-sm text-muted-foreground">Nothing scheduled.</p>
+          ) : (
+            <div className="max-h-[24rem] overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Scheduled</TableHead>
+                    <TableHead className="text-right">After SynqIQ edits</TableHead>
+                    <TableHead>Charged to</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {upcoming.map((charge) => (
+                    <TableRow key={`${charge.mindbodyClientId}|${charge.date}`}>
+                      <TableCell className="whitespace-nowrap">{day(charge.date)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(charge.baseCents)}</TableCell>
+                      <TableCell className={`text-right tabular-nums ${charge.cents !== charge.baseCents ? "font-semibold" : ""}`}>
+                        {money(charge.cents)}
+                      </TableCell>
+                      <TableCell>{charge.mindbodyClientId === clientId ? "This member" : (clientName.get(charge.mindbodyClientId) ?? "Payer")}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Billing edits</CardTitle>
+            <CardDescription>
+              Dues credits, discounts and freezes. Each keeps who made it, when and why. Cancelling one (also how a freeze is lifted) keeps it in the
+              history.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {current.length ? (
+              <AddBillingEdit mindbodyClientId={clientId} contracts={contractOptions} today={today} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Billing edits need a current membership.</p>
+            )}
+            {adjustments.length ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Change</TableHead>
+                      <TableHead>Dates</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Made by</TableHead>
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adjustments.map((row) => (
+                      <TableRow key={row.id} className={row.cancelled_at ? "text-muted-foreground" : undefined}>
+                        <TableCell>
+                          <span className={row.cancelled_at ? "line-through" : "font-medium"}>
+                            {describeAdjustment({ kind: row.kind, amountCents: row.amount_cents, percent: row.percent })}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {row.member_contract_id ? (contractName.get(row.member_contract_id) ?? "One membership") : "All memberships"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {day(row.starts_on)}
+                          {row.ends_on ? ` – ${day(row.ends_on)}` : row.kind === "discount_ongoing" ? " onward" : ""}
+                        </TableCell>
+                        <TableCell className="max-w-xs">
+                          {row.reason}
+                          {row.cancelled_at ? (
+                            <span className="block text-xs">
+                              Cancelled {DateTime.fromISO(row.cancelled_at).setZone(timezone).toFormat("LLL d, h:mm a")} by{" "}
+                              {staffName.get(row.cancelled_by_staff_id ?? "") ?? "staff"}: {row.cancel_reason}
+                            </span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {staffName.get(row.created_by_staff_id) ?? "staff"}
+                          <span className="block text-xs text-muted-foreground">
+                            {DateTime.fromISO(row.created_at).setZone(timezone).toFormat("LLL d, h:mm a")}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {row.cancelled_at ? null : <CancelBillingEdit id={row.id} label={row.kind === "freeze" ? "Unfreeze" : "Cancel"} />}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="py-0">
+          <CardHeader className="pt-6">
+            <CardTitle>Mindbody charges</CardTitle>
+            <CardDescription>From the uploaded AutoPay Detail report (charged and scheduled). Includes tax.</CardDescription>
+          </CardHeader>
+          {history.length === 0 ? (
+            <p className="px-6 pb-6 text-sm text-muted-foreground">Not in the uploaded report.</p>
+          ) : (
+            <div className="max-h-[24rem] overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Item</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="whitespace-nowrap">{day(row.charge_date)}</TableCell>
+                      <TableCell>{row.item}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(row.amount_cents)}</TableCell>
+                      <TableCell>
+                        <Badge variant={row.status === "declined" ? "destructive" : "outline"}>{STATUS_LABEL[row.status] ?? row.status}</Badge>
+                        {row.status === "declined" && row.status_detail ? (
+                          <span className="block text-xs text-muted-foreground">{row.status_detail}</span>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </Card>
+
+        {past.length ? (
+          <Card className="py-0">
+            <CardHeader className="pt-6">
+              <CardTitle>Past memberships</CardTitle>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Dates</TableHead>
+                    <TableHead className="text-right">Dues</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {past.map((contract) => (
+                    <TableRow key={contract.id}>
+                      <TableCell>{contract.contract_name}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {day(contract.start_date)} – {day(contract.termination_date ?? contract.end_date)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{money(contract.normal_autopay_cents)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        ) : null}
+      </div>
+    </DashboardShell>
+  );
+}
