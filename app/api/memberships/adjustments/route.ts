@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
       starts_on: value.startsOn,
       ends_on: value.endsOn,
       reason: value.reason,
+      reason_category: value.reasonCategory,
       created_by_staff_id: currentStaff.id,
     })
     .select("id")

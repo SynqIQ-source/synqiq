@@ -16,7 +16,7 @@ import { describeAdjustment } from "@/lib/memberships/adjustments";
 import { loadScheduledIncreases } from "@/lib/memberships/price-increase-data";
 import { contractTaxRate, formatTaxRate, taxOn } from "@/lib/memberships/tax";
 import type { MemberPersonal } from "@/lib/memberships/profile";
-import { AddBillingEdit, CancelBillingEdit } from "./billing-edits";
+import { AddBillingEdit, CancelBillingEdit, type EditContract } from "./billing-edits";
 import { RefreshFromMindbody } from "./refresh-button";
 import {
   PersonalCard,
@@ -96,6 +96,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     cancelled_at: string | null;
     cancelled_by_staff_id: string | null;
     cancel_reason: string | null;
+    reason_category: string | null;
   };
   type AutopayRow = {
     id: string;
@@ -136,7 +137,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       supabase
         .from("billing_adjustments")
         .select(
-          "id, member_contract_id, kind, amount_cents, percent, starts_on, ends_on, reason, created_at, created_by_staff_id, cancelled_at, cancelled_by_staff_id, cancel_reason",
+          "id, member_contract_id, kind, amount_cents, percent, starts_on, ends_on, reason, created_at, created_by_staff_id, cancelled_at, cancelled_by_staff_id, cancel_reason, reason_category",
         )
         .eq("organization_id", orgId)
         .eq("mindbody_client_id", clientId)
@@ -241,9 +242,15 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
   const card = [...(autopays ?? [])].reverse().find((row) => row.card_last4);
   const history = [...(autopays ?? [])].reverse();
   const name = client ? `${client.first_name} ${client.last_name}`.trim() : `Mindbody client ${clientId}`;
-  const contractOptions = current.map((contract) => ({
+  const contractOptions: EditContract[] = current.map((contract) => ({
     id: contract.id,
     name: contract.contract_name,
+    endDate: contract.end_date,
+    monthToMonth: contract.is_month_to_month === true,
+    autopays: (contract.upcoming_autopays ?? []).map((autopay) => ({
+      date: autopay.date,
+      subtotalCents: autopay.subtotalCents ?? autopay.totalCents ?? null,
+    })),
   }));
 
   // Mindbody profile data (visits, bookings, purchases, packs, contact
@@ -571,7 +578,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                   <CardHeader>
                     <CardTitle>Billing edits</CardTitle>
                     <CardDescription>
-                      Dues credits, discounts and freezes. Each keeps who made it, when and why. Cancelling one (also how a freeze is
+                      Dues credits, discounts, freezes and cancellations. Each keeps who made it, when and why. Undoing one (also how a freeze is
                       lifted) keeps it in the history.
                     </CardDescription>
                   </CardHeader>
@@ -602,6 +609,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                       kind: row.kind,
                                       amountCents: row.amount_cents,
                                       percent: row.percent,
+                                      reasonCategory: row.reason_category,
                                     })}
                                   </span>
                                   <span className="block text-xs text-muted-foreground">
@@ -612,7 +620,13 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                 </TableCell>
                                 <TableCell className="whitespace-nowrap">
                                   {day(row.starts_on)}
-                                  {row.ends_on ? ` – ${day(row.ends_on)}` : row.kind === "discount_ongoing" ? " onward" : ""}
+                                  {row.ends_on
+                                    ? ` – ${day(row.ends_on)}`
+                                    : row.kind === "discount_ongoing"
+                                      ? " onward"
+                                      : row.kind === "cancel"
+                                        ? " (billing stops)"
+                                        : ""}
                                 </TableCell>
                                 <TableCell className="max-w-xs">
                                   {row.reason}
@@ -631,7 +645,10 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {row.cancelled_at ? null : (
-                                    <CancelBillingEdit id={row.id} label={row.kind === "freeze" ? "Unfreeze" : "Cancel"} />
+                                    <CancelBillingEdit
+                                      id={row.id}
+                                      label={row.kind === "freeze" ? "Unfreeze" : row.kind === "cancel" ? "Undo cancellation" : "Cancel"}
+                                    />
                                   )}
                                 </TableCell>
                               </TableRow>

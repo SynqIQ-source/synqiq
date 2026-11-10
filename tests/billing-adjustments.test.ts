@@ -17,6 +17,7 @@ describe("validateAdjustment", () => {
         startsOn: "2026-11-15",
         endsOn: null,
         reason: "Billing error last month",
+        reasonCategory: null,
       },
     });
   });
@@ -81,5 +82,42 @@ describe("wording and money input", () => {
     expect(dollarsToCents("0.07")).toBe(7);
     expect(dollarsToCents("12.345")).toBeNull();
     expect(dollarsToCents("abc")).toBeNull();
+  });
+});
+
+describe("cancellations and freeze lengths", async () => {
+  const { freezeEndDate } = await import("@/lib/memberships/adjustments");
+  const { expectedCharges } = await import("@/lib/memberships/shadow-billing");
+  it("a cancellation needs a reason category; Other needs details", () => {
+    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25" }, TODAY)).toMatchObject({ ok: false });
+    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "other" }, TODAY)).toMatchObject({ ok: false });
+    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "bored" }, TODAY)).toMatchObject({ ok: false });
+    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "moving", amountCents: 100 }, TODAY)).toMatchObject({
+      ok: false,
+    });
+    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "moving", endsOn: "2027-01-01" }, TODAY)).toMatchObject({
+      ok: true,
+      value: { kind: "cancel", reason: "Moving", reasonCategory: "moving", endsOn: null },
+    });
+    expect(
+      validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "other", reason: "Injury" }, TODAY),
+    ).toMatchObject({ ok: true, value: { reason: "Injury", reasonCategory: "other" } });
+    expect(describeAdjustment({ kind: "cancel", amountCents: null, percent: null, reasonCategory: "non_use" })).toBe("Cancellation · Not using it");
+  });
+
+  it("freeze lengths end the day before the same date N months on", () => {
+    expect(freezeEndDate("2026-11-15", 1)).toBe("2026-12-14");
+    expect(freezeEndDate("2026-11-15", 3)).toBe("2027-02-14");
+    expect(freezeEndDate("2027-01-31", 1)).toBe("2027-02-27");
+    expect(freezeEndDate("2026-12-01", 2)).toBe("2027-01-31");
+  });
+
+  it("a cancellation stops every charge from its date on", () => {
+    const charges = expectedCharges(
+      [{ contractId: "c1", mindbodyClientId: "A", contractName: "Adult", autopays: [{ date: "2026-11-16", totalCents: 100 }, { date: "2026-12-16", totalCents: 100 }] }],
+      [{ id: "x", mindbodyClientId: "A", contractId: null, kind: "cancel", amountCents: null, percent: null, startsOn: "2026-12-01", endsOn: null, reason: "Moving" }],
+      { from: "2026-11-10", to: "2026-12-31" },
+    );
+    expect(charges.map((charge) => charge.cents)).toEqual([100, 0]);
   });
 });

@@ -28,7 +28,7 @@ export type ContractSchedule = {
   }[];
 };
 
-export type AdjustmentKind = "credit" | "discount_once" | "discount_ongoing" | "freeze";
+export type AdjustmentKind = "credit" | "discount_once" | "discount_ongoing" | "freeze" | "cancel";
 
 export type BillingAdjustment = {
   id: string;
@@ -116,7 +116,9 @@ export function expectedCharges(
       line.date >= adjustment.startsOn &&
       (adjustment.endsOn === null || line.date <= adjustment.endsOn);
 
-    for (const adjustment of adjustments.filter((candidate) => candidate.kind === "freeze" && applies(candidate))) {
+    for (const adjustment of adjustments.filter(
+      (candidate) => (candidate.kind === "freeze" || candidate.kind === "cancel") && applies(candidate),
+    )) {
       cents = 0;
       applied.push(adjustment.id);
     }

@@ -4,14 +4,40 @@ import type { AdjustmentKind, BillingAdjustment } from "@/lib/memberships/shadow
 // Pure, so the rules are unit-tested (tests/billing-adjustments.test.ts);
 // the table's check constraints enforce the same shape.
 
-export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["credit", "discount_once", "discount_ongoing", "freeze"];
+export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["credit", "discount_once", "discount_ongoing", "freeze", "cancel"];
 
 export const ADJUSTMENT_LABELS: Record<AdjustmentKind, string> = {
   credit: "Dues credit",
   discount_once: "One-time discount",
   discount_ongoing: "Ongoing discount",
   freeze: "Freeze",
+  cancel: "Cancellation",
 };
+
+// Why a member cancels; kept for reports.
+export const CANCEL_REASONS = {
+  moving: "Moving",
+  switching: "Switching gyms",
+  non_use: "Not using it",
+  class_quality: "Class quality",
+  other: "Other",
+} as const;
+export type CancelReason = keyof typeof CANCEL_REASONS;
+export const isCancelReason = (value: unknown): value is CancelReason =>
+  typeof value === "string" && Object.prototype.hasOwnProperty.call(CANCEL_REASONS, value);
+
+// Freeze lengths offered (agreements allow 1-3 months).
+export const FREEZE_MONTHS = [1, 2, 3] as const;
+
+// Last day of a freeze that starts on `startsOn` and lasts `months` months.
+export function freezeEndDate(startsOn: string, months: number): string {
+  const [year, month, day] = startsOn.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  target.setUTCDate(target.getUTCDate() - 1);
+  return target.toISOString().slice(0, 10);
+}
 
 export type AdjustmentInput = {
   kind?: unknown;
@@ -21,6 +47,7 @@ export type AdjustmentInput = {
   startsOn?: unknown;
   endsOn?: unknown;
   reason?: unknown;
+  reasonCategory?: unknown;
 };
 
 export type ValidAdjustment = {
@@ -31,6 +58,7 @@ export type ValidAdjustment = {
   startsOn: string;
   endsOn: string | null;
   reason: string;
+  reasonCategory: CancelReason | null;
 };
 
 const MAX_CENTS = 1_000_000; // $10,000
@@ -54,7 +82,14 @@ export function validateAdjustment(
   const kind = input.kind as AdjustmentKind;
   if (!ADJUSTMENT_KINDS.includes(kind)) return { ok: false, error: "Pick a kind of change." };
 
-  const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  let reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  let reasonCategory: CancelReason | null = null;
+  if (kind === "cancel") {
+    if (!isCancelReason(input.reasonCategory)) return { ok: false, error: "Pick why they're cancelling." };
+    reasonCategory = input.reasonCategory;
+    if (!reason && reasonCategory === "other") return { ok: false, error: "Say why they're cancelling." };
+    if (!reason) reason = CANCEL_REASONS[reasonCategory];
+  }
   if (!reason) return { ok: false, error: "Add a reason." };
   if (reason.length > 500) return { ok: false, error: "Keep the reason under 500 characters." };
 
@@ -106,6 +141,9 @@ export function validateAdjustment(
         ok: false,
         error: "A discount needs either a dollar amount or a percent.",
       };
+  } else if (kind === "cancel") {
+    if (amountCents !== null || percent !== null) return { ok: false, error: "A cancellation doesn't take an amount." };
+    endsOn = null;
   } else {
     if (amountCents !== null || percent !== null) return { ok: false, error: "A freeze doesn't take an amount." };
     if (!endsOn) return { ok: false, error: "A freeze needs an end date." };
@@ -122,6 +160,7 @@ export function validateAdjustment(
       startsOn,
       endsOn: kind === "credit" || kind === "discount_once" ? null : endsOn,
       reason,
+      reasonCategory,
     },
   };
 }
@@ -134,8 +173,13 @@ const money = (cents: number) =>
   });
 
 // "One-time discount 10%", "Dues credit $50.00", "Freeze".
-export function describeAdjustment(adjustment: Pick<BillingAdjustment, "kind" | "amountCents" | "percent">): string {
+export function describeAdjustment(
+  adjustment: Pick<BillingAdjustment, "kind" | "amountCents" | "percent"> & { reasonCategory?: string | null },
+): string {
   if (adjustment.kind === "freeze") return "Freeze";
+  if (adjustment.kind === "cancel") {
+    return isCancelReason(adjustment.reasonCategory) ? `Cancellation · ${CANCEL_REASONS[adjustment.reasonCategory]}` : "Cancellation";
+  }
   if (adjustment.kind === "credit") return `Dues credit ${money(adjustment.amountCents ?? 0)}`;
   const amount = adjustment.percent !== null ? `${Number(adjustment.percent)}%` : money(adjustment.amountCents ?? 0);
   return `${ADJUSTMENT_LABELS[adjustment.kind]} ${amount}`;
