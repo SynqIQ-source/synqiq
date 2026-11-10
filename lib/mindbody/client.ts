@@ -135,6 +135,21 @@ export class MindbodyClient {
     });
   }
 
+  // Programs (service categories) with their booking rules.
+  async getPrograms(accessToken: string) {
+    return this.request("/site/programs", { method: "GET", accessToken, searchParams: { Limit: 200 } });
+  }
+
+  // Recurring class schedules (one per class time slot), paged.
+  async getClassSchedules(offset: number, accessToken: string) {
+    return this.request("/class/classschedules", { method: "GET", accessToken, searchParams: { Limit: 200, Offset: offset } });
+  }
+
+  // Session types (what a class or appointment is, its default length).
+  async getSessionTypes(accessToken: string) {
+    return this.request("/site/sessiontypes", { method: "GET", accessToken, searchParams: { Limit: 200 } });
+  }
+
   async getClassDescriptions(
     accessToken?: string,
     pagination?: { offset?: number; limit?: number },
