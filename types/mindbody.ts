@@ -142,15 +142,50 @@ export interface MindbodyClientRecord {
 }
 
 // GET /client/clientcontracts (one client).
+export interface MindbodyAutopayEvent {
+  ClientContractId?: number | null;
+  ChargeAmount?: number | null;
+  Subtotal?: number | null;
+  Tax?: number | null;
+  PaymentMethod?: string | null;
+  ScheduleDate?: string | null;
+  ProductId?: number | null;
+}
+
+// GET /client/clientcontracts (one per member contract).
 export interface MindbodyClientContract {
+  Id?: number | null; // this member's contract
+  ContractID?: number | null; // the contract template (sale/contracts Id)
   ContractName?: string | null;
+  PayerClientId?: number | null;
   StartDate?: string | null;
   AgreementDate?: string | null;
   EndDate?: string | null;
   // Set when this contract is the automatic resell of an earlier one (a
-  // 12-month membership renewing itself).
+  // 12-month membership renewing itself): the earlier contract's Id.
   AutoRenewClientContractID?: number | null;
   TerminationDate?: string | null;
+  AutopayStatus?: string | null;
+  AutoRenewing?: boolean | null;
+  IsMonthToMonth?: boolean | null;
+  NormalAutoPay?: number | null;
+  UpcomingAutopayEvents?: MindbodyAutopayEvent[] | null;
+}
+
+// GET /sale/contracts (the studio's contract templates).
+export interface MindbodyContractTemplate {
+  Id: number;
+  Name: string;
+  Description?: string | null;
+  SoldOnline?: boolean | null;
+  AutopaySchedule?: { FrequencyType?: string | null; FrequencyValue?: number | null; FrequencyTimeUnit?: string | null } | null;
+  NumberOfAutopays?: number | null;
+  ActionUponCompletionOfAutopays?: string | null;
+  ClientTerminateOnline?: boolean | null;
+  RequiresElectronicConfirmation?: boolean | null;
+  MembershipTypeRestrictions?: unknown[] | null;
+  FirstPaymentAmountSubtotal?: number | null;
+  RecurringPaymentAmountSubtotal?: number | null;
 }
 
 export interface MindbodyClientsResponse {

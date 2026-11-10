@@ -6,7 +6,7 @@ import { siteIdOr } from "@/lib/sync/sites";
 // of their own. classes is deliberately NOT in this list -- it keeps its
 // own gate (lib/sync/classes.ts, keyed off class_occurrences.sync_timestamp)
 // and its own two cron firings, and it was never the one going stale.
-export type GatedSyncName = "appointments" | "sales" | "clients" | "class-visits";
+export type GatedSyncName = "appointments" | "sales" | "clients" | "class-visits" | "member-contracts";
 
 type SyncResultish = { success: boolean; error?: string };
 

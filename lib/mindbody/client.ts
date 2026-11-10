@@ -223,6 +223,15 @@ export class MindbodyClient {
     });
   }
 
+  // The studio's contract templates (memberships, packs) sold at a location.
+  async getContractTemplates(locationId: number, accessToken: string) {
+    return this.request("/sale/contracts", {
+      method: "GET",
+      accessToken,
+      searchParams: { LocationId: locationId, Limit: 200 },
+    });
+  }
+
   async getRequiredClientFields(accessToken: string) {
     return this.request("/client/requiredclientfields", { method: "GET", accessToken });
   }
