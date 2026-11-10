@@ -4,9 +4,9 @@ import { combineSiteResults, sitesForRequest } from "@/lib/sync/sites";
 import { syncMemberContracts } from "@/lib/sync/member-contracts";
 import { runGatedSync } from "@/lib/sync/sync-state";
 
-// Members' Mindbody contracts (one Mindbody call per member, within a time
-// budget per run). Nightly cron in vercel.json; ?force=1 runs again the same
-// day (repeat it to finish the first full pull).
+// Members' Mindbody contracts (one Mindbody call per member). Nightly cron in
+// vercel.json refreshes changed members plus a seventh of everyone; ?full=1
+// refreshes everyone; ?force=1 runs again even if it already ran today.
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
@@ -14,11 +14,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const force = request.nextUrl.searchParams.get("force") === "1";
+  const full = request.nextUrl.searchParams.get("full") === "1";
   const results = [];
   for (const siteId of await sitesForRequest(request.nextUrl.searchParams)) {
     results.push({
       siteId,
-      result: await runGatedSync("member-contracts", () => syncMemberContracts({ siteId }), { force, siteId }),
+      result: await runGatedSync("member-contracts", () => syncMemberContracts({ siteId, full }), { force, siteId }),
     });
   }
   const { body, success } = combineSiteResults(results);

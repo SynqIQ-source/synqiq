@@ -16,11 +16,11 @@ import type { MindbodyClientContract, MindbodyContractTemplate } from "@/types/m
 // contract in the last 120 days (a future-start membership leaves the
 // client "Non-Member" until it begins).
 //
-// Each run works within a time budget: first members never imported, then
+// Nightly run (to keep Mindbody API calls down): members never imported,
 // members with a sale in the last 3 days or a bill date that has passed
-// (their schedule moved), then the longest-unrefreshed. Nightly runs cycle
-// the whole list about once a week; a manual run (?force=1) repeated a few
-// times does the first full pull.
+// (their schedule moved), plus the longest-unrefreshed seventh of everyone,
+// so the whole list is refreshed about once a week. A full run (?full=1)
+// refreshes everyone. Both stop at a time budget.
 
 const RECENT_SALE_DAYS = 120;
 const CHANGED_SALE_DAYS = 3;
@@ -99,7 +99,7 @@ async function syncPlans(
 }
 
 export async function syncMemberContracts(
-  options: { siteId?: number; budgetMs?: number } = {},
+  options: { siteId?: number; budgetMs?: number; full?: boolean } = {},
 ): Promise<SyncMemberContractsResult> {
   const startedAt = Date.now();
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
@@ -150,9 +150,11 @@ export async function syncMemberContracts(
     for (const row of billed ?? []) changed.add(row.mindbody_client_id as string);
 
     const rank = (clientId: string) => (!lastSynced.has(clientId) ? 0 : changed.has(clientId) ? 1 : 2);
-    const queue = [...candidates].sort(
+    const ordered = [...candidates].sort(
       (a, b) => rank(a) - rank(b) || (lastSynced.get(a) ?? "").localeCompare(lastSynced.get(b) ?? ""),
     );
+    const priority = ordered.filter((clientId) => rank(clientId) < 2).length;
+    const queue = options.full ? ordered : ordered.slice(0, priority + Math.ceil(candidates.length / 7));
 
     let refreshed = 0;
     let contracts = 0;
