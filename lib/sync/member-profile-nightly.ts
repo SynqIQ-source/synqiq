@@ -16,7 +16,7 @@ import { syncMemberProfile } from "@/lib/sync/member-profile";
 //      the last 2 days
 //   3. the longest-unrefreshed seventh of everyone (so all members are
 //      refreshed about once a week; that also catches bookings changes)
-// Each refresh re-reads the last 35 days plus 90 days of bookings ahead.
+// Each refresh re-reads the last 35 days plus 21 days of bookings ahead (the booking window).
 
 const RECENT_DAYS = 35;
 const CONCURRENCY = 3;

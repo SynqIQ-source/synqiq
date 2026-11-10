@@ -41,7 +41,8 @@ begin
      or exists (select 1 from mbo_autopay_rows) or exists (select 1 from billing_adjustments)
      or exists (select 1 from price_increases) or exists (select 1 from price_increase_items)
      or exists (select 1 from member_visits) or exists (select 1 from member_sales) or exists (select 1 from member_services)
-     or exists (select 1 from member_profile_sync) or exists (select 1 from member_personal) or exists (select 1 from member_personal_edits) then
+     or exists (select 1 from member_profile_sync) or exists (select 1 from member_personal) or exists (select 1 from member_personal_edits)
+     or exists (select 1 from catalog_edits) then
     raise exception 'FAIL Sales can see billing data';
   end if;
   begin

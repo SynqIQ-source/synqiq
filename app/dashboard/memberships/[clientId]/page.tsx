@@ -814,7 +814,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                 <Card className="py-0">
                   <CardHeader className="pt-6">
                     <CardTitle>Schedule</CardTitle>
-                    <CardDescription>Classes and appointments booked in Mindbody (next 90 days).</CardDescription>
+                    <CardDescription>Classes and appointments booked in Mindbody (next 21 days, the booking window).</CardDescription>
                   </CardHeader>
                   <VisitsTable visits={upcomingVisits ?? []} staffNames={staffByMindbodyId} upcoming pulled={pulled} />
                 </Card>

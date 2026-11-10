@@ -22,7 +22,7 @@ import { toPersonal, type MindbodyClientRecord } from "@/lib/memberships/persona
 // members with recent activity.
 
 export const DEFAULT_HISTORY_START = "2024-01-01";
-const BOOKED_AHEAD_DAYS = 90;
+const BOOKED_AHEAD_DAYS = 21; // as far ahead as members can book
 const MAX_PAGES = 50; // 10,000 rows per kind per member
 
 type MindbodyClient = ReturnType<typeof createMindbodyClient>;
