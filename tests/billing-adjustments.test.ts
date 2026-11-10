@@ -9,13 +9,31 @@ describe("validateAdjustment", () => {
     const result = validateAdjustment({ ...base, kind: "credit", amountCents: 5000, endsOn: "2026-12-01" }, TODAY);
     expect(result).toEqual({
       ok: true,
-      value: { kind: "credit", contractId: null, amountCents: 5000, percent: null, startsOn: "2026-11-15", endsOn: null, reason: "Billing error last month" },
+      value: {
+        kind: "credit",
+        contractId: null,
+        amountCents: 5000,
+        percent: null,
+        startsOn: "2026-11-15",
+        endsOn: null,
+        reason: "Billing error last month",
+      },
     });
   });
 
   it("needs exactly one of $ or % for a discount", () => {
     expect(validateAdjustment({ ...base, kind: "discount_once", percent: 10 }, TODAY).ok).toBe(true);
-    expect(validateAdjustment({ ...base, kind: "discount_ongoing", amountCents: 2500, endsOn: "2027-03-31" }, TODAY).ok).toBe(true);
+    expect(
+      validateAdjustment(
+        {
+          ...base,
+          kind: "discount_ongoing",
+          amountCents: 2500,
+          endsOn: "2027-03-31",
+        },
+        TODAY,
+      ).ok,
+    ).toBe(true);
     expect(validateAdjustment({ ...base, kind: "discount_once" }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ ...base, kind: "discount_once", percent: 10, amountCents: 100 }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ ...base, kind: "discount_once", percent: 101 }, TODAY)).toMatchObject({ ok: false });
@@ -33,7 +51,10 @@ describe("validateAdjustment", () => {
     expect(validateAdjustment({ ...base, kind: "credit", amountCents: 100, startsOn: "2026-11-09" }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ ...base, kind: "credit", amountCents: 100, startsOn: "2026-02-30" }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ ...base, kind: "freeze", endsOn: "2026-11-14" }, TODAY)).toMatchObject({ ok: false });
-    expect(validateAdjustment({ ...base, kind: "credit", amountCents: 100, reason: "   " }, TODAY)).toMatchObject({ ok: false, error: "Add a reason." });
+    expect(validateAdjustment({ ...base, kind: "credit", amountCents: 100, reason: "   " }, TODAY)).toMatchObject({
+      ok: false,
+      error: "Add a reason.",
+    });
     expect(validateAdjustment({ ...base, kind: "credit", amountCents: 100, contractId: "drop table" }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ ...base, kind: "credit", amountCents: 1.5 }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ ...base, kind: "refund", amountCents: 100 }, TODAY)).toMatchObject({ ok: false });
@@ -44,7 +65,13 @@ describe("validateAdjustment", () => {
 describe("wording and money input", () => {
   it("describes edits", () => {
     expect(describeAdjustment({ kind: "credit", amountCents: 5000, percent: null })).toBe("Dues credit $50.00");
-    expect(describeAdjustment({ kind: "discount_ongoing", amountCents: null, percent: 10 })).toBe("Ongoing discount 10%");
+    expect(
+      describeAdjustment({
+        kind: "discount_ongoing",
+        amountCents: null,
+        percent: 10,
+      }),
+    ).toBe("Ongoing discount 10%");
     expect(describeAdjustment({ kind: "freeze", amountCents: null, percent: null })).toBe("Freeze");
   });
 

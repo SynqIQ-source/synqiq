@@ -47,7 +47,10 @@ const daysBetween = (from: string, to: string) =>
 
 // `today` is the studio's local date (YYYY-MM-DD). Edits can't start in the
 // past: they describe what SynqIQ will charge from now on.
-export function validateAdjustment(input: AdjustmentInput, today: string): { ok: true; value: ValidAdjustment } | { ok: false; error: string } {
+export function validateAdjustment(
+  input: AdjustmentInput,
+  today: string,
+): { ok: true; value: ValidAdjustment } | { ok: false; error: string } {
   const kind = input.kind as AdjustmentKind;
   if (!ADJUSTMENT_KINDS.includes(kind)) return { ok: false, error: "Pick a kind of change." };
 
@@ -69,22 +72,40 @@ export function validateAdjustment(input: AdjustmentInput, today: string): { ok:
   if (input.endsOn !== undefined && input.endsOn !== null && input.endsOn !== "") {
     if (!isIsoDate(input.endsOn)) return { ok: false, error: "Pick a valid end date." };
     endsOn = input.endsOn;
-    if (endsOn < startsOn) return { ok: false, error: "The end date must be on or after the start date." };
+    if (endsOn < startsOn)
+      return {
+        ok: false,
+        error: "The end date must be on or after the start date.",
+      };
   }
 
   const amountCents = input.amountCents === undefined || input.amountCents === null || input.amountCents === "" ? null : input.amountCents;
   const percent = input.percent === undefined || input.percent === null || input.percent === "" ? null : input.percent;
-  if (amountCents !== null && (typeof amountCents !== "number" || !Number.isInteger(amountCents) || amountCents <= 0 || amountCents > MAX_CENTS)) {
+  if (
+    amountCents !== null &&
+    (typeof amountCents !== "number" || !Number.isInteger(amountCents) || amountCents <= 0 || amountCents > MAX_CENTS)
+  ) {
     return { ok: false, error: "Enter an amount between $0.01 and $10,000." };
   }
-  if (percent !== null && (typeof percent !== "number" || !Number.isFinite(percent) || percent <= 0 || percent > 100 || Math.round(percent * 100) !== percent * 100)) {
+  if (
+    percent !== null &&
+    (typeof percent !== "number" ||
+      !Number.isFinite(percent) ||
+      percent <= 0 ||
+      percent > 100 ||
+      Math.round(percent * 100) !== percent * 100)
+  ) {
     return { ok: false, error: "Enter a percent between 0.01 and 100." };
   }
 
   if (kind === "credit") {
     if (amountCents === null || percent !== null) return { ok: false, error: "A credit needs a dollar amount." };
   } else if (kind === "discount_once" || kind === "discount_ongoing") {
-    if ((amountCents === null) === (percent === null)) return { ok: false, error: "A discount needs either a dollar amount or a percent." };
+    if ((amountCents === null) === (percent === null))
+      return {
+        ok: false,
+        error: "A discount needs either a dollar amount or a percent.",
+      };
   } else {
     if (amountCents !== null || percent !== null) return { ok: false, error: "A freeze doesn't take an amount." };
     if (!endsOn) return { ok: false, error: "A freeze needs an end date." };
@@ -106,7 +127,11 @@ export function validateAdjustment(input: AdjustmentInput, today: string): { ok:
 }
 
 const money = (cents: number) =>
-  (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+  (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  });
 
 // "One-time discount 10%", "Dues credit $50.00", "Freeze".
 export function describeAdjustment(adjustment: Pick<BillingAdjustment, "kind" | "amountCents" | "percent">): string {

@@ -12,7 +12,13 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 type SearchParams = Promise<{ q?: string }>;
 
 const money = (cents: number | null) =>
-  cents === null ? "—" : (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+  cents === null
+    ? "—"
+    : (cents / 100).toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 2,
+      });
 
 // Club Admins find a member to see and edit their billing.
 export default async function MembershipsPage({ searchParams }: { searchParams: SearchParams }) {
@@ -20,9 +26,18 @@ export default async function MembershipsPage({ searchParams }: { searchParams: 
   const supabase = await getScopedClient(staff);
   const { q = "" } = await searchParams;
   // Only letters, digits and a few name/email characters reach the filter.
-  const query = q.replace(/[^\p{L}\p{N}@.'\- ]/gu, " ").trim().slice(0, 80);
+  const query = q
+    .replace(/[^\p{L}\p{N}@.'\- ]/gu, " ")
+    .trim()
+    .slice(0, 80);
 
-  type ClientRow = { mindbody_client_id: string | null; first_name: string; last_name: string; email: string | null; status: string };
+  type ClientRow = {
+    mindbody_client_id: string | null;
+    first_name: string;
+    last_name: string;
+    email: string | null;
+    status: string;
+  };
   type ContractRow = {
     mindbody_client_id: string;
     contract_name: string;
@@ -55,11 +70,15 @@ export default async function MembershipsPage({ searchParams }: { searchParams: 
           .returns<ContractRow[]>()
       : { data: [] as ContractRow[] };
     const byClient = new Map<string, ContractRow[]>();
-    for (const contract of contracts ?? []) byClient.set(contract.mindbody_client_id, [...(byClient.get(contract.mindbody_client_id) ?? []), contract]);
+    for (const contract of contracts ?? [])
+      byClient.set(contract.mindbody_client_id, [...(byClient.get(contract.mindbody_client_id) ?? []), contract]);
     results = (clients ?? [])
       .filter((client) => byClient.has(client.mindbody_client_id as string))
       .slice(0, 50)
-      .map((client) => ({ client, contracts: byClient.get(client.mindbody_client_id as string)! }));
+      .map((client) => ({
+        client,
+        contracts: byClient.get(client.mindbody_client_id as string)!,
+      }));
   }
 
   const today = DateTime.now().toISODate()!;
@@ -74,7 +93,11 @@ export default async function MembershipsPage({ searchParams }: { searchParams: 
           <Link href="/dashboard/shadow-billing" className="underline underline-offset-4">
             Shadow Billing
           </Link>{" "}
-          compares what SynqIQ would charge with what Mindbody charges.
+          compares what SynqIQ would charge with what Mindbody charges.{" "}
+          <Link href="/dashboard/memberships/price-increases" className="underline underline-offset-4">
+            Price Increases
+          </Link>{" "}
+          schedules a % dues increase for a group of memberships.
         </p>
 
         {query.length >= 2 ? (
@@ -104,14 +127,21 @@ export default async function MembershipsPage({ searchParams }: { searchParams: 
                       return (
                         <TableRow key={client.mindbody_client_id}>
                           <TableCell>
-                            <Link href={`/dashboard/memberships/${client.mindbody_client_id}`} className="font-medium underline-offset-4 hover:underline">
+                            <Link
+                              href={`/dashboard/memberships/${client.mindbody_client_id}`}
+                              className="font-medium underline-offset-4 hover:underline"
+                            >
                               {client.first_name} {client.last_name}
                             </Link>
                             <span className="block text-xs text-muted-foreground">{client.status}</span>
                           </TableCell>
-                          <TableCell>{current.length ? current.map((contract) => contract.contract_name).join(", ") : "None current"}</TableCell>
+                          <TableCell>
+                            {current.length ? current.map((contract) => contract.contract_name).join(", ") : "None current"}
+                          </TableCell>
                           <TableCell className="whitespace-nowrap">
-                            {next ? `${DateTime.fromISO(next.next_bill_date as string).toFormat("LLL d")} · ${money(next.next_bill_total_cents)}` : "—"}
+                            {next
+                              ? `${DateTime.fromISO(next.next_bill_date as string).toFormat("LLL d")} · ${money(next.next_bill_total_cents)}`
+                              : "—"}
                           </TableCell>
                         </TableRow>
                       );
@@ -125,7 +155,9 @@ export default async function MembershipsPage({ searchParams }: { searchParams: 
           </Card>
         ) : (
           <Card>
-            <CardContent className="py-10 text-center text-sm text-muted-foreground">Search by first and last name, or by email.</CardContent>
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              Search by first and last name, or by email.
+            </CardContent>
           </Card>
         )}
       </div>

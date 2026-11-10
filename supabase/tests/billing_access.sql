@@ -1,4 +1,4 @@
--- Billing data is Club Admin only (The Preserve).
+-- Billing data and price increases are Club Admin only (The Preserve).
 --
 -- Runs inside one transaction and ROLLS BACK, so it is safe against
 -- production. Signed in through RLS:
@@ -38,7 +38,8 @@ select set_config('request.jwt.claims', json_build_object('sub', current_setting
 do $$
 begin
   if exists (select 1 from member_contracts) or exists (select 1 from membership_plans)
-     or exists (select 1 from mbo_autopay_rows) or exists (select 1 from billing_adjustments) then
+     or exists (select 1 from mbo_autopay_rows) or exists (select 1 from billing_adjustments)
+     or exists (select 1 from price_increases) or exists (select 1 from price_increase_items) then
     raise exception 'FAIL Sales can see billing data';
   end if;
   begin
@@ -48,7 +49,14 @@ begin
   exception when insufficient_privilege then
     null;
   end;
-  raise notice 'ok   Sales: no billing data, can''t add edits';
+  begin
+    insert into price_increases (organization_id, name, percent, effective_on, created_by_staff_id)
+    values (current_setting('bill.preserve')::uuid, 'test', 5, '2027-02-01', current_setting('bill.admin_staff')::uuid);
+    raise exception 'FAIL Sales scheduled a price increase';
+  exception when insufficient_privilege then
+    null;
+  end;
+  raise notice 'ok   Sales: no billing data, can''t add edits or price increases';
 end $$;
 reset role;
 
@@ -70,7 +78,12 @@ begin
   if not found then
     raise exception 'FAIL Club Admin couldn''t cancel a billing edit';
   end if;
-  raise notice 'ok   Club Admin: sees contracts, adds and cancels edits';
+  insert into price_increases (organization_id, name, percent, effective_on, created_by_staff_id)
+  values (current_setting('bill.preserve')::uuid, 'test', 5, '2027-02-01', current_setting('bill.admin_staff')::uuid)
+  returning id into edit;
+  insert into price_increase_items (organization_id, price_increase_id, mindbody_client_contract_id, mindbody_client_id, contract_name, old_cents, new_cents)
+  values (current_setting('bill.preserve')::uuid, edit, 1, current_setting('bill.client'), 'test', 10000, 10500);
+  raise notice 'ok   Club Admin: sees contracts, adds and cancels edits, schedules increases';
 end $$;
 reset role;
 

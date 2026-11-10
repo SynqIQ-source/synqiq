@@ -1,3 +1,5 @@
+import { applyIncreases, type ScheduledIncrease } from "@/lib/memberships/price-increase";
+
 // Shadow billing: what SynqIQ would charge each member on each date, compared
 // with what Mindbody charges (its AutoPay Detail report). Pure functions, no
 // I/O, so the rules are unit-tested (tests/shadow-billing.test.ts).
@@ -15,7 +17,15 @@ export type ContractSchedule = {
   contractName: string;
   // Mindbody's autopay status for the contract (e.g. "Suspended" while frozen).
   autopayStatus?: string | null;
-  autopays: { date: string; totalCents: number | null }[];
+  // Mindbody's scheduled autopays. Subtotal and tax are kept apart: SynqIQ
+  // edits and price increases change the subtotal (the dues before tax)
+  // and tax is recalculated at the contract's own rate.
+  autopays: {
+    date: string;
+    totalCents: number | null;
+    subtotalCents?: number | null;
+    taxCents?: number | null;
+  }[];
 };
 
 export type AdjustmentKind = "credit" | "discount_once" | "discount_ongoing" | "freeze";
@@ -35,8 +45,10 @@ export type BillingAdjustment = {
 export type ExpectedCharge = {
   mindbodyClientId: string;
   date: string;
-  cents: number; // after SynqIQ edits
-  baseCents: number; // before SynqIQ edits
+  cents: number; // total incl. tax, after SynqIQ edits
+  subtotalCents: number; // dues before tax, after SynqIQ edits
+  taxCents: number; // tax on that (never edited directly)
+  baseCents: number; // total before SynqIQ edits
   contractIds: string[];
   adjustmentIds: string[];
   // Part of `cents` that comes from contracts Mindbody shows as frozen.
@@ -47,25 +59,42 @@ const inRange = (date: string, from: string, to: string) => date >= from && date
 
 // One expected charge per paying member and date (Mindbody's report lists
 // items separately and under whoever pays; the comparison is per payer per
-// day). Edits belong to the member whose contract it is, applied in
-// date order: freezes zero a charge, discounts reduce it, credits are used
-// up across charges until exhausted. Never below zero.
+// day). A scheduled price increase raises a contract's charges from its
+// start date. Edits belong to the member whose contract it is, applied in
+// date order on the dues before tax: freezes zero a charge, discounts reduce
+// it, credits are used up across charges until exhausted (never below zero);
+// tax is then recalculated at the contract's rate.
 export function expectedCharges(
   schedules: ContractSchedule[],
   adjustments: BillingAdjustment[],
   window: { from: string; to: string },
+  // Scheduled bulk price increases (lib/memberships/price-increase.ts),
+  // applied before the other edits.
+  increases: ScheduledIncrease[] = [],
 ): ExpectedCharge[] {
-  type Line = { contractId: string; client: string; payer: string; date: string; cents: number; frozen: boolean };
+  type Line = {
+    contractId: string;
+    client: string;
+    payer: string;
+    date: string;
+    cents: number;
+    subtotal: number;
+    tax: number;
+    frozen: boolean;
+  };
   const lines: Line[] = [];
   for (const schedule of schedules) {
     for (const autopay of schedule.autopays) {
       if (autopay.totalCents === null || !inRange(autopay.date, window.from, window.to)) continue;
+      const hasSplit = typeof autopay.subtotalCents === "number" && typeof autopay.taxCents === "number";
       lines.push({
         contractId: schedule.contractId,
         client: schedule.mindbodyClientId,
         payer: schedule.payerClientId ?? schedule.mindbodyClientId,
         date: autopay.date,
         cents: autopay.totalCents,
+        subtotal: hasSplit ? (autopay.subtotalCents as number) : autopay.totalCents,
+        tax: hasSplit ? (autopay.taxCents as number) : 0,
         frozen: (schedule.autopayStatus ?? "").toLowerCase() === "suspended",
       });
     }
@@ -78,8 +107,9 @@ export function expectedCharges(
 
   const byKey = new Map<string, ExpectedCharge>();
   for (const line of lines) {
-    let cents = line.cents;
-    const applied: string[] = [];
+    const increased = applyIncreases(line.subtotal, line.contractId, line.date, increases);
+    let cents = increased.cents; // working on the subtotal (before tax)
+    const applied: string[] = [...increased.ids];
     const applies = (adjustment: BillingAdjustment) =>
       adjustment.mindbodyClientId === line.client &&
       (adjustment.contractId === null || adjustment.contractId === line.contractId) &&
@@ -112,10 +142,17 @@ export function expectedCharges(
       applied.push(adjustment.id);
     }
 
+    // Tax at the contract's own rate; unchanged when nothing was edited.
+    const tax = cents === line.subtotal ? line.tax : line.subtotal > 0 ? Math.round((cents * line.tax) / line.subtotal) : 0;
+    const subtotal = cents;
+    cents = subtotal + tax;
+
     const key = `${line.payer}|${line.date}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.cents += cents;
+      existing.subtotalCents += subtotal;
+      existing.taxCents += tax;
       existing.baseCents += line.cents;
       existing.contractIds.push(line.contractId);
       if (line.frozen) existing.frozenContractCents += cents;
@@ -125,6 +162,8 @@ export function expectedCharges(
         mindbodyClientId: line.payer,
         date: line.date,
         cents,
+        subtotalCents: subtotal,
+        taxCents: tax,
         baseCents: line.cents,
         contractIds: [line.contractId],
         adjustmentIds: [...applied],
@@ -173,12 +212,24 @@ export function compareCharges(
   report: ReportLine[],
   options: { from: string; to: string; clientsWithContracts: Set<string> },
 ): ComparisonLine[] {
-  type Group = { clientId: string | null; name: string; date: string; cents: number; statuses: Set<ReportLine["status"]> };
+  type Group = {
+    clientId: string | null;
+    name: string;
+    date: string;
+    cents: number;
+    statuses: Set<ReportLine["status"]>;
+  };
   const groups = new Map<string, Group>();
   for (const line of report) {
     if (!inRange(line.date, options.from, options.to)) continue;
     const key = `${line.mindbodyClientId ?? `name:${line.clientName.toLowerCase()}`}|${line.date}`;
-    const group = groups.get(key) ?? { clientId: line.mindbodyClientId, name: line.clientName, date: line.date, cents: 0, statuses: new Set() };
+    const group = groups.get(key) ?? {
+      clientId: line.mindbodyClientId,
+      name: line.clientName,
+      date: line.date,
+      cents: 0,
+      statuses: new Set(),
+    };
     // A frozen line isn't charged.
     if (line.status !== "suspended") group.cents += line.cents;
     group.statuses.add(line.status);
@@ -250,7 +301,11 @@ export function summarize(lines: ComparisonLine[]) {
   for (const line of lines) {
     mindbodyCents += line.mindbodyCents;
     synqiqCents += line.synqiqCents;
-    const entry = byReason.get(line.reason) ?? { count: 0, mindbodyCents: 0, synqiqCents: 0 };
+    const entry = byReason.get(line.reason) ?? {
+      count: 0,
+      mindbodyCents: 0,
+      synqiqCents: 0,
+    };
     entry.count += 1;
     entry.mindbodyCents += line.mindbodyCents;
     entry.synqiqCents += line.synqiqCents;
@@ -258,5 +313,12 @@ export function summarize(lines: ComparisonLine[]) {
   }
   const matched = byReason.get("match")?.count ?? 0;
   const compared = lines.filter((line) => line.reason !== "frozen_in_mindbody").length;
-  return { mindbodyCents, synqiqCents, byReason, matched, compared, matchRate: compared ? matched / compared : 1 };
+  return {
+    mindbodyCents,
+    synqiqCents,
+    byReason,
+    matched,
+    compared,
+    matchRate: compared ? matched / compared : 1,
+  };
 }

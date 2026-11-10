@@ -22,7 +22,9 @@ export async function POST(request: NextRequest) {
 
   const supabase = await getScopedClient(currentStaff);
   const { data: org } = await supabase.from("organizations").select("timezone").eq("id", currentStaff.organizationId).maybeSingle();
-  const today = DateTime.now().setZone((org?.timezone as string | undefined) ?? "America/Chicago").toISODate()!;
+  const today = DateTime.now()
+    .setZone((org?.timezone as string | undefined) ?? "America/Chicago")
+    .toISODate()!;
 
   const result = validateAdjustment(body, today);
   if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: 400 });

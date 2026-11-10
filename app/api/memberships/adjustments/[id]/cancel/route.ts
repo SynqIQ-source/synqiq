@@ -14,7 +14,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: false, error: "Only a club admin can do this." }, { status: 403 });
   }
   if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ success: false, error: "Not found." }, { status: 404 });
-  const body = (await request.json().catch(() => null)) as { reason?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as {
+    reason?: unknown;
+  } | null;
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
   if (!reason) return NextResponse.json({ success: false, error: "Add a reason." }, { status: 400 });
   if (reason.length > 500) return NextResponse.json({ success: false, error: "Keep the reason under 500 characters." }, { status: 400 });
@@ -22,7 +24,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const supabase = await getScopedClient(currentStaff);
   const { data, error } = await supabase
     .from("billing_adjustments")
-    .update({ cancelled_at: new Date().toISOString(), cancelled_by_staff_id: currentStaff.id, cancel_reason: reason })
+    .update({
+      cancelled_at: new Date().toISOString(),
+      cancelled_by_staff_id: currentStaff.id,
+      cancel_reason: reason,
+    })
     .eq("id", id)
     .eq("organization_id", currentStaff.organizationId)
     .is("cancelled_at", null)

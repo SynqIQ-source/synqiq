@@ -9,6 +9,7 @@ import {
   type ContractSchedule,
   type ReportLine,
 } from "@/lib/memberships/shadow-billing";
+import { loadScheduledIncreases } from "@/lib/memberships/price-increase-data";
 
 // Loads everything shadow billing needs for one studio (through the Club
 // Admin's own RLS-scoped client) and runs the comparison.
@@ -50,7 +51,7 @@ export async function loadShadowBilling(
     payer_mindbody_client_id: string | null;
     contract_name: string;
     autopay_status: string | null;
-    upcoming_autopays: { date: string; totalCents: number | null }[];
+    upcoming_autopays: ContractSchedule["autopays"];
     synced_at: string;
   };
   type AutopayRow = {
@@ -73,7 +74,7 @@ export async function loadShadowBilling(
     created_at: string;
   };
 
-  const [contracts, report, adjustmentRows, { data: lastImport }] = await Promise.all([
+  const [contracts, report, adjustmentRows, { data: lastImport }, increases] = await Promise.all([
     pages<ContractRow>((from, to) =>
       supabase
         .from("member_contracts")
@@ -111,6 +112,7 @@ export async function loadShadowBilling(
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    loadScheduledIncreases(supabase, organizationId),
   ]);
 
   const adjustments = adjustmentRows.map((row) => ({
@@ -131,7 +133,13 @@ export async function loadShadowBilling(
   // Contracts list only charges from their last refresh on, so the
   // comparison starts tomorrow and ends with the report.
   const tomorrow = DateTime.now().setZone(timezone).plus({ days: 1 }).toISODate()!;
-  const window = reportRange && reportRange.to >= tomorrow ? { from: tomorrow > reportRange.from ? tomorrow : reportRange.from, to: reportRange.to } : null;
+  const window =
+    reportRange && reportRange.to >= tomorrow
+      ? {
+          from: tomorrow > reportRange.from ? tomorrow : reportRange.from,
+          to: reportRange.to,
+        }
+      : null;
 
   const schedules: ContractSchedule[] = contracts.map((contract) => ({
     contractId: contract.id,
@@ -142,12 +150,14 @@ export async function loadShadowBilling(
     autopays: contract.upcoming_autopays ?? [],
   }));
   const clientsWithContracts = new Set(
-    contracts.flatMap((contract) => [contract.mindbody_client_id, contract.payer_mindbody_client_id].filter((id): id is string => Boolean(id))),
+    contracts.flatMap((contract) =>
+      [contract.mindbody_client_id, contract.payer_mindbody_client_id].filter((id): id is string => Boolean(id)),
+    ),
   );
 
   const lines = window
     ? compareCharges(
-        expectedCharges(schedules, adjustments, window),
+        expectedCharges(schedules, adjustments, window, increases),
         report.map((row) => ({
           mindbodyClientId: row.mindbody_client_id,
           clientName: row.client_name,

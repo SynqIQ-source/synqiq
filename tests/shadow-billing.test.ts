@@ -31,7 +31,11 @@ describe("expectedCharges", () => {
   it("sums contracts per member per day and keeps only the window", () => {
     const charges = expectedCharges(
       [
-        schedule("A", "c1", [["2026-11-16", 29119], ["2026-12-16", 29119], ["2027-01-16", 29119]]),
+        schedule("A", "c1", [
+          ["2026-11-16", 29119],
+          ["2026-12-16", 29119],
+          ["2027-01-16", 29119],
+        ]),
         schedule("A", "c2", [["2026-11-16", 12990]]),
       ],
       [],
@@ -46,10 +50,7 @@ describe("expectedCharges", () => {
 
   it("charges the payer when someone else pays", () => {
     const charges = expectedCharges(
-      [
-        schedule("P", "own", [["2026-11-16", 23707]]),
-        { ...schedule("K", "kid", [["2026-11-16", 20459]]), payerClientId: "P" },
-      ],
+      [schedule("P", "own", [["2026-11-16", 23707]]), { ...schedule("K", "kid", [["2026-11-16", 20459]]), payerClientId: "P" }],
       [adjustment({ kind: "discount_once", mindbodyClientId: "K", amountCents: 459 })],
       WINDOW,
     );
@@ -59,7 +60,12 @@ describe("expectedCharges", () => {
 
   it("a freeze zeroes charges inside its dates only", () => {
     const charges = expectedCharges(
-      [schedule("A", "c1", [["2026-11-16", 29119], ["2026-12-16", 29119]])],
+      [
+        schedule("A", "c1", [
+          ["2026-11-16", 29119],
+          ["2026-12-16", 29119],
+        ]),
+      ],
       [adjustment({ kind: "freeze", startsOn: "2026-12-01", endsOn: "2026-12-31" })],
       WINDOW,
     );
@@ -69,13 +75,23 @@ describe("expectedCharges", () => {
 
   it("a one-time discount applies to the first charge only; ongoing to every charge", () => {
     const once = expectedCharges(
-      [schedule("A", "c1", [["2026-11-16", 20000], ["2026-12-16", 20000]])],
+      [
+        schedule("A", "c1", [
+          ["2026-11-16", 20000],
+          ["2026-12-16", 20000],
+        ]),
+      ],
       [adjustment({ kind: "discount_once", percent: 10 })],
       WINDOW,
     );
     expect(once.map((charge) => charge.cents)).toEqual([18000, 20000]);
     const ongoing = expectedCharges(
-      [schedule("A", "c1", [["2026-11-16", 20000], ["2026-12-16", 20000]])],
+      [
+        schedule("A", "c1", [
+          ["2026-11-16", 20000],
+          ["2026-12-16", 20000],
+        ]),
+      ],
       [adjustment({ kind: "discount_ongoing", amountCents: 2500 })],
       WINDOW,
     );
@@ -84,11 +100,38 @@ describe("expectedCharges", () => {
 
   it("a credit is used up across charges and never goes below zero", () => {
     const charges = expectedCharges(
-      [schedule("A", "c1", [["2026-11-16", 20000], ["2026-12-16", 20000]])],
+      [
+        schedule("A", "c1", [
+          ["2026-11-16", 20000],
+          ["2026-12-16", 20000],
+        ]),
+      ],
       [adjustment({ kind: "credit", amountCents: 25000 })],
       WINDOW,
     );
     expect(charges.map((charge) => charge.cents)).toEqual([0, 15000]);
+  });
+
+  it("edits change the dues before tax; tax is recalculated at the contract's rate", () => {
+    const charges = expectedCharges(
+      [
+        {
+          contractId: "c1",
+          mindbodyClientId: "A",
+          contractName: "Adult",
+          autopays: [
+            { date: "2026-11-16", subtotalCents: 20000, taxCents: 1650, totalCents: 21650 },
+            { date: "2026-12-16", subtotalCents: 20000, taxCents: 1650, totalCents: 21650 },
+          ],
+        },
+      ],
+      [adjustment({ kind: "discount_once", percent: 10 })],
+      WINDOW,
+    );
+    expect(charges.map((charge) => [charge.subtotalCents, charge.taxCents, charge.cents, charge.baseCents])).toEqual([
+      [18000, 1485, 19485, 21650],
+      [20000, 1650, 21650, 21650],
+    ]);
   });
 
   it("edits for another member or contract don't apply", () => {
@@ -123,7 +166,10 @@ describe("compareCharges", () => {
     const expected = expectedCharges(
       [
         schedule("A", "c1", [["2026-11-16", 29119]]),
-        schedule("B", "c2", [["2026-11-20", 20000], ["2026-12-20", 20000]]),
+        schedule("B", "c2", [
+          ["2026-11-20", 20000],
+          ["2026-12-20", 20000],
+        ]),
       ],
       [adjustment({ kind: "discount_once", mindbodyClientId: "B", amountCents: 5000, startsOn: "2026-12-01" })],
       WINDOW,
@@ -154,7 +200,10 @@ describe("compareCharges", () => {
 
   it("a frozen contract Mindbody skipped explains the difference", () => {
     const expected = expectedCharges(
-      [schedule("A", "active", [["2026-11-15", 29119]]), { ...schedule("A", "frozen", [["2026-11-15", 20459]]), autopayStatus: "Suspended" }],
+      [
+        schedule("A", "active", [["2026-11-15", 29119]]),
+        { ...schedule("A", "frozen", [["2026-11-15", 20459]]), autopayStatus: "Suspended" },
+      ],
       [],
       WINDOW,
     );

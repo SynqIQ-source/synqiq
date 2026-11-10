@@ -46,7 +46,11 @@ export function AddBillingEdit({
         if (!amount.trim() || !Number.isFinite(percent)) return setMessage({ ok: false, text: "Enter a percent." });
       } else {
         amountCents = dollarsToCents(amount);
-        if (amountCents === null) return setMessage({ ok: false, text: "Enter a dollar amount, like 25 or 25.50." });
+        if (amountCents === null)
+          return setMessage({
+            ok: false,
+            text: "Enter a dollar amount, like 25 or 25.50.",
+          });
       }
     }
     setSaving(true);
@@ -65,15 +69,24 @@ export function AddBillingEdit({
           reason,
         }),
       });
-      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      const result = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+      };
       if (!response.ok || !result.success) {
-        setMessage({ ok: false, text: result.error ?? "Couldn't save. Try again." });
+        setMessage({
+          ok: false,
+          text: result.error ?? "Couldn't save. Try again.",
+        });
         return;
       }
       setAmount("");
       setEndsOn("");
       setReason("");
-      setMessage({ ok: true, text: "Saved. Upcoming charges and Shadow Billing now include it." });
+      setMessage({
+        ok: true,
+        text: "Saved. Upcoming charges and Shadow Billing now include it.",
+      });
       router.refresh();
     } finally {
       setSaving(false);
@@ -107,9 +120,20 @@ export function AddBillingEdit({
         <div className="space-y-1.5">
           <Label htmlFor="edit-amount">{isDiscount && unit === "percent" ? "Percent off" : "Amount ($)"}</Label>
           <div className="flex gap-2">
-            <Input id="edit-amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={unit === "percent" && isDiscount ? "10" : "25.00"} />
+            <Input
+              id="edit-amount"
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              placeholder={unit === "percent" && isDiscount ? "10" : "25.00"}
+            />
             {isDiscount ? (
-              <select aria-label="Dollars or percent" className={`${selectClass} w-20`} value={unit} onChange={(event) => setUnit(event.target.value as "dollars" | "percent")}>
+              <select
+                aria-label="Dollars or percent"
+                className={`${selectClass} w-20`}
+                value={unit}
+                onChange={(event) => setUnit(event.target.value as "dollars" | "percent")}
+              >
                 <option value="dollars">$</option>
                 <option value="percent">%</option>
               </select>
@@ -125,12 +149,21 @@ export function AddBillingEdit({
         <div className="space-y-1.5">
           <Label htmlFor="edit-end">{kind === "freeze" ? "Ends" : "Ends (optional)"}</Label>
           <Input id="edit-end" type="date" min={startsOn || today} value={endsOn} onChange={(event) => setEndsOn(event.target.value)} />
-          {kind === "freeze" ? <p className="text-xs text-muted-foreground">Agreements allow 1–3 month freezes with 15 days&apos; notice.</p> : null}
+          {kind === "freeze" ? (
+            <p className="text-xs text-muted-foreground">Agreements allow 1–3 month freezes with 15 days&apos; notice.</p>
+          ) : null}
         </div>
       ) : null}
       <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
         <Label htmlFor="edit-reason">Reason</Label>
-        <Textarea id="edit-reason" rows={2} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why (kept in the history)" />
+        <Textarea
+          id="edit-reason"
+          rows={2}
+          maxLength={500}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Why (kept in the history)"
+        />
       </div>
       <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4">
         <Button type="submit" disabled={saving}>
@@ -170,7 +203,10 @@ export function CancelBillingEdit({ id, label }: { id: string; label: string }) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
       });
-      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      const result = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+      };
       if (!response.ok || !result.success) {
         setError(result.error ?? "Couldn't cancel. Try again.");
         return;
@@ -183,7 +219,13 @@ export function CancelBillingEdit({ id, label }: { id: string; label: string }) 
 
   return (
     <div className="flex min-w-56 flex-col items-end gap-2">
-      <Input aria-label="Reason for cancelling" placeholder="Reason" value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} />
+      <Input
+        aria-label="Reason for cancelling"
+        placeholder="Reason"
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+        maxLength={500}
+      />
       <div className="flex gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={saving}>
           Keep
