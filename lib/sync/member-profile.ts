@@ -53,7 +53,8 @@ function yearWindows(from: string, to: string): [string, string][] {
 }
 
 export type MemberProfileSyncResult =
-  { success: true; visits: number; upcoming: number; sales: number; items: number; services: number } | { success: false; error: string };
+  | { success: true; visits: number; upcoming: number; sales: number; items: number; services: number; missingInMindbody?: boolean }
+  | { success: false; error: string };
 
 export async function syncMemberProfile(options: {
   organizationId: string;
@@ -184,6 +185,22 @@ export async function syncMemberProfile(options: {
       services: serviceRows.length,
     };
   } catch (error) {
+    // A client merged away or deactivated in Mindbody has nothing to pull.
+    if (error instanceof Error && /ClientNotFound|inactive or does not exist/i.test(error.message)) {
+      // Record the pull so the nightly queue doesn't retry them every run.
+      await createSupabaseAdminClient()
+        .from("member_profile_sync")
+        .upsert(
+          {
+            organization_id: options.organizationId,
+            mindbody_client_id: options.mindbodyClientId,
+            synced_at: new Date().toISOString(),
+            visits_from: options.historyStart ?? DEFAULT_HISTORY_START,
+          },
+          { onConflict: "organization_id,mindbody_client_id" },
+        );
+      return { success: true, visits: 0, upcoming: 0, sales: 0, items: 0, services: 0, missingInMindbody: true };
+    }
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
