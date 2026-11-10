@@ -1,8 +1,8 @@
 import { DateTime } from "luxon";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { isUnlimited, type MemberPersonal } from "@/lib/memberships/profile";
+import { isUnlimited } from "@/lib/memberships/profile";
 
 // Read-only sections of a member's page built from Mindbody's client data
 // (member_visits / member_sales / member_services / member_profile_sync).
@@ -64,93 +64,11 @@ const KIND_LABEL: Record<VisitRow["kind"], string> = {
   other: "Visit",
 };
 
-function Item({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-0.5">
-      <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className="text-sm break-words text-foreground">{children ?? "—"}</dd>
-    </div>
-  );
-}
-
 export function NotPulledYet({ what }: { what: string }) {
   return (
     <p className="px-6 pb-6 text-sm text-muted-foreground">
       {what} haven&apos;t been pulled from Mindbody for this member yet. Use &quot;Refresh from Mindbody&quot; at the top.
     </p>
-  );
-}
-
-export function PersonalCard({
-  name,
-  status,
-  clientId,
-  memberSince,
-  personal,
-  fallbackEmail,
-  pulledAt,
-}: {
-  name: string;
-  status: string | null;
-  clientId: string;
-  memberSince: string | null;
-  personal: Partial<MemberPersonal> | null;
-  fallbackEmail: string | null;
-  pulledAt: string | null;
-}) {
-  const initials = name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  const address = [
-    personal?.addressLine1,
-    personal?.addressLine2,
-    [personal?.city, personal?.state].filter(Boolean).join(", "),
-    personal?.postalCode,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Personal information</CardTitle>
-        <CardDescription>
-          From Mindbody{pulledAt ? ` (pulled ${pulledAt})` : ""}. Mindbody keeps member details until the switch; editing moves to SynqIQ
-          then.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="flex items-center gap-4">
-          {personal?.photoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- Mindbody-hosted photo
-            <img src={personal.photoUrl} alt="" className="h-20 w-20 rounded-full object-cover" referrerPolicy="no-referrer" />
-          ) : (
-            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-muted text-xl font-semibold text-muted-foreground">
-              {initials}
-            </span>
-          )}
-          <div>
-            <p className="text-lg font-semibold">{name}</p>
-            {status ? <Badge variant={status === "Active" ? "secondary" : "outline"}>{status}</Badge> : null}
-          </div>
-        </div>
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-          <Item label="Email">{personal?.email ?? fallbackEmail}</Item>
-          <Item label="Mobile">{personal?.mobilePhone ?? personal?.homePhone}</Item>
-          <Item label="Birthday">{personal?.birthDate ? DateTime.fromISO(personal.birthDate).toFormat("LLL d, yyyy") : null}</Item>
-          <Item label="Member since">{memberSince ? day(memberSince) : null}</Item>
-          <Item label="Address">{address || null}</Item>
-          <Item label="Emergency contact">
-            {personal?.emergencyContactName
-              ? `${personal.emergencyContactName}${personal.emergencyContactPhone ? ` · ${personal.emergencyContactPhone}` : ""}`
-              : null}
-          </Item>
-          <Item label="Mindbody client ID">{clientId}</Item>
-        </dl>
-      </CardContent>
-    </Card>
   );
 }
 

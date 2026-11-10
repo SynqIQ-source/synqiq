@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,11 +14,13 @@ import { expectedCharges, type BillingAdjustment, type ContractSchedule } from "
 import { describeAdjustment } from "@/lib/memberships/adjustments";
 import { loadScheduledIncreases } from "@/lib/memberships/price-increase-data";
 import { contractTaxRate, formatTaxRate, taxOn } from "@/lib/memberships/tax";
-import type { MemberPersonal } from "@/lib/memberships/profile";
+import { isUnlimited } from "@/lib/memberships/profile";
+import { mergePersonal, type MemberPersonal, type PersonalField } from "@/lib/memberships/personal";
 import { AddBillingEdit, CancelBillingEdit, type EditContract } from "./billing-edits";
 import { RefreshFromMindbody } from "./refresh-button";
+import { PersonalCard } from "./personal-card";
+import { MemberSearch } from "../member-search";
 import {
-  PersonalCard,
   PurchasesList,
   ServicesCard,
   VisitSummary,
@@ -265,13 +266,9 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     { data: upcomingVisits },
     { data: sales },
     { data: contact },
+    { data: personalRow },
   ] = await Promise.all([
-    supabase
-      .from("member_profile_sync")
-      .select("synced_at, personal")
-      .eq("organization_id", orgId)
-      .eq("mindbody_client_id", clientId)
-      .maybeSingle(),
+    supabase.from("member_profile_sync").select("synced_at").eq("organization_id", orgId).eq("mindbody_client_id", clientId).maybeSingle(),
     supabase
       .from("member_services")
       .select("id, name, program, count, remaining, is_current, active_date, expiration_date, payment_date")
@@ -312,6 +309,12 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       .eq("mindbody_client_id", clientId)
       .is("deleted_at", null)
       .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("member_personal")
+      .select("mindbody, mindbody_synced_at, edits, edited_at, edited_by_staff_id")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
       .maybeSingle(),
   ]);
   const saleIds = (sales ?? []).map((sale) => sale.mindbody_sale_id);
@@ -354,21 +357,68 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     return since && (!earliest || since < earliest) ? since : earliest;
   }, null);
 
+  // Personal information: SynqIQ edits over Mindbody's copy.
+  const personal = mergePersonal(
+    {
+      firstName: client?.first_name ?? null,
+      lastName: client?.last_name ?? null,
+      email: client?.email ?? null,
+      ...((personalRow?.mindbody as Partial<MemberPersonal> | undefined) ?? {}),
+    },
+    (personalRow?.edits as Partial<Record<PersonalField, string | null>> | undefined) ?? {},
+  );
+  const displayName = `${personal.firstName ?? ""} ${personal.lastName ?? ""}`.trim() || name;
+  let editedNote: string | null = null;
+  if (personalRow?.edited_at) {
+    const { data: editor } = personalRow.edited_by_staff_id
+      ? await supabase.from("staff").select("display_name").eq("id", personalRow.edited_by_staff_id).maybeSingle()
+      : { data: null };
+    editedNote = `Edited in SynqIQ ${DateTime.fromISO(personalRow.edited_at as string)
+      .setZone(timezone)
+      .toFormat("LLL d")}${editor?.display_name ? ` by ${editor.display_name}` : ""}; other fields from Mindbody.`;
+  }
+  const personalPulledAt = personalRow?.mindbody_synced_at
+    ? DateTime.fromISO(personalRow.mindbody_synced_at as string)
+        .setZone(timezone)
+        .toFormat("LLL d")
+    : null;
+
+  // At a glance.
+  let monthlyCents = 0;
+  for (const contract of current) {
+    const base = contract.normal_autopay_cents ?? 0;
+    const rate = contractTaxRate({
+      nextBillSubtotalCents: contract.next_bill_subtotal_cents,
+      nextBillTaxCents: contract.next_bill_tax_cents,
+      autopays: contract.upcoming_autopays,
+    });
+    monthlyCents += base + (taxOn(base, rate) ?? 0);
+  }
+  const nextBill = current
+    .filter((contract) => contract.next_bill_date && contract.next_bill_date >= today)
+    .sort((a, b) => (a.next_bill_date as string).localeCompare(b.next_bill_date as string))[0];
+  const nextBillCents = nextBill
+    ? current
+        .filter((contract) => contract.next_bill_date === nextBill.next_bill_date)
+        .reduce((sum, contract) => sum + (contract.next_bill_total_cents ?? 0), 0)
+    : null;
+  const since30 = DateTime.now().setZone(timezone).minus({ days: 30 }).toFormat("yyyy-LL-dd'T'HH:mm:ss");
+  const visits30 = (pastVisits ?? []).filter((visit) => visit.start_local >= since30 && !visit.late_cancelled && !visit.missed).length;
+  const packs = (services ?? []).filter((service) => service.is_current && !isUnlimited(service.count));
+  const sessionsLeft = packs.reduce((sum, service) => sum + (service.remaining ?? 0), 0);
+  const lastVisit = (pastVisits ?? [])[0]?.start_local ?? null;
+
   return (
     <DashboardShell
-      title={name}
+      title={displayName}
       description={
         client
           ? [client.status, memberSince ? `member since ${day(memberSince)}` : null].filter(Boolean).join(" · ")
           : "Not in the synced client list"
       }
       actions={
-        <div className="flex flex-wrap items-start gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard/memberships">
-              <ArrowLeft /> Memberships
-            </Link>
-          </Button>
+        <div className="flex flex-wrap items-start justify-end gap-2">
+          <MemberSearch initialQuery="" compact />
           {contact ? (
             <Button asChild variant="outline" size="sm">
               <Link href={`/dashboard/guests/${contact.id}`}>Guest profile</Link>
@@ -379,13 +429,52 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       }
     >
       <div className="space-y-6">
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
-          Mindbody still charges until the switch; these edits don&apos;t change charges yet.
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Memberships refreshed{" "}
-          {contracts[0] ? DateTime.fromISO(contracts[0].synced_at).setZone(timezone).toFormat("LLL d, h:mm a") : "never"} · visits,
-          purchases and packs {pulledAt ? `pulled ${pulledAt}` : "not pulled yet"}
+        <Card className="py-4">
+          <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <Glance
+              label="Monthly dues"
+              value={current.length ? money(monthlyCents) : "—"}
+              sub={current.length ? "incl. tax" : "No current membership"}
+            />
+            <Glance
+              label="Next bill"
+              value={nextBill ? DateTime.fromISO(nextBill.next_bill_date as string).toFormat("LLL d") : "—"}
+              sub={nextBillCents !== null ? money(nextBillCents) : undefined}
+            />
+            <Glance
+              label="Visits (30 days)"
+              value={pulled ? String(visits30) : "—"}
+              sub={lastVisit ? `Last ${DateTime.fromISO(lastVisit).toFormat("LLL d")}` : undefined}
+            />
+            <Glance
+              label="Sessions left"
+              value={pulled ? (packs.length ? String(sessionsLeft) : "—") : "—"}
+              sub={
+                packs.length
+                  ? packs
+                      .map((pack) => pack.name)
+                      .slice(0, 2)
+                      .join(", ")
+                  : pulled
+                    ? "No packs"
+                    : undefined
+              }
+            />
+            <Glance
+              label="Card on file"
+              value={card ? `${card.card_brand ?? "Card"} ••${card.card_last4}` : "—"}
+              sub={
+                card?.card_exp_month && card.card_exp_year
+                  ? `Exp ${String(card.card_exp_month).padStart(2, "0")}/${String(card.card_exp_year).slice(-2)}`
+                  : undefined
+              }
+            />
+          </CardContent>
+        </Card>
+        <p className="-mt-3 text-xs text-muted-foreground">
+          From Mindbody: memberships{" "}
+          {contracts[0] ? DateTime.fromISO(contracts[0].synced_at).setZone(timezone).toFormat("LLL d, h:mm a") : "not pulled"} · visits,
+          purchases and packs {pulledAt ?? "not pulled yet"}
         </p>
 
         <div className="grid gap-6 lg:grid-cols-3">
@@ -412,8 +501,6 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                         <TableHeader>
                           <TableRow>
                             <TableHead>Plan</TableHead>
-                            <TableHead>Member since</TableHead>
-                            <TableHead>This term</TableHead>
                             <TableHead className="text-right">Base rate</TableHead>
                             <TableHead className="text-right">Tax</TableHead>
                             <TableHead className="text-right">Total</TableHead>
@@ -442,6 +529,10 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                     {contract.is_month_to_month ? <Badge variant="outline">Month to month</Badge> : null}
                                     {contract.auto_renewing ? <Badge variant="outline">Renews</Badge> : null}
                                   </span>
+                                  <span className="mt-1 block text-xs text-muted-foreground">
+                                    Since {day(contract.original_start_date ?? contract.start_date)} · term {day(contract.start_date)} –{" "}
+                                    {contract.end_date ? day(contract.end_date) : "open"}
+                                  </span>
                                   {contract.payer_mindbody_client_id && contract.payer_mindbody_client_id !== clientId ? (
                                     <span className="mt-1 block text-xs text-muted-foreground">
                                       Paid by{" "}
@@ -453,12 +544,6 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                       </Link>
                                     </span>
                                   ) : null}
-                                </TableCell>
-                                <TableCell className="whitespace-nowrap">
-                                  {day(contract.original_start_date ?? contract.start_date)}
-                                </TableCell>
-                                <TableCell className="whitespace-nowrap">
-                                  {day(contract.start_date)} – {contract.end_date ? day(contract.end_date) : "open"}
                                 </TableCell>
                                 <TableCell className="text-right tabular-nums">
                                   {money(contract.normal_autopay_cents)}
@@ -480,9 +565,14 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                   {base !== null && tax !== null ? money(base + tax) : "—"}
                                 </TableCell>
                                 <TableCell className="whitespace-nowrap">
-                                  {contract.next_bill_date
-                                    ? `${day(contract.next_bill_date)} · ${money(contract.next_bill_total_cents)}`
-                                    : "—"}
+                                  {contract.next_bill_date ? (
+                                    <>
+                                      {day(contract.next_bill_date)}
+                                      <span className="block text-xs text-muted-foreground">{money(contract.next_bill_total_cents)}</span>
+                                    </>
+                                  ) : (
+                                    "—"
+                                  )}
                                 </TableCell>
                               </TableRow>
                             );
@@ -529,6 +619,9 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
               </TabsContent>
 
               <TabsContent value="billing" className="space-y-6">
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                  Mindbody still charges until the switch; these edits don&apos;t change charges yet.
+                </div>
                 <Card className="py-0">
                   <CardHeader className="pt-6">
                     <CardTitle>Upcoming charges</CardTitle>
@@ -578,8 +671,8 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                   <CardHeader>
                     <CardTitle>Billing edits</CardTitle>
                     <CardDescription>
-                      Dues credits, discounts, freezes and cancellations. Each keeps who made it, when and why. Undoing one (also how a freeze is
-                      lifted) keeps it in the history.
+                      Dues credits, discounts, freezes and cancellations. Each keeps who made it, when and why. Undoing one (also how a
+                      freeze is lifted) keeps it in the history.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
@@ -731,7 +824,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                 <Card className="py-0">
                   <CardHeader className="pt-6">
                     <CardTitle>Purchases</CardTitle>
-                    <CardDescription>Everything bought in Mindbody since Jan 1, 2024. Open one for its receipt.</CardDescription>
+                    <CardDescription>Everything bought in Mindbody. Open one for its receipt.</CardDescription>
                   </CardHeader>
                   <PurchasesList
                     sales={sales ?? []}
@@ -747,13 +840,13 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
 
           <div className="space-y-6">
             <PersonalCard
-              name={name}
-              status={client?.status ?? null}
               clientId={clientId}
+              status={client?.status ?? null}
               memberSince={memberSince}
-              personal={(profileSync?.personal as Partial<MemberPersonal> | undefined) ?? null}
-              fallbackEmail={client?.email ?? null}
-              pulledAt={pulledAt}
+              personal={personal}
+              edited={personal.edited}
+              pulledAt={personalPulledAt}
+              editedNote={editedNote}
             />
             <Card>
               <CardHeader>
@@ -796,5 +889,15 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
         </div>
       </div>
     </DashboardShell>
+  );
+}
+
+function Glance({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
+      <p className="mt-1 truncate text-lg font-semibold tabular-nums">{value}</p>
+      {sub ? <p className="truncate text-xs text-muted-foreground">{sub}</p> : null}
+    </div>
   );
 }

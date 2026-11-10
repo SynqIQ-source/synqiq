@@ -10,7 +10,7 @@ type Suggestion = { id: string; name: string; status: string; plans: string[] };
 // Member search with a dropdown of matches as you type ("paige" lists every
 // Paige). Pick one to open their page; Enter without a pick shows the full
 // results list.
-export function MemberSearch({ initialQuery }: { initialQuery: string }) {
+export function MemberSearch({ initialQuery, compact = false }: { initialQuery: string; compact?: boolean }) {
   const router = useRouter();
   const listId = useId();
   const [query, setQuery] = useState(initialQuery);
@@ -74,7 +74,11 @@ export function MemberSearch({ initialQuery }: { initialQuery: string }) {
   const showList = open && query.trim().length >= 2 && suggestions.length > 0;
 
   return (
-    <form className="relative flex max-w-xl gap-2" action="/dashboard/memberships" onSubmit={() => setOpen(false)}>
+    <form
+      className={compact ? "relative w-full sm:w-64" : "relative flex max-w-xl gap-2"}
+      action="/dashboard/memberships"
+      onSubmit={() => setOpen(false)}
+    >
       <div className="relative flex-1">
         <Input
           ref={inputRef}
@@ -87,10 +91,10 @@ export function MemberSearch({ initialQuery }: { initialQuery: string }) {
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={onKeyDown}
-          placeholder="Member name or email"
+          placeholder={compact ? "Find another member…" : "Member name or email"}
           aria-label="Member name or email"
           autoComplete="off"
-          autoFocus
+          autoFocus={!compact}
           role="combobox"
           aria-expanded={showList}
           aria-controls={listId}
@@ -98,7 +102,11 @@ export function MemberSearch({ initialQuery }: { initialQuery: string }) {
           aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
         />
         {showList ? (
-          <ul id={listId} role="listbox" className="absolute top-full right-0 left-0 z-20 mt-1 max-h-80 overflow-auto rounded-md border bg-popover py-1 shadow-md">
+          <ul
+            id={listId}
+            role="listbox"
+            className="absolute top-full right-0 left-0 z-20 mt-1 max-h-80 overflow-auto rounded-md border bg-popover py-1 shadow-md"
+          >
             {suggestions.map((suggestion, index) => (
               <li
                 key={suggestion.id}
@@ -122,7 +130,7 @@ export function MemberSearch({ initialQuery }: { initialQuery: string }) {
           </ul>
         ) : null}
       </div>
-      <Button type="submit">Search</Button>
+      {compact ? null : <Button type="submit">Search</Button>}
     </form>
   );
 }

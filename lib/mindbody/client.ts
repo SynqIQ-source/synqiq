@@ -13,7 +13,7 @@ type MindbodyRequestOptions = {
   method?: "GET" | "POST";
   accessToken?: string;
   body?: unknown;
-  searchParams?: Record<string, string | number | boolean | undefined>;
+  searchParams?: Record<string, string | number | boolean | (string | number)[] | undefined>;
 };
 
 export class MindbodyClient {
@@ -223,6 +223,16 @@ export class MindbodyClient {
     });
   }
 
+  // Several clients' full records (contact details, birthday, photo), up
+  // to 20 per call (Mindbody's limit).
+  async getClientsByIds(clientIds: string[], accessToken: string) {
+    return this.request("/client/clients", {
+      method: "GET",
+      accessToken,
+      searchParams: { ClientIds: clientIds, Limit: 200 },
+    });
+  }
+
   // One client's full record (contact details, birthday, photo).
   async getClientById(clientId: string, accessToken: string) {
     return this.request("/client/clients", {
@@ -313,7 +323,9 @@ export class MindbodyClient {
     const url = new URL(`${this.baseUrl}${path}`);
 
     Object.entries(options.searchParams ?? {}).forEach(([key, value]) => {
-      if (value !== undefined) {
+      if (Array.isArray(value)) {
+        for (const item of value) url.searchParams.append(key, String(item));
+      } else if (value !== undefined) {
         url.searchParams.set(key, String(value));
       }
     });

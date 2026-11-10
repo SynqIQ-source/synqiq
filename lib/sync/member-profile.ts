@@ -3,15 +3,14 @@ import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { withRetry } from "@/lib/retry";
 import {
-  toPersonal,
   toSaleRows,
   toServiceRow,
   toVisitRow,
   type MindbodyClientPurchase,
-  type MindbodyClientRecord,
   type MindbodyClientService,
   type MindbodyVisit,
 } from "@/lib/memberships/profile";
+import { toPersonal, type MindbodyClientRecord } from "@/lib/memberships/personal";
 
 // One member's visit history and bookings, purchases (receipts) and services
 // (sessions remaining) from Mindbody into member_visits / member_sales /
@@ -62,6 +61,9 @@ export async function syncMemberProfile(options: {
   historyStart?: string;
   mindbody?: MindbodyClient;
   accessToken?: string;
+  // Personal details too (one more call); the bulk run gets them in
+  // batches instead (lib/sync/member-personal.ts).
+  includePersonal?: boolean;
 }): Promise<MemberProfileSyncResult> {
   try {
     const supabase = createSupabaseAdminClient();
@@ -97,8 +99,11 @@ export async function syncMemberProfile(options: {
         )),
       );
     }
-    const record = (await withRetry(() => mindbody.getClientById(clientId, accessToken))) as { Clients?: MindbodyClientRecord[] };
-    const personal = toPersonal(record.Clients?.[0]);
+    const includePersonal = options.includePersonal !== false;
+    const record = includePersonal
+      ? ((await withRetry(() => mindbody.getClientById(clientId, accessToken))) as { Clients?: MindbodyClientRecord[] })
+      : null;
+    const personal = record ? toPersonal(record.Clients?.[0]) : null;
     const services = await allPages<MindbodyClientService>(
       (offset) => mindbody.getClientServices(clientId, offset, accessToken) as Promise<Record<string, unknown>>,
       "ClientServices",
@@ -157,10 +162,17 @@ export async function syncMemberProfile(options: {
         visit_count: visitRows.length,
         sale_count: sales.length,
         service_count: serviceRows.length,
-        personal,
       },
       { onConflict: "organization_id,mindbody_client_id" },
     );
+    // Mindbody's copy only; SynqIQ edits (member_personal.edits) are kept.
+    if (personal)
+      await supabase
+        .from("member_personal")
+        .upsert(
+          { organization_id: org.id, mindbody_client_id: clientId, mindbody: personal, mindbody_synced_at: syncedAt },
+          { onConflict: "organization_id,mindbody_client_id" },
+        );
 
     const nowLocal = today.toFormat("yyyy-LL-dd'T'HH:mm:ss");
     return {
