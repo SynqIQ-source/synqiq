@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canSeeVolunteerEmails,
   canUseCrm,
   canViewOverview,
   canViewPay,
@@ -89,5 +90,15 @@ describe("role matrix (lib/permissions.ts)", () => {
     expect(isStaffRole("instructor")).toBe(false);
     expect(isStaffRole("owner")).toBe(false);
     expect(isStaffRole(undefined)).toBe(false);
+  });
+});
+
+describe("sub-request volunteer emails", () => {
+  const requester = "staff-requester";
+  it("are visible to Club Admins and the requesting instructor only", () => {
+    expect(canSeeVolunteerEmails({ ...who("admin"), id: "someone" }, requester)).toBe(true);
+    expect(canSeeVolunteerEmails({ ...who("staff", { isInstructor: true }), id: requester }, requester)).toBe(true);
+    expect(canSeeVolunteerEmails({ ...who("staff", { isInstructor: true }), id: "other" }, requester)).toBe(false);
+    expect(canSeeVolunteerEmails({ ...who("sales_lead"), id: "other" }, requester)).toBe(false);
   });
 });

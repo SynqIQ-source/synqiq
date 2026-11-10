@@ -14,6 +14,10 @@ export const getPlatformAdmin = cache(async function getPlatformAdmin(): Promise
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return null;
+  // Same two-step rule as getCurrentStaff: an account with an authenticator
+  // that hasn't entered this session's code isn't signed in yet.
+  const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (assurance?.nextLevel === "aal2" && assurance.currentLevel !== "aal2") return null;
   const { data } = await createSupabaseAdminClient()
     .from("platform_admins")
     .select("auth_user_id")

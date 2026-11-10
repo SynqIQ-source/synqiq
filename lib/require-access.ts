@@ -7,6 +7,9 @@ import { homePath } from "@/lib/permissions";
 export async function requireAccess(allowed: (staff: CurrentStaff) => boolean): Promise<CurrentStaff> {
   const staff = await getCurrentStaff();
   if (!staff) redirect("/login");
+  // Only when two-step sign-in is required for Club Admins
+  // (REQUIRE_FOR_CLUB_ADMINS) and not set up yet.
+  if (staff.mfa === "setup_required") redirect("/dashboard/account?setup=two-step#two-step");
   if (!allowed(staff)) redirect(homePath(staff));
   return staff;
 }

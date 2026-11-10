@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
+import { canSeeVolunteerEmails } from "@/lib/permissions";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { respondToSubstitutionRequest } from "@/lib/substitutions/respond";
 import { sendEmailToRecipients } from "@/lib/email/send";
@@ -240,10 +241,14 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     interests.sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
 
+    // Email addresses go only to Club Admins and the instructor who asked for
+    // the sub; everyone else sees names and responses only.
+    const seesEmails = canSeeVolunteerEmails(currentStaff, substitutionRequest.requested_by);
+
     return NextResponse.json({
       success: true,
       request: substitutionRequest,
-      interests,
+      interests: seesEmails ? interests : interests.map((interest) => ({ ...interest, email: null })),
     });
   } catch (error) {
     return NextResponse.json(

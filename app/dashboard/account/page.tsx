@@ -3,6 +3,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { AccountForm } from "./account-form";
+import { TwoStepSection } from "./two-step-section";
 
 export default async function AccountPage() {
   const currentStaff = await getCurrentStaff();
@@ -24,7 +25,10 @@ export default async function AccountPage() {
 
   return (
     <DashboardShell title="My Account" description="Your name, photo, title, and login.">
-      <AccountForm staff={staff} />
+      <div className="space-y-6">
+        <AccountForm staff={staff} />
+        <TwoStepSection isClubAdmin={currentStaff.role === "admin"} />
+      </div>
     </DashboardShell>
   );
 }

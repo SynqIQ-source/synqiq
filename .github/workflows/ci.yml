@@ -1,0 +1,52 @@
+# Runs on every push and pull request to master: install, typecheck, lint,
+# unit tests (npm test) and, when the DATABASE_URL repository secret is set,
+# the database isolation tests (npm run test:db). The SQL tests run inside a
+# transaction that is rolled back, so they are safe against production.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.1.0
+        with:
+          node-version: 22.11.0
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint .
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Database isolation tests
+        if: ${{ env.DATABASE_URL != '' }}
+        run: npm run test:db
+
+      - name: Database isolation tests skipped
+        if: ${{ env.DATABASE_URL == '' }}
+        run: echo "DATABASE_URL secret not set; skipping npm run test:db."

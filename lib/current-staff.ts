@@ -2,6 +2,7 @@ import { cache } from "react";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { StaffRole } from "@/lib/permissions";
+import { mfaState, sessionCounts, type MfaState } from "@/lib/auth/mfa-policy";
 
 export type CurrentStaff = {
   id: string;
@@ -16,6 +17,9 @@ export type CurrentStaff = {
   // Teaching tags -- combine with any role.
   isInstructor: boolean;
   isTrainer: boolean;
+  // Two-step sign-in state (lib/auth/mfa-policy.ts). Never "needs_code":
+  // a session that still owes its code is not signed in at all.
+  mfa: Exclude<MfaState, "needs_code">;
 };
 
 // Wrapped in React's cache() (same pattern as getOrgBranding in
@@ -55,6 +59,16 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
     return null;
   }
 
+  // Two-step sign-in: a session whose account has an authenticator but
+  // hasn't entered this session's code counts as signed out everywhere --
+  // every page and API route goes through here. Reads the session's own
+  // token; no extra network call.
+  const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  const mfa = mfaState({ role: staff.role, currentLevel: assurance?.currentLevel, nextLevel: assurance?.nextLevel });
+  if (!sessionCounts(mfa)) {
+    return null;
+  }
+
   return {
     id: staff.id,
     displayName: staff.display_name,
@@ -65,5 +79,6 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
     canSell: staff.can_sell === true,
     isInstructor: staff.is_instructor === true,
     isTrainer: staff.is_trainer === true,
+    mfa: mfa as Exclude<MfaState, "needs_code">,
   };
 });

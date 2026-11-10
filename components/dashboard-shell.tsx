@@ -203,7 +203,20 @@ export async function DashboardShell({ children, title, description, actions }: 
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-4 pt-6 pb-24 sm:px-6 md:pb-10">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 pt-6 pb-24 sm:px-6 md:pb-10">
+          {currentStaff && currentStaff.mfa !== "ok" ? (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+              <span>
+                <strong>Turn on two-step sign-in.</strong> Club Admins need a code from an authenticator app at sign-in;
+                it will be required before member payments go live.
+              </span>
+              <Link href="/dashboard/account#two-step" className="font-medium underline underline-offset-4">
+                Set it up
+              </Link>
+            </div>
+          ) : null}
+          {children}
+        </main>
       </div>
 
       <BottomNav primaryItems={primaryMobileItems} moreItems={moreMobileItems} />

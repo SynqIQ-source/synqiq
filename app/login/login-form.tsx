@@ -34,6 +34,13 @@ export function LoginForm() {
       return;
     }
 
+    // Accounts with an authenticator app go to the code step first.
+    const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (assurance?.nextLevel === "aal2" && assurance.currentLevel !== "aal2") {
+      router.push("/login/verify");
+      return;
+    }
+
     // The browser client (createBrowserClient from @supabase/ssr) writes the
     // session to cookies itself -- router.refresh() re-runs Server
     // Components so they pick up the now-present session immediately.

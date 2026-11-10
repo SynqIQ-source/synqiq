@@ -31,6 +31,7 @@ type RowState = {
   // Same inline-confirm treatment for the two lifecycle actions.
   confirmingArchive: boolean;
   confirmingDelete: boolean;
+  confirmingTwoStepReset: boolean;
   lifecycleStatus: "idle" | "working" | "error";
   lifecycleError?: string;
   access: Access;
@@ -55,6 +56,7 @@ function initialRowState(row: StaffLinkingRow): RowState {
     confirmingRelink: false,
     confirmingArchive: false,
     confirmingDelete: false,
+    confirmingTwoStepReset: false,
     lifecycleStatus: "idle",
     access: { role: row.role, canSell: row.can_sell, isInstructor: row.is_instructor, isTrainer: row.is_trainer },
     roleStatus: "idle",
@@ -67,6 +69,7 @@ const EMPTY_ROW_STATE: RowState = {
   confirmingRelink: false,
   confirmingArchive: false,
   confirmingDelete: false,
+  confirmingTwoStepReset: false,
   lifecycleStatus: "idle",
   access: { role: "staff", canSell: false, isInstructor: false, isTrainer: false },
   roleStatus: "idle",
@@ -174,6 +177,28 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
         status: "error",
         message: error instanceof Error ? error.message : "Unknown error",
       });
+    }
+  }
+
+  // Lost or replaced phone: removes their authenticator so they can sign in
+  // with just their password and set it up again (signs them out everywhere).
+  async function resetTwoStep(row: StaffLinkingRow) {
+    patchRow(row.id, { status: "sending", message: undefined, confirmingTwoStepReset: false });
+    try {
+      const response = await fetch(`/api/staff/${row.id}/two-step-reset`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        patchRow(row.id, { status: "error", message: result.error ?? "Couldn't reset two-step sign-in." });
+        return;
+      }
+      patchRow(row.id, {
+        status: "success",
+        message: result.removed
+          ? "Two-step sign-in reset. They can sign in with their password and set it up again."
+          : "They didn't have two-step sign-in set up.",
+      });
+    } catch (error) {
+      patchRow(row.id, { status: "error", message: error instanceof Error ? error.message : "Unknown error" });
     }
   }
 
@@ -310,6 +335,35 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
                 className="text-xs text-muted-foreground hover:text-foreground hover:underline disabled:opacity-60"
               >
                 Re-invite instead
+              </button>
+            )}
+            {state.confirmingTwoStepReset ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Reset two-step sign-in?</span>
+                <button
+                  type="button"
+                  onClick={() => resetTwoStep(row)}
+                  disabled={busy}
+                  className="font-medium text-red-600 hover:underline disabled:opacity-60"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => patchRow(row.id, { confirmingTwoStepReset: false })}
+                  className="text-muted-foreground hover:underline"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => patchRow(row.id, { confirmingTwoStepReset: true, message: undefined })}
+                disabled={busy}
+                className="text-xs text-muted-foreground hover:text-foreground hover:underline disabled:opacity-60"
+              >
+                Reset two-step sign-in
               </button>
             )}
           </>

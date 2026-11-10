@@ -52,6 +52,11 @@ export const canViewOverview = (staff: Who) => isClubAdmin(staff) || staff.isIns
 // Instructor pay / cost figures from payroll imports.
 export const canViewPay = (staff: Who) => isClubAdmin(staff);
 
+// Sub requests: volunteers' email addresses are shown only to Club Admins
+// and the instructor who asked for the sub.
+export const canSeeVolunteerEmails = (staff: Who & { id: string }, requestedByStaffId: string | null) =>
+  isClubAdmin(staff) || staff.id === requestedByStaffId;
+
 // Where someone lands when a page isn't theirs (and after sign-in).
 export function homePath(staff: Who): string {
   if (canViewOverview(staff)) return "/dashboard";

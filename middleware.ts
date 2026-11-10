@@ -51,6 +51,20 @@ export async function middleware(request: NextRequest) {
   // -- kept as cheap defense in depth, not because it's load-bearing.
   // /, /login, and /api/* never reach this function at all now; API routes
   // enforce their own session requirement separately.
+  // Two-step sign-in: an account with an authenticator that hasn't entered
+  // this session's code goes to the code screen (outside /dashboard).
+  // getAuthenticatorAssuranceLevel reads the session token; no network call.
+  if (user && request.nextUrl.pathname.startsWith("/dashboard")) {
+    const { data: assurance } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (assurance?.nextLevel === "aal2" && assurance.currentLevel !== "aal2") {
+      const verifyResponse = NextResponse.redirect(new URL("/login/verify", resolveRequestOrigin(request)));
+      response.cookies.getAll().forEach((cookie) => {
+        verifyResponse.cookies.set(cookie);
+      });
+      return verifyResponse;
+    }
+  }
+
   if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
     const redirectResponse = NextResponse.redirect(new URL("/login", resolveRequestOrigin(request)));
     // Carry over any cookie mutation setAll already applied to `response`
