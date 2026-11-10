@@ -125,6 +125,32 @@ export async function syncMemberContracts(
 
     const candidates = await candidateClientIds(supabase, org.id);
 
+    // Mindbody's PayerClientId is a client UniqueId, while SynqIQ keys clients
+    // by their Id (the two differ for older clients): translate it, and drop
+    // it when the member pays for themselves.
+    const clientIdByUnique = new Map<string, string>();
+    const uniqueByClientId = new Map<string, string>();
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("clients")
+        .select("mindbody_unique_id, mindbody_client_id")
+        .eq("organization_id", org.id)
+        .not("mindbody_client_id", "is", null)
+        .order("id")
+        .range(offset, offset + 999);
+      if (error) throw new Error(`Failed to load clients: ${error.message}`);
+      for (const row of data ?? []) {
+        clientIdByUnique.set(String(row.mindbody_unique_id), row.mindbody_client_id as string);
+        uniqueByClientId.set(row.mindbody_client_id as string, String(row.mindbody_unique_id));
+      }
+      if (!data || data.length < 1000) break;
+    }
+    const resolvePayer = (clientId: string, rawPayer: string | null) => {
+      if (!rawPayer || rawPayer === clientId || rawPayer === uniqueByClientId.get(clientId)) return null;
+      const payer = clientIdByUnique.get(rawPayer) ?? rawPayer;
+      return payer === clientId ? null : payer;
+    };
+
     // Last refresh per member, and which ones changed recently.
     const lastSynced = new Map<string, string>();
     for (let offset = 0; ; offset += 1000) {
@@ -174,6 +200,7 @@ export async function syncMemberContracts(
           const raw = (response?.Contracts ?? []) as MindbodyClientContract[];
           const rows = toMemberContractRows(clientId, raw).map((row) => ({
             ...row,
+            payer_mindbody_client_id: resolvePayer(clientId, row.payer_mindbody_client_id),
             organization_id: org.id,
             plan_id: row.mindbody_contract_id !== null ? (planIdByContract.get(row.mindbody_contract_id) ?? null) : null,
             synced_at: new Date().toISOString(),

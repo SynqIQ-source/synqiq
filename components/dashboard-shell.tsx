@@ -72,6 +72,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/substitutions", label: "Substitutions", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/follow-up-activity", label: "Follow-ups", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/comp-audit", label: "Comp Audit", who: isClubAdmin },
+      { href: "/dashboard/shadow-billing", label: "Shadow Billing", who: isClubAdmin },
     ],
   },
   {
