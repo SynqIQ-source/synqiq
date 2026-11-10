@@ -75,7 +75,8 @@ export function effective<T extends Record<string, unknown>>(
   for (const field of Object.keys(CATALOG_FIELDS[entity])) {
     if (Object.prototype.hasOwnProperty.call(edits, field)) {
       merged[field] = edits[field];
-      edited.push(field);
+      // SynqIQ-only settings (Mindbody has no value) aren't "edits" of Mindbody.
+      if (!Object.prototype.hasOwnProperty.call(DEFAULTS[entity] ?? {}, field)) edited.push(field);
     }
   }
   return { ...(merged as T), edited };

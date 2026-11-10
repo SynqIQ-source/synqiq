@@ -17,6 +17,7 @@ describe("class catalog edits", () => {
     const merged = effective("class_schedule", { ...schedule, edits: { capacity: 14 } });
     expect(merged).toMatchObject({ capacity: 14, active: true, start_time: "06:05:00" });
     expect(merged.edited).toEqual(["capacity"]);
+    expect(effective("program", { id: "p", name: "PT", edits: { included_in_membership: false } }).edited).toEqual([]);
     expect(effective("program", { id: "p", name: "Yoga", edits: null })).toMatchObject({
       included_in_membership: true,
       late_cancel_fee_cents: 0,
