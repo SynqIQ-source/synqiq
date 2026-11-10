@@ -1,4 +1,4 @@
--- Billing data and price increases are Club Admin only (The Preserve).
+-- Billing data, price increases and member profile history are Club Admin only (The Preserve).
 --
 -- Runs inside one transaction and ROLLS BACK, so it is safe against
 -- production. Signed in through RLS:
@@ -39,7 +39,9 @@ do $$
 begin
   if exists (select 1 from member_contracts) or exists (select 1 from membership_plans)
      or exists (select 1 from mbo_autopay_rows) or exists (select 1 from billing_adjustments)
-     or exists (select 1 from price_increases) or exists (select 1 from price_increase_items) then
+     or exists (select 1 from price_increases) or exists (select 1 from price_increase_items)
+     or exists (select 1 from member_visits) or exists (select 1 from member_sales) or exists (select 1 from member_services)
+     or exists (select 1 from member_profile_sync) then
     raise exception 'FAIL Sales can see billing data';
   end if;
   begin

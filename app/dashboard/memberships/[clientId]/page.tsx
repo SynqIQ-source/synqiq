@@ -2,7 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAccess } from "@/lib/require-access";
@@ -12,7 +15,20 @@ import { expectedCharges, type BillingAdjustment, type ContractSchedule } from "
 import { describeAdjustment } from "@/lib/memberships/adjustments";
 import { loadScheduledIncreases } from "@/lib/memberships/price-increase-data";
 import { contractTaxRate, formatTaxRate, taxOn } from "@/lib/memberships/tax";
+import type { MemberPersonal } from "@/lib/memberships/profile";
 import { AddBillingEdit, CancelBillingEdit } from "./billing-edits";
+import { RefreshFromMindbody } from "./refresh-button";
+import {
+  PersonalCard,
+  PurchasesList,
+  ServicesCard,
+  VisitSummary,
+  VisitsTable,
+  type SaleItemRow,
+  type SaleRow,
+  type ServiceRow,
+  type VisitRow,
+} from "./profile-sections";
 
 type Params = Promise<{ clientId: string }>;
 
@@ -34,8 +50,9 @@ const STATUS_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-// One member's memberships and billing (Club Admin only), with SynqIQ's
-// billing edits. Keyed by Mindbody client id because most members have no
+// One member's profile (Club Admin only), laid out like the guest profile:
+// memberships and packs, billing with SynqIQ's edits, visits, schedule,
+// purchases with receipts, and personal details from Mindbody. Keyed by Mindbody client id because most members have no
 // CRM contact record.
 export default async function MemberBillingPage({ params }: { params: Params }) {
   const staff = await requireAccess(isClubAdmin);
@@ -229,345 +246,537 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     name: contract.contract_name,
   }));
 
+  // Mindbody profile data (visits, bookings, purchases, packs, contact
+  // details), pulled per member with "Refresh from Mindbody".
+  const nowLocal = DateTime.now().setZone(timezone).toFormat("yyyy-LL-dd'T'HH:mm:ss");
+  const visitColumns =
+    "id, kind, name, start_local, end_local, service_name, staff_mindbody_id, appointment_status, signed_in, late_cancelled, missed";
+  const [
+    { data: profileSync },
+    { data: services },
+    { data: pastVisits, count: pastVisitCount },
+    { data: upcomingVisits },
+    { data: sales },
+    { data: contact },
+  ] = await Promise.all([
+    supabase
+      .from("member_profile_sync")
+      .select("synced_at, personal")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .maybeSingle(),
+    supabase
+      .from("member_services")
+      .select("id, name, program, count, remaining, is_current, active_date, expiration_date, payment_date")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .order("payment_date", { ascending: false })
+      .returns<ServiceRow[]>(),
+    supabase
+      .from("member_visits")
+      .select(visitColumns, { count: "exact" })
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .lte("start_local", nowLocal)
+      .order("start_local", { ascending: false })
+      .limit(300)
+      .returns<VisitRow[]>(),
+    supabase
+      .from("member_visits")
+      .select(visitColumns)
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .gt("start_local", nowLocal)
+      .order("start_local")
+      .limit(200)
+      .returns<VisitRow[]>(),
+    supabase
+      .from("member_sales")
+      .select("mindbody_sale_id, sale_at, total_cents, sales_rep_mindbody_id, payments")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .order("sale_at", { ascending: false })
+      .limit(150)
+      .returns<SaleRow[]>(),
+    supabase
+      .from("crm_contacts")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .is("deleted_at", null)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  const saleIds = (sales ?? []).map((sale) => sale.mindbody_sale_id);
+  const mindbodyStaffIds = [
+    ...new Set(
+      [...(pastVisits ?? []), ...(upcomingVisits ?? [])]
+        .map((visit) => visit.staff_mindbody_id)
+        .concat((sales ?? []).map((sale) => sale.sales_rep_mindbody_id))
+        .filter((id): id is number => typeof id === "number"),
+    ),
+  ];
+  const [{ data: saleItems }, { data: mindbodyStaff }] = await Promise.all([
+    saleIds.length
+      ? supabase
+          .from("member_sale_items")
+          .select(
+            "mindbody_sale_id, mindbody_sale_detail_id, description, quantity, unit_price_cents, discount_cents, tax_cents, total_cents, returned",
+          )
+          .eq("organization_id", orgId)
+          .in("mindbody_sale_id", saleIds)
+          .returns<SaleItemRow[]>()
+      : Promise.resolve({ data: [] as SaleItemRow[] }),
+    mindbodyStaffIds.length
+      ? supabase
+          .from("staff")
+          .select("mindbody_staff_id, display_name")
+          .eq("organization_id", orgId)
+          .in("mindbody_staff_id", mindbodyStaffIds)
+      : Promise.resolve({ data: [] as { mindbody_staff_id: number; display_name: string }[] }),
+  ]);
+  const staffByMindbodyId = new Map((mindbodyStaff ?? []).map((row) => [Number(row.mindbody_staff_id), row.display_name as string]));
+  const pulled = Boolean(profileSync);
+  const pulledAt = profileSync
+    ? DateTime.fromISO(profileSync.synced_at as string)
+        .setZone(timezone)
+        .toFormat("LLL d, h:mm a")
+    : null;
+  const memberSince = contracts.reduce<string | null>((earliest, contract) => {
+    const since = contract.original_start_date ?? contract.start_date;
+    return since && (!earliest || since < earliest) ? since : earliest;
+  }, null);
+
   return (
     <DashboardShell
       title={name}
-      description={client ? [client.status, client.email].filter(Boolean).join(" · ") : "Not in the synced client list"}
+      description={
+        client
+          ? [client.status, memberSince ? `member since ${day(memberSince)}` : null].filter(Boolean).join(" · ")
+          : "Not in the synced client list"
+      }
+      actions={
+        <div className="flex flex-wrap items-start gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/memberships">
+              <ArrowLeft /> Memberships
+            </Link>
+          </Button>
+          {contact ? (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard/guests/${contact.id}`}>Guest profile</Link>
+            </Button>
+          ) : null}
+          <RefreshFromMindbody clientId={clientId} />
+        </div>
+      }
     >
       <div className="space-y-6">
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
           Mindbody still charges until the switch; these edits don&apos;t change charges yet.
         </div>
-        <p className="text-sm text-muted-foreground">
-          <Link href="/dashboard/memberships" className="underline underline-offset-4">
-            ← Memberships
-          </Link>{" "}
-          · Mindbody client {clientId}
-          {contracts[0]
-            ? ` · Memberships refreshed ${DateTime.fromISO(contracts[0].synced_at).setZone(timezone).toFormat("LLL d, h:mm a")}`
-            : ""}
+        <p className="text-xs text-muted-foreground">
+          Memberships refreshed{" "}
+          {contracts[0] ? DateTime.fromISO(contracts[0].synced_at).setZone(timezone).toFormat("LLL d, h:mm a") : "never"} · visits,
+          purchases and packs {pulledAt ? `pulled ${pulledAt}` : "not pulled yet"}
         </p>
 
         <div className="grid gap-6 lg:grid-cols-3">
-          <Card className="lg:col-span-2 py-0">
-            <CardHeader className="pt-6">
-              <CardTitle>Current memberships</CardTitle>
-            </CardHeader>
-            {current.length === 0 ? (
-              <p className="px-6 pb-6 text-sm text-muted-foreground">No current memberships.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Plan</TableHead>
-                      <TableHead>Member since</TableHead>
-                      <TableHead>This term</TableHead>
-                      <TableHead className="text-right">Base rate</TableHead>
-                      <TableHead className="text-right">Tax</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead>Next bill</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {current.map((contract) => {
-                      const rate = contractTaxRate({
-                        nextBillSubtotalCents: contract.next_bill_subtotal_cents,
-                        nextBillTaxCents: contract.next_bill_tax_cents,
-                        autopays: contract.upcoming_autopays,
-                      });
-                      const base = contract.normal_autopay_cents;
-                      const tax = base === null ? null : taxOn(base, rate);
-                      return (
-                        <TableRow key={contract.id}>
-                          <TableCell>
-                            <span className="font-medium">{contract.contract_name}</span>
-                            <span className="mt-1 flex flex-wrap gap-1">
-                              {contract.autopay_status ? (
-                                <Badge variant={contract.autopay_status === "Active" ? "secondary" : "outline"}>
-                                  {contract.autopay_status === "Suspended" ? "Frozen" : contract.autopay_status}
-                                </Badge>
-                              ) : null}
-                              {contract.is_month_to_month ? <Badge variant="outline">Month to month</Badge> : null}
-                              {contract.auto_renewing ? <Badge variant="outline">Renews</Badge> : null}
-                            </span>
-                            {contract.payer_mindbody_client_id && contract.payer_mindbody_client_id !== clientId ? (
-                              <span className="mt-1 block text-xs text-muted-foreground">
-                                Paid by{" "}
-                                <Link
-                                  href={`/dashboard/memberships/${contract.payer_mindbody_client_id}`}
-                                  className="underline underline-offset-4"
-                                >
-                                  {clientName.get(contract.payer_mindbody_client_id) ?? `client ${contract.payer_mindbody_client_id}`}
-                                </Link>
-                              </span>
-                            ) : null}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">{day(contract.original_start_date ?? contract.start_date)}</TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {day(contract.start_date)} – {contract.end_date ? day(contract.end_date) : "open"}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {money(contract.normal_autopay_cents)}
-                            {(increasesByContract.get(contract.id) ?? []).map((increase) => (
-                              <Link
-                                key={increase.increaseId}
-                                href={`/dashboard/memberships/price-increases/${increase.increaseId}`}
-                                className="block text-xs text-muted-foreground underline-offset-4 hover:underline"
-                              >
-                                {money(increase.newCents)} from {day(increase.effectiveOn)}
-                              </Link>
+          <div className="min-w-0 lg:col-span-2">
+            <Tabs defaultValue="memberships">
+              <TabsList className="flex-wrap">
+                <TabsTrigger value="memberships">Memberships</TabsTrigger>
+                <TabsTrigger value="billing">Billing</TabsTrigger>
+                <TabsTrigger value="visits">Visits</TabsTrigger>
+                <TabsTrigger value="schedule">Schedule{upcomingVisits?.length ? ` (${upcomingVisits.length})` : ""}</TabsTrigger>
+                <TabsTrigger value="purchases">Purchases</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="memberships" className="space-y-6">
+                <Card className="py-0">
+                  <CardHeader className="pt-6">
+                    <CardTitle>Current memberships</CardTitle>
+                  </CardHeader>
+                  {current.length === 0 ? (
+                    <p className="px-6 pb-6 text-sm text-muted-foreground">No current memberships.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Plan</TableHead>
+                            <TableHead>Member since</TableHead>
+                            <TableHead>This term</TableHead>
+                            <TableHead className="text-right">Base rate</TableHead>
+                            <TableHead className="text-right">Tax</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                            <TableHead>Next bill</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {current.map((contract) => {
+                            const rate = contractTaxRate({
+                              nextBillSubtotalCents: contract.next_bill_subtotal_cents,
+                              nextBillTaxCents: contract.next_bill_tax_cents,
+                              autopays: contract.upcoming_autopays,
+                            });
+                            const base = contract.normal_autopay_cents;
+                            const tax = base === null ? null : taxOn(base, rate);
+                            return (
+                              <TableRow key={contract.id}>
+                                <TableCell>
+                                  <span className="font-medium">{contract.contract_name}</span>
+                                  <span className="mt-1 flex flex-wrap gap-1">
+                                    {contract.autopay_status ? (
+                                      <Badge variant={contract.autopay_status === "Active" ? "secondary" : "outline"}>
+                                        {contract.autopay_status === "Suspended" ? "Frozen" : contract.autopay_status}
+                                      </Badge>
+                                    ) : null}
+                                    {contract.is_month_to_month ? <Badge variant="outline">Month to month</Badge> : null}
+                                    {contract.auto_renewing ? <Badge variant="outline">Renews</Badge> : null}
+                                  </span>
+                                  {contract.payer_mindbody_client_id && contract.payer_mindbody_client_id !== clientId ? (
+                                    <span className="mt-1 block text-xs text-muted-foreground">
+                                      Paid by{" "}
+                                      <Link
+                                        href={`/dashboard/memberships/${contract.payer_mindbody_client_id}`}
+                                        className="underline underline-offset-4"
+                                      >
+                                        {clientName.get(contract.payer_mindbody_client_id) ?? `client ${contract.payer_mindbody_client_id}`}
+                                      </Link>
+                                    </span>
+                                  ) : null}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap">
+                                  {day(contract.original_start_date ?? contract.start_date)}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap">
+                                  {day(contract.start_date)} – {contract.end_date ? day(contract.end_date) : "open"}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">
+                                  {money(contract.normal_autopay_cents)}
+                                  {(increasesByContract.get(contract.id) ?? []).map((increase) => (
+                                    <Link
+                                      key={increase.increaseId}
+                                      href={`/dashboard/memberships/price-increases/${increase.increaseId}`}
+                                      className="block text-xs text-muted-foreground underline-offset-4 hover:underline"
+                                    >
+                                      {money(increase.newCents)} from {day(increase.effectiveOn)}
+                                    </Link>
+                                  ))}
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums text-muted-foreground">
+                                  {money(tax)}
+                                  <span className="block text-xs">{formatTaxRate(rate)}</span>
+                                </TableCell>
+                                <TableCell className="text-right tabular-nums">
+                                  {base !== null && tax !== null ? money(base + tax) : "—"}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap">
+                                  {contract.next_bill_date
+                                    ? `${day(contract.next_bill_date)} · ${money(contract.next_bill_total_cents)}`
+                                    : "—"}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                      <p className="px-6 pb-4 text-xs text-muted-foreground">
+                        Edits and price increases change the base rate; tax is recalculated at the membership&apos;s rate and can&apos;t be
+                        edited. Next bill includes tax.
+                      </p>
+                    </div>
+                  )}
+                </Card>
+                <ServicesCard services={services ?? []} pulled={pulled} />
+                {past.length ? (
+                  <Card className="py-0">
+                    <CardHeader className="pt-6">
+                      <CardTitle>Past memberships</CardTitle>
+                    </CardHeader>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Plan</TableHead>
+                            <TableHead>Dates</TableHead>
+                            <TableHead className="text-right">Base rate</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {past.map((contract) => (
+                            <TableRow key={contract.id}>
+                              <TableCell>{contract.contract_name}</TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                {day(contract.start_date)} – {day(contract.termination_date ?? contract.end_date)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">{money(contract.normal_autopay_cents)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </Card>
+                ) : null}
+              </TabsContent>
+
+              <TabsContent value="billing" className="space-y-6">
+                <Card className="py-0">
+                  <CardHeader className="pt-6">
+                    <CardTitle>Upcoming charges</CardTitle>
+                    <CardDescription>
+                      What SynqIQ would charge for these memberships over the next year, with SynqIQ&apos;s edits and scheduled price
+                      increases applied to the base rate.
+                    </CardDescription>
+                  </CardHeader>
+                  {upcoming.length === 0 ? (
+                    <p className="px-6 pb-6 text-sm text-muted-foreground">Nothing scheduled.</p>
+                  ) : (
+                    <div className="max-h-[24rem] overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead className="text-right">Base rate</TableHead>
+                            <TableHead className="text-right">Tax</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                            <TableHead className="text-right">Mindbody has scheduled</TableHead>
+                            <TableHead>Charged to</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {upcoming.map((charge) => (
+                            <TableRow key={`${charge.mindbodyClientId}|${charge.date}`}>
+                              <TableCell className="whitespace-nowrap">{day(charge.date)}</TableCell>
+                              <TableCell className="text-right tabular-nums">{money(charge.subtotalCents)}</TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">{money(charge.taxCents)}</TableCell>
+                              <TableCell className={`text-right tabular-nums ${charge.cents !== charge.baseCents ? "font-semibold" : ""}`}>
+                                {money(charge.cents)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">{money(charge.baseCents)}</TableCell>
+                              <TableCell>
+                                {charge.mindbodyClientId === clientId
+                                  ? "This member"
+                                  : (clientName.get(charge.mindbodyClientId) ?? "Payer")}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Billing edits</CardTitle>
+                    <CardDescription>
+                      Dues credits, discounts and freezes. Each keeps who made it, when and why. Cancelling one (also how a freeze is
+                      lifted) keeps it in the history.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {current.length ? (
+                      <AddBillingEdit mindbodyClientId={clientId} contracts={contractOptions} today={today} />
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Billing edits need a current membership.</p>
+                    )}
+                    {adjustments.length ? (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Change</TableHead>
+                              <TableHead>Dates</TableHead>
+                              <TableHead>Reason</TableHead>
+                              <TableHead>Made by</TableHead>
+                              <TableHead />
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {adjustments.map((row) => (
+                              <TableRow key={row.id} className={row.cancelled_at ? "text-muted-foreground" : undefined}>
+                                <TableCell>
+                                  <span className={row.cancelled_at ? "line-through" : "font-medium"}>
+                                    {describeAdjustment({
+                                      kind: row.kind,
+                                      amountCents: row.amount_cents,
+                                      percent: row.percent,
+                                    })}
+                                  </span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {row.member_contract_id
+                                      ? (contractName.get(row.member_contract_id) ?? "One membership")
+                                      : "All memberships"}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap">
+                                  {day(row.starts_on)}
+                                  {row.ends_on ? ` – ${day(row.ends_on)}` : row.kind === "discount_ongoing" ? " onward" : ""}
+                                </TableCell>
+                                <TableCell className="max-w-xs">
+                                  {row.reason}
+                                  {row.cancelled_at ? (
+                                    <span className="block text-xs">
+                                      Cancelled {DateTime.fromISO(row.cancelled_at).setZone(timezone).toFormat("LLL d, h:mm a")} by{" "}
+                                      {staffName.get(row.cancelled_by_staff_id ?? "") ?? "staff"}: {row.cancel_reason}
+                                    </span>
+                                  ) : null}
+                                </TableCell>
+                                <TableCell className="whitespace-nowrap">
+                                  {staffName.get(row.created_by_staff_id) ?? "staff"}
+                                  <span className="block text-xs text-muted-foreground">
+                                    {DateTime.fromISO(row.created_at).setZone(timezone).toFormat("LLL d, h:mm a")}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {row.cancelled_at ? null : (
+                                    <CancelBillingEdit id={row.id} label={row.kind === "freeze" ? "Unfreeze" : "Cancel"} />
+                                  )}
+                                </TableCell>
+                              </TableRow>
                             ))}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {money(tax)}
-                            <span className="block text-xs">{formatTaxRate(rate)}</span>
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {base !== null && tax !== null ? money(base + tax) : "—"}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {contract.next_bill_date ? `${day(contract.next_bill_date)} · ${money(contract.next_bill_total_cents)}` : "—"}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-                <p className="px-6 pb-4 text-xs text-muted-foreground">
-                  Edits and price increases change the base rate; tax is recalculated at the membership&apos;s rate and can&apos;t be
-                  edited. Next bill includes tax.
-                </p>
-              </div>
-            )}
-          </Card>
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+                <Card className="py-0">
+                  <CardHeader className="pt-6">
+                    <CardTitle>Mindbody charges</CardTitle>
+                    <CardDescription>From the uploaded AutoPay Detail report (charged and scheduled). Includes tax.</CardDescription>
+                  </CardHeader>
+                  {history.length === 0 ? (
+                    <p className="px-6 pb-6 text-sm text-muted-foreground">Not in the uploaded report.</p>
+                  ) : (
+                    <div className="max-h-[24rem] overflow-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Item</TableHead>
+                            <TableHead className="text-right">Amount</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {history.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell className="whitespace-nowrap">{day(row.charge_date)}</TableCell>
+                              <TableCell>{row.item}</TableCell>
+                              <TableCell className="text-right tabular-nums">{money(row.amount_cents)}</TableCell>
+                              <TableCell>
+                                <Badge variant={row.status === "declined" ? "destructive" : "outline"}>
+                                  {STATUS_LABEL[row.status] ?? row.status}
+                                </Badge>
+                                {row.status === "declined" && row.status_detail ? (
+                                  <span className="block text-xs text-muted-foreground">{row.status_detail}</span>
+                                ) : null}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </Card>
+              </TabsContent>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Card on file</CardTitle>
-              <CardDescription>From Mindbody&apos;s AutoPay Detail report.</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm">
-              {card ? (
-                <>
-                  <p className="font-medium">
-                    {card.card_brand ?? "Card"} ending {card.card_last4}
-                  </p>
-                  {card.card_exp_month && card.card_exp_year ? (
-                    <p className="text-muted-foreground">
-                      Expires {String(card.card_exp_month).padStart(2, "0")}/{String(card.card_exp_year).slice(-2)}
+              <TabsContent value="visits">
+                <Card className="py-0">
+                  <CardHeader className="pt-6">
+                    <CardTitle>Visits</CardTitle>
+                    <CardDescription>Gym check-ins, classes and appointments (PT, Pilates) from Mindbody.</CardDescription>
+                  </CardHeader>
+                  {pulled && (pastVisits ?? []).length ? <VisitSummary visits={pastVisits ?? []} /> : null}
+                  <VisitsTable
+                    visits={pastVisits ?? []}
+                    staffNames={staffByMindbodyId}
+                    upcoming={false}
+                    pulled={pulled}
+                    totalCount={pastVisitCount ?? undefined}
+                  />
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="schedule">
+                <Card className="py-0">
+                  <CardHeader className="pt-6">
+                    <CardTitle>Schedule</CardTitle>
+                    <CardDescription>Classes and appointments booked in Mindbody (next 90 days).</CardDescription>
+                  </CardHeader>
+                  <VisitsTable visits={upcomingVisits ?? []} staffNames={staffByMindbodyId} upcoming pulled={pulled} />
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="purchases">
+                <Card className="py-0">
+                  <CardHeader className="pt-6">
+                    <CardTitle>Purchases</CardTitle>
+                    <CardDescription>Everything bought in Mindbody since Jan 1, 2024. Open one for its receipt.</CardDescription>
+                  </CardHeader>
+                  <PurchasesList
+                    sales={sales ?? []}
+                    items={saleItems ?? []}
+                    staffNames={staffByMindbodyId}
+                    timezone={timezone}
+                    pulled={pulled}
+                  />
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          <div className="space-y-6">
+            <PersonalCard
+              name={name}
+              status={client?.status ?? null}
+              clientId={clientId}
+              memberSince={memberSince}
+              personal={(profileSync?.personal as Partial<MemberPersonal> | undefined) ?? null}
+              fallbackEmail={client?.email ?? null}
+              pulledAt={pulledAt}
+            />
+            <Card>
+              <CardHeader>
+                <CardTitle>Card on file</CardTitle>
+                <CardDescription>From Mindbody&apos;s AutoPay Detail report.</CardDescription>
+              </CardHeader>
+              <CardContent className="text-sm">
+                {card ? (
+                  <>
+                    <p className="font-medium">
+                      {card.card_brand ?? "Card"} ending {card.card_last4}
                     </p>
-                  ) : null}
-                </>
-              ) : (
-                <p className="text-muted-foreground">Not in the uploaded report.</p>
-              )}
-              {othersPaidFor.length ? (
-                <div className="mt-4">
-                  <p className="font-medium">Also pays for</p>
-                  <ul className="mt-1 space-y-1">
-                    {othersPaidFor.map((contract) => (
-                      <li key={contract.id}>
-                        <Link href={`/dashboard/memberships/${contract.mindbody_client_id}`} className="underline underline-offset-4">
-                          {clientName.get(contract.mindbody_client_id) ?? `client ${contract.mindbody_client_id}`}
-                        </Link>{" "}
-                        <span className="text-muted-foreground">· {contract.contract_name}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
+                    {card.card_exp_month && card.card_exp_year ? (
+                      <p className="text-muted-foreground">
+                        Expires {String(card.card_exp_month).padStart(2, "0")}/{String(card.card_exp_year).slice(-2)}
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">Not in the uploaded report.</p>
+                )}
+                {othersPaidFor.length ? (
+                  <div className="mt-4">
+                    <p className="font-medium">Also pays for</p>
+                    <ul className="mt-1 space-y-1">
+                      {othersPaidFor.map((contract) => (
+                        <li key={contract.id}>
+                          <Link href={`/dashboard/memberships/${contract.mindbody_client_id}`} className="underline underline-offset-4">
+                            {clientName.get(contract.mindbody_client_id) ?? `client ${contract.mindbody_client_id}`}
+                          </Link>{" "}
+                          <span className="text-muted-foreground">· {contract.contract_name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
         </div>
-
-        <Card className="py-0">
-          <CardHeader className="pt-6">
-            <CardTitle>Upcoming charges</CardTitle>
-            <CardDescription>
-              What SynqIQ would charge for these memberships over the next year, with SynqIQ&apos;s edits and scheduled price increases
-              applied to the base rate.
-            </CardDescription>
-          </CardHeader>
-          {upcoming.length === 0 ? (
-            <p className="px-6 pb-6 text-sm text-muted-foreground">Nothing scheduled.</p>
-          ) : (
-            <div className="max-h-[24rem] overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Base rate</TableHead>
-                    <TableHead className="text-right">Tax</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Mindbody has scheduled</TableHead>
-                    <TableHead>Charged to</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {upcoming.map((charge) => (
-                    <TableRow key={`${charge.mindbodyClientId}|${charge.date}`}>
-                      <TableCell className="whitespace-nowrap">{day(charge.date)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{money(charge.subtotalCents)}</TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{money(charge.taxCents)}</TableCell>
-                      <TableCell className={`text-right tabular-nums ${charge.cents !== charge.baseCents ? "font-semibold" : ""}`}>
-                        {money(charge.cents)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-muted-foreground">{money(charge.baseCents)}</TableCell>
-                      <TableCell>
-                        {charge.mindbodyClientId === clientId ? "This member" : (clientName.get(charge.mindbodyClientId) ?? "Payer")}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Billing edits</CardTitle>
-            <CardDescription>
-              Dues credits, discounts and freezes. Each keeps who made it, when and why. Cancelling one (also how a freeze is lifted) keeps
-              it in the history.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {current.length ? (
-              <AddBillingEdit mindbodyClientId={clientId} contracts={contractOptions} today={today} />
-            ) : (
-              <p className="text-sm text-muted-foreground">Billing edits need a current membership.</p>
-            )}
-            {adjustments.length ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Change</TableHead>
-                      <TableHead>Dates</TableHead>
-                      <TableHead>Reason</TableHead>
-                      <TableHead>Made by</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {adjustments.map((row) => (
-                      <TableRow key={row.id} className={row.cancelled_at ? "text-muted-foreground" : undefined}>
-                        <TableCell>
-                          <span className={row.cancelled_at ? "line-through" : "font-medium"}>
-                            {describeAdjustment({
-                              kind: row.kind,
-                              amountCents: row.amount_cents,
-                              percent: row.percent,
-                            })}
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            {row.member_contract_id ? (contractName.get(row.member_contract_id) ?? "One membership") : "All memberships"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {day(row.starts_on)}
-                          {row.ends_on ? ` – ${day(row.ends_on)}` : row.kind === "discount_ongoing" ? " onward" : ""}
-                        </TableCell>
-                        <TableCell className="max-w-xs">
-                          {row.reason}
-                          {row.cancelled_at ? (
-                            <span className="block text-xs">
-                              Cancelled {DateTime.fromISO(row.cancelled_at).setZone(timezone).toFormat("LLL d, h:mm a")} by{" "}
-                              {staffName.get(row.cancelled_by_staff_id ?? "") ?? "staff"}: {row.cancel_reason}
-                            </span>
-                          ) : null}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {staffName.get(row.created_by_staff_id) ?? "staff"}
-                          <span className="block text-xs text-muted-foreground">
-                            {DateTime.fromISO(row.created_at).setZone(timezone).toFormat("LLL d, h:mm a")}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {row.cancelled_at ? null : (
-                            <CancelBillingEdit id={row.id} label={row.kind === "freeze" ? "Unfreeze" : "Cancel"} />
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <Card className="py-0">
-          <CardHeader className="pt-6">
-            <CardTitle>Mindbody charges</CardTitle>
-            <CardDescription>From the uploaded AutoPay Detail report (charged and scheduled). Includes tax.</CardDescription>
-          </CardHeader>
-          {history.length === 0 ? (
-            <p className="px-6 pb-6 text-sm text-muted-foreground">Not in the uploaded report.</p>
-          ) : (
-            <div className="max-h-[24rem] overflow-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {history.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="whitespace-nowrap">{day(row.charge_date)}</TableCell>
-                      <TableCell>{row.item}</TableCell>
-                      <TableCell className="text-right tabular-nums">{money(row.amount_cents)}</TableCell>
-                      <TableCell>
-                        <Badge variant={row.status === "declined" ? "destructive" : "outline"}>
-                          {STATUS_LABEL[row.status] ?? row.status}
-                        </Badge>
-                        {row.status === "declined" && row.status_detail ? (
-                          <span className="block text-xs text-muted-foreground">{row.status_detail}</span>
-                        ) : null}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </Card>
-
-        {past.length ? (
-          <Card className="py-0">
-            <CardHeader className="pt-6">
-              <CardTitle>Past memberships</CardTitle>
-            </CardHeader>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Plan</TableHead>
-                    <TableHead>Dates</TableHead>
-                    <TableHead className="text-right">Base rate</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {past.map((contract) => (
-                    <TableRow key={contract.id}>
-                      <TableCell>{contract.contract_name}</TableCell>
-                      <TableCell className="whitespace-nowrap">
-                        {day(contract.start_date)} – {day(contract.termination_date ?? contract.end_date)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{money(contract.normal_autopay_cents)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-        ) : null}
       </div>
     </DashboardShell>
   );

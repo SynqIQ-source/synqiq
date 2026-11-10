@@ -223,6 +223,43 @@ export class MindbodyClient {
     });
   }
 
+  // One client's full record (contact details, birthday, photo).
+  async getClientById(clientId: string, accessToken: string) {
+    return this.request("/client/clients", {
+      method: "GET",
+      accessToken,
+      searchParams: { ClientIds: clientId, Limit: 1 },
+    });
+  }
+
+  // A member's visits (gym arrivals, classes, appointments) between two
+  // dates; future dates return what they're booked into. Paged (Limit 200).
+  async getClientVisits(clientId: string, startDate: string, endDate: string, offset: number, accessToken: string) {
+    return this.request("/client/clientvisits", {
+      method: "GET",
+      accessToken,
+      searchParams: { ClientId: clientId, StartDate: startDate, EndDate: endDate, Limit: 200, Offset: offset },
+    });
+  }
+
+  // A member's purchases (one entry per line item, each with its sale).
+  async getClientPurchases(clientId: string, startDate: string, endDate: string, offset: number, accessToken: string) {
+    return this.request("/client/clientpurchases", {
+      method: "GET",
+      accessToken,
+      searchParams: { ClientId: clientId, StartDate: startDate, EndDate: endDate, Limit: 200, Offset: offset },
+    });
+  }
+
+  // A member's services (packs, passes, memberships) with sessions remaining.
+  async getClientServices(clientId: string, offset: number, accessToken: string) {
+    return this.request("/client/clientservices", {
+      method: "GET",
+      accessToken,
+      searchParams: { ClientId: clientId, ShowActiveOnly: false, Limit: 200, Offset: offset },
+    });
+  }
+
   // The studio's contract templates (memberships, packs) sold at a location.
   async getContractTemplates(locationId: number, accessToken: string) {
     return this.request("/sale/contracts", {
