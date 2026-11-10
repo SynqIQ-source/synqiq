@@ -85,7 +85,12 @@ begin
   returning id into edit;
   insert into price_increase_items (organization_id, price_increase_id, mindbody_client_contract_id, mindbody_client_id, contract_name, old_cents, new_cents)
   values (current_setting('bill.preserve')::uuid, edit, 1, current_setting('bill.client'), 'test', 10000, 10500);
-  raise notice 'ok   Club Admin: sees contracts, adds and cancels edits, schedules increases';
+  insert into member_personal (organization_id, mindbody_client_id, edits, edited_at, edited_by_staff_id)
+  values (current_setting('bill.preserve')::uuid, current_setting('bill.client'), '{"mobilePhone": "7135550100"}', now(), current_setting('bill.admin_staff')::uuid)
+  on conflict (organization_id, mindbody_client_id) do update set edits = excluded.edits, edited_at = excluded.edited_at;
+  insert into member_personal_edits (organization_id, mindbody_client_id, changes, edited_by_staff_id)
+  values (current_setting('bill.preserve')::uuid, current_setting('bill.client'), '{"mobilePhone": {"from": null, "to": "7135550100"}}', current_setting('bill.admin_staff')::uuid);
+  raise notice 'ok   Club Admin: sees contracts, adds and cancels edits, schedules increases, edits personal info';
 end $$;
 reset role;
 

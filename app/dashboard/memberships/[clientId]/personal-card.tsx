@@ -41,9 +41,9 @@ const FORM_LAYOUT: { field: PersonalField; span?: 2; type?: string }[] = [
   { field: "emergencyContactPhone", type: "tel" },
 ];
 
-function Item({ label, children, edited }: { label: string; children: React.ReactNode; edited?: boolean }) {
+function Item({ label, children, edited, wide }: { label: string; children: React.ReactNode; edited?: boolean; wide?: boolean }) {
   return (
-    <div className="min-w-0 space-y-0.5">
+    <div className={`min-w-0 space-y-0.5 ${wide ? "col-span-2" : ""}`}>
       <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {label}
         {edited ? <span className="ml-1 normal-case text-amber-700 dark:text-amber-300">· edited</span> : null}
@@ -170,8 +170,8 @@ export function PersonalCard({ clientId, status, memberSince, personal, edited, 
             </div>
           </form>
         ) : (
-          <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 2xl:grid-cols-2">
-            <Item label="Email" edited={isEdited("email")}>
+          <dl className="grid grid-cols-2 gap-4">
+            <Item label="Email" wide edited={isEdited("email")}>
               {personal.email ? (
                 <a href={`mailto:${personal.email}`} className="underline-offset-4 hover:underline">
                   {personal.email}
@@ -193,10 +193,10 @@ export function PersonalCard({ clientId, status, memberSince, personal, edited, 
             <Item label="Birthday" edited={isEdited("birthDate")}>
               {longDate(personal.birthDate)}
             </Item>
-            <Item label="Address" edited={isEdited("addressLine1", "addressLine2", "city", "state", "postalCode")}>
+            <Item label="Address" wide edited={isEdited("addressLine1", "addressLine2", "city", "state", "postalCode")}>
               {address}
             </Item>
-            <Item label="Emergency contact" edited={isEdited("emergencyContactName", "emergencyContactPhone")}>
+            <Item label="Emergency contact" wide edited={isEdited("emergencyContactName", "emergencyContactPhone")}>
               {personal.emergencyContactName
                 ? `${personal.emergencyContactName}${personal.emergencyContactPhone ? ` · ${personal.emergencyContactPhone}` : ""}`
                 : null}
