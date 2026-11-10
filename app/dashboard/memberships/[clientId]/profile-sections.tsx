@@ -68,7 +68,7 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
   return (
     <div className="space-y-0.5">
       <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className="text-sm text-foreground">{children ?? "—"}</dd>
+      <dd className="text-sm break-words text-foreground">{children ?? "—"}</dd>
     </div>
   );
 }
@@ -136,7 +136,7 @@ export function PersonalCard({
             {status ? <Badge variant={status === "Active" ? "secondary" : "outline"}>{status}</Badge> : null}
           </div>
         </div>
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
           <Item label="Email">{personal?.email ?? fallbackEmail}</Item>
           <Item label="Mobile">{personal?.mobilePhone ?? personal?.homePhone}</Item>
           <Item label="Birthday">{personal?.birthDate ? DateTime.fromISO(personal.birthDate).toFormat("LLL d, yyyy") : null}</Item>

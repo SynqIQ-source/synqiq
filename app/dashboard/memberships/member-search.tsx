@@ -18,6 +18,16 @@ export function MemberSearch({ initialQuery }: { initialQuery: string }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const latest = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Keep letters typed before the page finished loading.
+  useEffect(() => {
+    const typed = inputRef.current?.value ?? "";
+    if (typed && typed !== initialQuery) {
+      setQuery(typed);
+      setOpen(true);
+    }
+  }, [initialQuery]);
 
   useEffect(() => {
     const q = query.trim();
@@ -67,6 +77,7 @@ export function MemberSearch({ initialQuery }: { initialQuery: string }) {
     <form className="relative flex max-w-xl gap-2" action="/dashboard/memberships" onSubmit={() => setOpen(false)}>
       <div className="relative flex-1">
         <Input
+          ref={inputRef}
           name="q"
           value={query}
           onChange={(event) => {
