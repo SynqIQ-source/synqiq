@@ -1,3 +1,4 @@
+import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { withRetry } from "@/lib/retry";
@@ -95,6 +96,11 @@ export async function syncClassCatalog(options: { siteId?: number } = {}): Promi
       (offset) => mindbody.getClassSchedules(offset, accessToken) as Promise<Record<string, unknown>>,
       "ClassSchedules",
     );
+    const { data: typeIdRows } = await supabase
+      .from("class_types")
+      .select("id, mindbody_class_description_id")
+      .eq("organization_id", org.id);
+    const typeIdByDescription = new Map((typeIdRows ?? []).map((row) => [row.mindbody_class_description_id as number, row.id as string]));
     // Room and capacity from each schedule's latest class.
     const { data: roomRows } = await supabase.from("rooms").select("id, mindbody_resource_id").eq("organization_id", org.id);
     const resourceByRoom = new Map((roomRows ?? []).map((room) => [room.id as string, room.mindbody_resource_id as number]));
@@ -123,6 +129,7 @@ export async function syncClassCatalog(options: { siteId?: number } = {}): Promi
         const last = latest.get(schedule.Id);
         return {
           ...toScheduleRow(org.id, schedule),
+          class_type_id: schedule.ClassDescription?.Id ? (typeIdByDescription.get(schedule.ClassDescription.Id) ?? null) : null,
           mindbody_resource_id: last?.room_id ? (resourceByRoom.get(last.room_id) ?? null) : null,
           capacity: last?.max_capacity ?? null,
           web_capacity: last?.web_capacity ?? null,
@@ -132,6 +139,70 @@ export async function syncClassCatalog(options: { siteId?: number } = {}): Promi
       }),
       "organization_id,mindbody_class_schedule_id",
     );
+
+    // Classes on Mindbody's calendar whose schedule its schedule API doesn't
+    // return (one-off classes): build a schedule from their dates so they
+    // land on SynqIQ's calendar too.
+    const importedIds = new Set(schedules.map((schedule) => schedule.Id));
+    const { data: upcoming } = await supabase
+      .from("class_occurrences")
+      .select("mindbody_class_schedule_id, class_name, start_datetime, end_datetime, room_id, max_capacity, web_capacity, staff_id")
+      .eq("organization_id", org.id)
+      .gte("start_datetime", new Date().toISOString())
+      .order("start_datetime");
+    const orphans = new Map<number, NonNullable<typeof upcoming>>();
+    for (const row of upcoming ?? []) {
+      const scheduleId = Number(row.mindbody_class_schedule_id);
+      if (!scheduleId || importedIds.has(scheduleId)) continue;
+      orphans.set(scheduleId, [...(orphans.get(scheduleId) ?? []), row]);
+    }
+    if (orphans.size) {
+      const { data: orgRow } = await supabase.from("organizations").select("timezone").eq("id", org.id).maybeSingle();
+      const zone = (orgRow?.timezone as string | null) ?? "America/Chicago";
+      const staffIds = [
+        ...new Set(
+          [...orphans.values()]
+            .flat()
+            .map((row) => row.staff_id)
+            .filter(Boolean),
+        ),
+      ] as string[];
+      const { data: staffRows } = staffIds.length
+        ? await supabase.from("staff").select("id, mindbody_staff_id").in("id", staffIds)
+        : { data: [] as { id: string; mindbody_staff_id: number | null }[] };
+      const mindbodyStaff = new Map((staffRows ?? []).map((row) => [row.id as string, row.mindbody_staff_id as number | null]));
+      const { data: typeRows } = await supabase.from("class_types").select("id, name").eq("organization_id", org.id);
+      const typeByName = new Map((typeRows ?? []).map((row) => [(row.name as string).toLowerCase(), row.id as string]));
+      const local = (iso: string) => DateTime.fromISO(iso).setZone(zone);
+      await save(
+        "class_schedules",
+        [...orphans.entries()].map(([scheduleId, rows]) => {
+          const first = rows[0];
+          const dates = rows.map((row) => local(row.start_datetime as string));
+          return {
+            organization_id: org.id,
+            mindbody_class_schedule_id: scheduleId,
+            class_type_id: typeByName.get(String(first.class_name ?? "").toLowerCase()) ?? null,
+            class_name: first.class_name,
+            days: [...new Set(dates.map((date) => date.weekday % 7))].sort(),
+            start_time: local(first.start_datetime as string).toFormat("HH:mm:ss"),
+            end_time: local(first.end_datetime as string).toFormat("HH:mm:ss"),
+            start_date: dates[0].toISODate(),
+            end_date: dates[dates.length - 1].toISODate(),
+            frequency_type: "OneOff",
+            frequency_interval: 1,
+            is_available: true,
+            mindbody_resource_id: first.room_id ? (resourceByRoom.get(first.room_id as string) ?? null) : null,
+            capacity: first.max_capacity ?? null,
+            web_capacity: first.web_capacity ?? null,
+            staff_mindbody_id: first.staff_id ? (mindbodyStaff.get(first.staff_id as string) ?? null) : null,
+            last_class_at: first.start_datetime,
+            synced_at: syncedAt,
+          };
+        }),
+        "organization_id,mindbody_class_schedule_id",
+      );
+    }
 
     const sessionTypes =
       ((await withRetry(() => mindbody.getSessionTypes(accessToken))) as { SessionTypes?: MindbodySessionType[] }).SessionTypes ?? [];

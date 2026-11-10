@@ -3,6 +3,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { isClubAdmin } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { CATALOG_TABLES, applyCatalogEdit, isCatalogEntity } from "@/lib/classes/catalog-edits";
+import { buildClassCalendar } from "@/lib/sync/class-calendar";
 
 type RouteParams = { params: Promise<{ entity: string; id: string }> };
 
@@ -69,5 +70,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     edited_by_staff_id: currentStaff.id,
   });
   if (logError) console.error("[catalog-edit] change log failed:", logError.message);
+  // Class types and class times feed SynqIQ's calendar.
+  if (entity === "class_type" || entity === "class_schedule") {
+    const rebuilt = await buildClassCalendar(orgId);
+    if (!rebuilt.success) console.error("[catalog-edit] calendar rebuild failed:", rebuilt.error);
+  }
   return NextResponse.json({ success: true, changed: Object.keys(result.changes).length });
 }

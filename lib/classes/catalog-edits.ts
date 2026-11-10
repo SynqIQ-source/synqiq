@@ -3,8 +3,9 @@
 // tests/catalog-edits.test.ts. Edits live in each row's `edits` jsonb and
 // win over the imported columns; resetting a field removes the edit.
 
-export type CatalogEntity = "class_type" | "class_schedule" | "room" | "program" | "session_type";
-export type FieldKind = "text" | "textarea" | "int" | "money" | "time" | "days" | "boolean" | "room" | "instructor";
+export type CatalogEntity = "class_type" | "class_schedule" | "room" | "program" | "session_type" | "class_session";
+export type FieldKind =
+  "text" | "textarea" | "int" | "money" | "time" | "date" | "days" | "boolean" | "room" | "instructor" | "program" | "class_type";
 export type FieldSpec = { label: string; kind: FieldKind; required?: boolean; min?: number; max?: number; help?: string };
 export type CatalogValue = string | number | boolean | number[] | null;
 
@@ -14,6 +15,7 @@ export const CATALOG_TABLES: Record<CatalogEntity, string> = {
   room: "rooms",
   program: "departments",
   session_type: "session_types",
+  class_session: "class_sessions",
 };
 
 export const CATALOG_FIELDS: Record<CatalogEntity, Record<string, FieldSpec>> = {
@@ -31,6 +33,7 @@ export const CATALOG_FIELDS: Record<CatalogEntity, Record<string, FieldSpec>> = 
     mindbody_resource_id: { label: "Room", kind: "room" },
     capacity: { label: "Spots", kind: "int", min: 1, max: 500 },
     staff_mindbody_id: { label: "Instructor", kind: "instructor" },
+    end_date: { label: "Last date (optional)", kind: "date", help: "Classes stop after this date." },
     active: { label: "On the schedule", kind: "boolean", help: "Off removes this class time from the schedule." },
   },
   room: {
@@ -51,11 +54,49 @@ export const CATALOG_FIELDS: Record<CatalogEntity, Record<string, FieldSpec>> = 
     available_online: { label: "Members can book online", kind: "boolean" },
     online_description: { label: "Online description", kind: "textarea" },
   },
+  // One date of a class (SynqIQ's calendar); the weekly pattern is unchanged.
+  class_session: {
+    start_time: { label: "Starts", kind: "time", required: true },
+    end_time: { label: "Ends", kind: "time", required: true },
+    mindbody_resource_id: { label: "Room", kind: "room" },
+    capacity: { label: "Spots", kind: "int", min: 1, max: 500 },
+    staff_mindbody_id: { label: "Instructor (sub)", kind: "instructor" },
+    active: { label: "Happening", kind: "boolean", help: "Off cancels this date only." },
+    note: { label: "Note", kind: "text", help: "e.g. why it's cancelled or changed." },
+  },
+};
+
+// Fields for creating a class type or class time in SynqIQ.
+export const NEW_FIELDS: Record<"class_type" | "class_schedule", Record<string, FieldSpec>> = {
+  class_type: {
+    name: { label: "Name", kind: "text", required: true },
+    mindbody_program_id: {
+      label: "Program",
+      kind: "program",
+      required: true,
+      help: "Sets booking rules and whether membership covers it.",
+    },
+    description_text: { label: "Description", kind: "textarea", help: "Shown to members when they book." },
+    level: { label: "Level", kind: "text" },
+    category: { label: "Category", kind: "text" },
+  },
+  class_schedule: {
+    class_type_id: { label: "Class", kind: "class_type", required: true },
+    days: { label: "Days", kind: "days", required: true },
+    start_time: { label: "Starts", kind: "time", required: true },
+    end_time: { label: "Ends", kind: "time", required: true },
+    mindbody_resource_id: { label: "Room", kind: "room" },
+    capacity: { label: "Spots", kind: "int", min: 1, max: 500, required: true },
+    staff_mindbody_id: { label: "Instructor", kind: "instructor" },
+    start_date: { label: "First date", kind: "date", required: true },
+    end_date: { label: "Last date (optional)", kind: "date" },
+  },
 };
 
 // Values a field has when neither Mindbody nor an edit sets it.
 const DEFAULTS: Partial<Record<CatalogEntity, Record<string, CatalogValue>>> = {
   class_schedule: { active: true },
+  class_session: { active: true, note: null },
   program: { included_in_membership: true, late_cancel_fee_cents: 0, no_show_fee_cents: 0 },
 };
 
@@ -111,6 +152,22 @@ function clean(spec: FieldSpec, value: unknown): { ok: true; value: CatalogValue
       if ((spec.kind === "room" || spec.kind === "instructor") && number <= 0) return bad(`Pick a ${spec.label.toLowerCase()}.`);
       return { ok: true, value: number };
     }
+    case "date": {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+        return bad(`${spec.label} must be a date.`);
+      }
+      return { ok: true, value };
+    }
+    case "program":
+    case "class_type": {
+      if (spec.kind === "class_type") {
+        return typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value)
+          ? { ok: true, value }
+          : bad(`Pick a ${spec.label.toLowerCase()}.`);
+      }
+      const number = typeof value === "string" ? Number(value) : value;
+      return typeof number === "number" && Number.isInteger(number) && number > 0 ? { ok: true, value: number } : bad("Pick a program.");
+    }
     case "time": {
       if (typeof value !== "string" || !TIME.test(value)) return bad(`${spec.label} must be a time.`);
       return { ok: true, value: value.length === 5 ? `${value}:00` : value };
@@ -157,11 +214,33 @@ export function applyCatalogEdit(
     changes[field] = { from: current[field], to: result.value };
   }
 
-  if (entity === "class_schedule") {
+  if (entity === "class_schedule" || entity === "class_session") {
     const next = effective(entity, { ...row, edits });
     if (typeof next.start_time === "string" && typeof next.end_time === "string" && next.end_time <= next.start_time) {
       return { ok: false, error: "The class has to end after it starts." };
     }
   }
   return { ok: true, edits, changes };
+}
+
+// Validates a new class type or class time; returns the columns to insert.
+export function validateNew(
+  entity: "class_type" | "class_schedule",
+  input: Record<string, unknown>,
+  today: string,
+): { ok: true; values: Record<string, CatalogValue> } | { ok: false; error: string } {
+  const values: Record<string, CatalogValue> = {};
+  for (const [field, spec] of Object.entries(NEW_FIELDS[entity])) {
+    const result = clean(spec, input[field]);
+    if (!result.ok) return result;
+    values[field] = result.value;
+  }
+  if (entity === "class_schedule") {
+    if ((values.end_time as string) <= (values.start_time as string)) return { ok: false, error: "The class has to end after it starts." };
+    if ((values.start_date as string) < today) return { ok: false, error: "The first date can't be in the past." };
+    if (values.end_date && (values.end_date as string) < (values.start_date as string)) {
+      return { ok: false, error: "The last date must be on or after the first date." };
+    }
+  }
+  return { ok: true, values };
 }

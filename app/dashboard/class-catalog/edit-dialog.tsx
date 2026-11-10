@@ -173,7 +173,7 @@ export function CatalogEditDialog({
                 ) : (
                   <Input
                     id={fieldId}
-                    type={spec.kind === "time" ? "time" : spec.kind === "int" ? "number" : "text"}
+                    type={spec.kind === "time" ? "time" : spec.kind === "date" ? "date" : spec.kind === "int" ? "number" : "text"}
                     value={value === null || value === undefined ? "" : spec.kind === "time" ? String(value).slice(0, 5) : String(value)}
                     onChange={(event) =>
                       change(

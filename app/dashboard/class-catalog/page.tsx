@@ -10,6 +10,10 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 import { DAY_NAMES } from "@/lib/classes/catalog";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { CatalogEditDialog } from "./edit-dialog";
+import { CatalogCreateDialog } from "./create-dialog";
+import { CalendarTab, type SessionRow } from "./calendar-tab";
+import { CALENDAR_DAYS } from "@/lib/sync/class-calendar";
+import type { MindbodyClass } from "@/lib/classes/calendar";
 
 // The class catalog: imported from Mindbody nightly, editable here (edits
 // win over Mindbody's copy and are logged). Class types and descriptions,
@@ -19,6 +23,7 @@ import { CatalogEditDialog } from "./edit-dialog";
 type Edits = { edits: Record<string, CatalogValue> | null };
 type ClassType = Edits & {
   id: string;
+  source: string;
   mindbody_class_description_id: number;
   name: string;
   description_text: string | null;
@@ -30,11 +35,14 @@ type ClassType = Edits & {
 };
 type Schedule = Edits & {
   id: string;
+  source: string;
+  class_type_id: string | null;
   mindbody_class_description_id: number | null;
   class_name: string | null;
   days: number[];
   start_time: string | null;
   end_time: string | null;
+  end_date: string | null;
   staff_mindbody_id: number | null;
   mindbody_resource_id: number | null;
   capacity: number | null;
@@ -94,14 +102,16 @@ export default async function ClassCatalogPage() {
   ] = await Promise.all([
     supabase
       .from("class_types")
-      .select("id, mindbody_class_description_id, name, description_text, level, category, subcategory, mindbody_program_id, active, edits")
+      .select(
+        "id, source, mindbody_class_description_id, name, description_text, level, category, subcategory, mindbody_program_id, active, edits",
+      )
       .eq("organization_id", orgId)
       .order("name")
       .returns<ClassType[]>(),
     supabase
       .from("class_schedules")
       .select(
-        "id, mindbody_class_description_id, class_name, days, start_time, end_time, staff_mindbody_id, mindbody_resource_id, capacity, last_class_at, edits",
+        "id, source, class_type_id, mindbody_class_description_id, class_name, days, start_time, end_time, end_date, staff_mindbody_id, mindbody_resource_id, capacity, last_class_at, edits",
       )
       .eq("organization_id", orgId)
       .order("start_time")
@@ -141,7 +151,7 @@ export default async function ClassCatalogPage() {
   // been taken off the schedule in SynqIQ.
   const cutoff = DateTime.now().minus({ days: 30 }).toISO()!;
   const allRunning = (scheduleRows ?? [])
-    .filter((row) => row.last_class_at && row.last_class_at >= cutoff)
+    .filter((row) => row.source === "synqiq" || (row.last_class_at && Date.parse(row.last_class_at) >= Date.parse(cutoff)))
     .map((row) => effective("class_schedule", row));
   const running = allRunning.filter((schedule) => schedule.active !== false);
   const removed = allRunning.filter((schedule) => schedule.active === false);
@@ -149,6 +159,7 @@ export default async function ClassCatalogPage() {
   const programName = new Map(programs.map((program) => [program.mindbody_program_id, program.name as string]));
   const roomName = new Map(rooms.map((room) => [room.mindbody_resource_id, room.name as string]));
   const typeName = new Map(classTypes.map((type) => [type.mindbody_class_description_id, type.name as string]));
+  const typeNameById = new Map(classTypes.map((type) => [type.id, type.name as string]));
   const staffName = new Map((teacherRows ?? []).map((row) => [Number(row.mindbody_staff_id), row.display_name as string]));
   const roomOptions = rooms
     .filter((room) => room.active !== false)
@@ -158,6 +169,7 @@ export default async function ClassCatalogPage() {
     .map((row) => ({ value: Number(row.mindbody_staff_id), label: row.display_name as string }));
 
   const className = (schedule: (typeof running)[number]) =>
+    (schedule.class_type_id ? typeNameById.get(schedule.class_type_id) : null) ??
     (schedule.mindbody_class_description_id ? typeName.get(schedule.mindbody_class_description_id) : null) ??
     schedule.class_name ??
     "Class";
@@ -165,22 +177,67 @@ export default async function ClassCatalogPage() {
   const poolSlots = running.filter(isPool);
   const classSlots = running.filter((schedule) => !isPool(schedule));
   const days = (schedule: (typeof running)[number]) => (schedule.days as number[]) ?? [];
-  const weeklyByType = new Map<number, number>();
+  const weeklyByType = new Map<string, number>();
   for (const schedule of running) {
-    if (schedule.mindbody_class_description_id)
-      weeklyByType.set(
-        schedule.mindbody_class_description_id,
-        (weeklyByType.get(schedule.mindbody_class_description_id) ?? 0) + days(schedule).length,
-      );
+    if (schedule.class_type_id)
+      weeklyByType.set(schedule.class_type_id, (weeklyByType.get(schedule.class_type_id) ?? 0) + days(schedule).length);
   }
-  const offered = classTypes.filter((type) => weeklyByType.has(type.mindbody_class_description_id));
-  const notOffered = classTypes.filter((type) => !weeklyByType.has(type.mindbody_class_description_id) && type.active);
+  const offered = classTypes.filter((type) => weeklyByType.has(type.id) || (type.source === "synqiq" && type.active !== false));
+  const notOffered = classTypes.filter((type) => !offered.includes(type) && type.active);
   const roomUse = new Map<number, number>();
   for (const schedule of running) {
     const room = schedule.mindbody_resource_id as number | null;
     if (room) roomUse.set(room, (roomUse.get(room) ?? 0) + days(schedule).length);
   }
   const bookable = programs.filter((program) => program.schedule_type === "Class" || program.schedule_type === "Appointment");
+
+  // SynqIQ's calendar and Mindbody's classes over the same dates.
+  const { data: org } = await supabase.from("organizations").select("timezone").eq("id", orgId).maybeSingle();
+  const timezone = (org?.timezone as string | undefined) ?? "America/Chicago";
+  const today = DateTime.now().setZone(timezone);
+  const windowEnd = today.plus({ days: CALENDAR_DAYS });
+  const [{ data: calendarRows }, { data: mindbodyRows }, { data: staffIdRows }] = await Promise.all([
+    supabase
+      .from("class_sessions")
+      .select(
+        "id, class_name, local_date, start_time, end_time, mindbody_resource_id, capacity, staff_mindbody_id, mindbody_class_schedule_id, starts_at, removed_from_schedule_at, edits",
+      )
+      .eq("organization_id", orgId)
+      .gte("local_date", today.toISODate()!)
+      .lte("local_date", windowEnd.toISODate()!)
+      .order("starts_at")
+      .limit(5000)
+      .returns<SessionRow[]>(),
+    supabase
+      .from("class_occurrences")
+      .select("mindbody_class_schedule_id, start_datetime, staff_id")
+      .eq("organization_id", orgId)
+      .gte("start_datetime", today.startOf("day").toUTC().toISO()!)
+      .lte("start_datetime", windowEnd.endOf("day").toUTC().toISO()!)
+      .limit(5000),
+    supabase.from("staff").select("id, mindbody_staff_id").eq("organization_id", orgId).not("mindbody_staff_id", "is", null),
+  ]);
+  const mindbodyStaffById = new Map((staffIdRows ?? []).map((row) => [row.id as string, Number(row.mindbody_staff_id)]));
+  const mindbodyByDate = new Map<string, MindbodyClass[]>();
+  for (const row of mindbodyRows ?? []) {
+    const date = DateTime.fromISO(row.start_datetime as string)
+      .setZone(timezone)
+      .toISODate()!;
+    mindbodyByDate.set(date, [
+      ...(mindbodyByDate.get(date) ?? []),
+      {
+        scheduleId: row.mindbody_class_schedule_id ? Number(row.mindbody_class_schedule_id) : null,
+        startsAt: row.start_datetime as string,
+        staffMindbodyId: row.staff_id ? (mindbodyStaffById.get(row.staff_id as string) ?? null) : null,
+      },
+    ]);
+  }
+  const programOptions = bookable
+    .filter((program) => program.schedule_type === "Class")
+    .map((program) => ({ value: program.mindbody_program_id, label: program.name as string }));
+  const classTypeOptions = classTypes
+    .filter((type) => type.active !== false && (weeklyByType.has(type.id) || type.source === "synqiq" || type.active))
+    .map((type) => ({ value: type.id, label: type.name as string }));
 
   return (
     <DashboardShell
@@ -202,13 +259,36 @@ export default async function ClassCatalogPage() {
         <Tabs defaultValue="schedule">
           <TabsList className="flex-wrap">
             <TabsTrigger value="schedule">Weekly schedule</TabsTrigger>
+            <TabsTrigger value="calendar">Calendar</TabsTrigger>
             <TabsTrigger value="types">Class types</TabsTrigger>
             <TabsTrigger value="rules">Booking rules</TabsTrigger>
             <TabsTrigger value="rooms">Rooms</TabsTrigger>
             <TabsTrigger value="appointments">Appointment types</TabsTrigger>
           </TabsList>
 
+          <TabsContent value="calendar">
+            <CalendarTab
+              sessions={calendarRows ?? []}
+              mindbodyByDate={mindbodyByDate}
+              roomName={roomName}
+              staffName={staffName}
+              rooms={roomOptions}
+              instructors={instructorOptions}
+              timezone={timezone}
+            />
+          </TabsContent>
+
           <TabsContent value="schedule" className="space-y-6">
+            <div className="flex justify-end">
+              <CatalogCreateDialog
+                entity="class_schedule"
+                label="Add class time"
+                today={today.toISODate()!}
+                classTypes={classTypeOptions}
+                rooms={roomOptions}
+                instructors={instructorOptions}
+              />
+            </div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {[1, 2, 3, 4, 5, 6, 0].map((day) => {
                 const slots = classSlots
@@ -248,6 +328,7 @@ export default async function ClassCatalogPage() {
                               "mindbody_resource_id",
                               "capacity",
                               "staff_mindbody_id",
+                              "end_date",
                               "active",
                             ])}
                             edited={schedule.edited}
@@ -274,6 +355,9 @@ export default async function ClassCatalogPage() {
           </TabsContent>
 
           <TabsContent value="types" className="space-y-4">
+            <div className="flex justify-end">
+              <CatalogCreateDialog entity="class_type" label="New class type" today={today.toISODate()!} programs={programOptions} />
+            </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {offered.map((type) => (
                 <Card key={type.id} className="gap-2 py-4">
@@ -289,7 +373,8 @@ export default async function ClassCatalogPage() {
                         {type.category ? <Badge variant="outline">{type.category as string}</Badge> : null}
                         {type.subcategory ? <Badge variant="outline">{type.subcategory}</Badge> : null}
                         {type.level ? <Badge variant="outline">{type.level as string}</Badge> : null}
-                        <Badge variant="outline">{weeklyByType.get(type.mindbody_class_description_id)} a week</Badge>
+                        <Badge variant="outline">{weeklyByType.get(type.id) ?? 0} a week</Badge>
+                        {type.source === "synqiq" ? <Badge variant="outline">Added in SynqIQ</Badge> : null}
                         {type.active === false ? <Badge variant="destructive">Not offered</Badge> : null}
                       </CardDescription>
                     </div>
