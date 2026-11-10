@@ -131,3 +131,15 @@ describe("cleanAgreementTerms", () => {
     expect(cleanAgreementTerms(null)).toBeNull();
   });
 });
+
+describe("member search ranking", async () => {
+  const { cleanQuery, rankMatch } = await import("@/lib/memberships/member-search");
+  it("cleans what was typed", () => {
+    expect(cleanQuery("  paige,(shack)  ")).toBe("paige shack");
+  });
+  it("puts names starting with the query first", () => {
+    const rank = (firstName: string, lastName: string) => rankMatch({ firstName, lastName, email: null }, "paige");
+    expect(rank("Paige", "Shackleton")).toBeLessThan(rank("Anne", "McPaige"));
+    expect(rank("Anne", "Paigely")).toBeLessThan(rank("Anne", "McPaige"));
+  });
+});
