@@ -119,7 +119,30 @@ export function toMemberContractRows(mindbodyClientId: string, contracts: Mindbo
     });
 }
 
-export function toPlanRow(template: MindbodyContractTemplate) {
+// Mindbody's agreement preview is HTML with a sample member's name,
+// birthdate and email at the top and a "Member: ... Last 4:" signature
+// block. Keep the text from the first real heading on, and blank out the
+// signature block and any email addresses.
+export function cleanAgreementTerms(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const decoded = raw
+    .replace(/<\s*(br|\/p|\/div|\/li|\/h[1-6])\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&quot;|&ldquo;|&rdquo;/g, '"')
+    .replace(/&[a-z#0-9]+;/gi, " ");
+  let text = decoded.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+  const start = text.search(/(Membership Privileges|Pilates Privileges|Membership Type:|Policies:)/);
+  if (start > 0) text = text.slice(start);
+  text = text
+    .replace(/Member:[\s\S]*?Last 4:\s*\S*/g, "Member: [member] Date: [date] Method of Payment: [payment method]")
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, "[email]");
+  return text.trim() || null;
+}
+
+export function toPlanRow(template: MindbodyContractTemplate & { AgreementTerms?: string | null }) {
   return {
     mindbody_contract_id: template.Id,
     name: template.Name.trim(),
@@ -133,5 +156,6 @@ export function toPlanRow(template: MindbodyContractTemplate) {
     client_can_terminate_online: template.ClientTerminateOnline === true,
     requires_signature: template.RequiresElectronicConfirmation === true,
     members_only: Array.isArray(template.MembershipTypeRestrictions) && template.MembershipTypeRestrictions.length > 0,
+    agreement_terms: cleanAgreementTerms(template.AgreementTerms),
   };
 }

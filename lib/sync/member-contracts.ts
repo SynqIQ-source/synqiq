@@ -162,7 +162,13 @@ export async function syncMemberContracts(
       while (cursor < queue.length && Date.now() - startedAt < budgetMs) {
         const clientId = queue[cursor++];
         try {
-          const response = await withRetry(() => mindbody.getClientContracts(clientId, accessToken));
+          // A client merged or deleted in Mindbody (still in our copy until
+          // the next client sync) answers ClientNotFound: treat it as having
+          // no contracts rather than as a failure to retry every night.
+          const response = await withRetry(() => mindbody.getClientContracts(clientId, accessToken)).catch((error) => {
+            if (error instanceof Error && /ClientNotFound|does not exist/i.test(error.message)) return { Contracts: [] };
+            throw error;
+          });
           const raw = (response?.Contracts ?? []) as MindbodyClientContract[];
           const rows = toMemberContractRows(clientId, raw).map((row) => ({
             ...row,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { originalStarts, toCents, toMemberContractRows, toPlanRow } from "@/lib/memberships/contracts";
+import { cleanAgreementTerms, originalStarts, toCents, toMemberContractRows, toPlanRow } from "@/lib/memberships/contracts";
 import type { MindbodyClientContract } from "@/types/mindbody";
 
 const c = (fields: MindbodyClientContract) => fields;
@@ -108,5 +108,26 @@ describe("toCents and plans", () => {
         MembershipTypeRestrictions: [],
       }),
     ).toMatchObject({ name: "12 Month Commitment", recurring_subtotal_cents: 21900, number_of_autopays: 11, members_only: false });
+  });
+});
+
+describe("cleanAgreementTerms", () => {
+  it("drops the sample member at the top and blanks the signature block and emails", () => {
+    const raw =
+      "<p>ONLINE GUESTONLINE GUEST8/7/1994 someone@example.com</p><h2>Membership Privileges, Notices</h2>" +
+      "<p>Membership Type: Adult Monthly Monthly Dues: $269.00</p><p>Member: JANE DOE Date: 11/9/2026 Method of Payment: Visa Last 4: 1234</p>" +
+      "<p>Email memberservices@thepreservehouston.com to cancel.</p>";
+    const text = cleanAgreementTerms(raw)!;
+    expect(text.startsWith("Membership Privileges")).toBe(true);
+    expect(text).not.toContain("someone@example.com");
+    expect(text).not.toContain("JANE DOE");
+    expect(text).not.toContain("1234");
+    expect(text).toContain("Monthly Dues: $269.00");
+    expect(text).toContain("[email]");
+  });
+
+  it("returns null for empty terms", () => {
+    expect(cleanAgreementTerms("")).toBeNull();
+    expect(cleanAgreementTerms(null)).toBeNull();
   });
 });

@@ -186,6 +186,7 @@ export interface MindbodyContractTemplate {
   MembershipTypeRestrictions?: unknown[] | null;
   FirstPaymentAmountSubtotal?: number | null;
   RecurringPaymentAmountSubtotal?: number | null;
+  AgreementTerms?: string | null; // HTML
 }
 
 export interface MindbodyClientsResponse {
