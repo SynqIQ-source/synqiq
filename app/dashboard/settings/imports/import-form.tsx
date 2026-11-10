@@ -7,8 +7,11 @@ import { useRouter } from "next/navigation";
 type RowError = { row: number; column?: string; message: string };
 
 type RevenueWarnings = {
-  excludedUncappedCount: number;
-  zeroRevenueCappedCount: number;
+  excludedUncappedCount?: number;
+  zeroRevenueCappedCount?: number;
+  // Mindbody AutoPay Detail
+  unmatchedRows?: number;
+  unmatchedClients?: number;
 };
 
 type SubmitState =
@@ -29,6 +32,7 @@ const REPORT_TYPES = [
   { value: "ratings_reviews", label: "Ratings & Reviews", enabled: true },
   { value: "revenue", label: "Revenue", enabled: true },
   { value: "payroll", label: "Payroll", enabled: true },
+  { value: "mbo_autopay", label: "Mindbody AutoPay Detail (shadow billing)", enabled: true },
 ];
 
 export function ImportForm() {
@@ -129,14 +133,22 @@ export function ImportForm() {
       {state.status === "success" && (
         <div className="flex flex-col gap-2">
           <p className="text-sm text-emerald-700">
-            Imported {state.summary.insertedCount} of {state.summary.rowCount} row(s)
-            {state.summary.duplicateCount > 0
-              ? ` (${state.summary.duplicateCount} already imported, skipped)`
-              : ""}
-            .
+            {reportType === "mbo_autopay"
+              ? `Saved ${state.summary.rowCount} autopay line(s); lines already imported were updated with their latest status.`
+              : `Imported ${state.summary.insertedCount} of ${state.summary.rowCount} row(s)${
+                  state.summary.duplicateCount > 0 ? ` (${state.summary.duplicateCount} already imported, skipped)` : ""
+                }.`}
           </p>
 
-          {state.summary.warnings && state.summary.warnings.excludedUncappedCount > 0 && (
+          {state.summary.warnings && (state.summary.warnings.unmatchedRows ?? 0) > 0 && (
+            <p className="text-sm text-amber-700">
+              {state.summary.warnings.unmatchedRows} line(s) for {state.summary.warnings.unmatchedClients} member(s)
+              couldn&apos;t be matched to a Mindbody client by email or name. They&apos;re kept and shown as unmatched
+              in shadow billing.
+            </p>
+          )}
+
+          {state.summary.warnings && (state.summary.warnings.excludedUncappedCount ?? 0) > 0 && (
             <p className="text-sm text-muted-foreground">
               {state.summary.warnings.excludedUncappedCount} row(s) were on an uncapped/unlimited
               plan and excluded from revenue attribution -- Rev. per Visit isn&apos;t a stable
@@ -144,7 +156,7 @@ export function ImportForm() {
             </p>
           )}
 
-          {state.summary.warnings && state.summary.warnings.zeroRevenueCappedCount > 0 && (
+          {state.summary.warnings && (state.summary.warnings.zeroRevenueCappedCount ?? 0) > 0 && (
             <p className="text-sm font-medium text-amber-700">
               {state.summary.warnings.zeroRevenueCappedCount} row(s) show $0 revenue on a package
               that should carry real value -- often an unapproved comp or trade. Review them on the{" "}

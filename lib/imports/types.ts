@@ -66,4 +66,9 @@ export type ImportDefinition<Row extends Record<string, unknown>, ExtraCtx> = {
   // report_imports.warnings_summary. Omitted (undefined) means no
   // warnings computation for this report type.
   computeWarnings?: (rows: Row[]) => Record<string, unknown> | null;
+  // Rows to skip before validation (e.g. a report's "Total ..." footer line).
+  isIgnorableRow?: (raw: Record<string, string>) => boolean;
+  // Re-uploading updates rows whose hash already exists (values that change
+  // over time, like an autopay's status) instead of skipping them.
+  updateOnConflict?: boolean;
 };

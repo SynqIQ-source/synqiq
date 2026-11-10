@@ -6,6 +6,7 @@ import { parseAndValidate } from "@/lib/imports/pipeline";
 import { RATINGS_REVIEWS_DEFINITION } from "@/lib/imports/definitions/ratings-reviews";
 import { REVENUE_DEFINITION } from "@/lib/imports/definitions/revenue";
 import { PAYROLL_DEFINITION } from "@/lib/imports/definitions/payroll";
+import { MBO_AUTOPAY_DEFINITION } from "@/lib/imports/definitions/mbo-autopay";
 import type { ImportDefinition } from "@/lib/imports/types";
 
 // Keyed by reportType so adding the next one is adding an entry here, not
@@ -15,6 +16,7 @@ const DEFINITIONS: Record<string, ImportDefinition<any, any>> = {
   ratings_reviews: RATINGS_REVIEWS_DEFINITION,
   revenue: REVENUE_DEFINITION,
   payroll: PAYROLL_DEFINITION,
+  mbo_autopay: MBO_AUTOPAY_DEFINITION,
 };
 
 const ALLOWED_EXTENSIONS = [".xlsx", ".xls", ".csv"];
@@ -113,12 +115,22 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const rowsToInsert = result.rows.map(({ rowHash, ...row }) => ({
-        ...row,
-        organization_id: currentStaff.organizationId,
-        import_batch_id: batchId,
-        row_hash: rowHash,
-      }));
+      // For updating imports, identical lines within one file (same member,
+      // item, date and amount twice) get a #2, #3... so each is kept and a
+      // re-upload matches them (one upsert can't touch the same key twice).
+      // Other imports keep their original behavior: exact repeats are dropped.
+      const seenHashes = new Map<string, number>();
+      const rowsToInsert = result.rows.map(({ rowHash, ...row }) => {
+        const count = (seenHashes.get(rowHash) ?? 0) + 1;
+        seenHashes.set(rowHash, count);
+        return {
+          ...row,
+          organization_id: currentStaff.organizationId,
+          import_batch_id: batchId,
+          row_hash: definition.updateOnConflict && count > 1 ? `${rowHash}#${count}` : rowHash,
+          ...(definition.updateOnConflict ? { updated_at: new Date().toISOString() } : {}),
+        };
+      });
 
       // ON CONFLICT (organization_id, row_hash) DO NOTHING -- re-uploading
       // the same file (or a file that overlaps a prior one) is a no-op for
@@ -126,7 +138,10 @@ export async function POST(request: NextRequest) {
       // RETURNING set, so data.length is exactly the number newly inserted.
       const { data: insertedRows, error: insertError } = await supabase
         .from(definition.table)
-        .upsert(rowsToInsert, { onConflict: "organization_id,row_hash", ignoreDuplicates: true })
+        .upsert(rowsToInsert, {
+          onConflict: "organization_id,row_hash",
+          ignoreDuplicates: !definition.updateOnConflict,
+        })
         .select("id");
 
       if (insertError) {

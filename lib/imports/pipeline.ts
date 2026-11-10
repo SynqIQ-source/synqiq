@@ -124,6 +124,9 @@ export async function parseAndValidate<Row extends Record<string, unknown>, Extr
 
   sheet.rows.forEach((rawRow, index) => {
     const rowNumber = index + 2; // +1 for 1-based, +1 for the header row
+    if (definition.isIgnorableRow?.(rawRow)) {
+      return;
+    }
     const values: TypedRowValues = {};
     let hasCoercionError = false;
 
