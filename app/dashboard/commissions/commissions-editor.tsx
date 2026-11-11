@@ -40,6 +40,7 @@ export type SaleRow = {
   preTaxCents: number;
   credits: { staffId: string; name: string; share: number; source: string }[];
   none: boolean;
+  frozenMember: boolean;
 };
 
 const ROLES = [
@@ -371,6 +372,11 @@ function SaleLine({ row, pickable, timezone }: { row: SaleRow; pickable: { id: s
         <span className="flex-1">
           {row.description} <span className="text-xs text-muted-foreground">· {CATEGORY_LABELS[row.category]}</span>
           {row.rungUpBy ? <span className="block text-xs text-muted-foreground">Rung up by {row.rungUpBy}</span> : null}
+          {row.frozenMember ? (
+            <span className="block text-xs text-amber-700 dark:text-amber-400">
+              Member was on freeze: their membership should have been unfrozen. No commission on this sale.
+            </span>
+          ) : null}
         </span>
         <span className="tabular-nums">{money(row.preTaxCents)}</span>
         <span className={`min-w-40 ${!row.none && row.credits.length === 0 ? "text-muted-foreground italic" : "font-medium"}`}>

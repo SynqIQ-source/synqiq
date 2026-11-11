@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { frozenContracts } from "@/lib/memberships/freeze-check";
 import {
   commissionForLine,
   guessCategory,
@@ -48,6 +49,7 @@ export type CommissionSaleLine = {
   clientTrainerStaffId: string | null; // trainer of record (CRM onboarding), for the handoff hint
   credits: CommissionCredit[]; // who earns on this line, and their share
   noCommission: boolean; // "None" chosen: nobody earns on this line
+  frozenMember: boolean; // client's membership was on freeze: should have been unfrozen, no membership commission
 };
 
 export async function loadPlans(admin: Admin, organizationId: string): Promise<CommissionPlan[]> {
@@ -245,6 +247,9 @@ export async function loadSaleLines(admin: Admin, organizationId: string, fromIs
     ptBy.set(appt.client_id as string, list);
   }
   const saleBy = new Map(sales.map((sale) => [Number(sale.mindbody_sale_id), sale]));
+  // Members on freeze (another contract with autopay suspended): selling them a
+  // new membership instead of unfreezing earns no commission.
+  const frozen = await frozenContracts(admin, organizationId, clientIds);
 
   return items.map((item) => {
     const sale = saleBy.get(Number(item.mindbody_sale_id))!;
@@ -254,9 +259,16 @@ export async function loadSaleLines(admin: Admin, organizationId: string, fromIs
     const category = item.product_id == null ? "none" : (known.get(Number(item.product_id)) ?? "none");
     const contract = item.contract_id == null ? undefined : contractBy.get(Number(item.contract_id));
     const saleDay = DateTime.fromISO(saleAt).setZone(timezone).toISODate();
+    const frozenMember =
+      (category === "membership" || category === "enrollment_fee") &&
+      frozen.some(
+        (row) =>
+          row.clientId === (sale.mindbody_client_id as string) && (item.contract_id == null || row.contractId !== Number(item.contract_id)),
+      );
     const isNewMembership =
-      category === "enrollment_fee" ||
-      (Boolean(contract) && contract!.agreement_date === saleDay && contract!.renewed_from_client_contract_id == null);
+      !frozenMember &&
+      (category === "enrollment_fee" ||
+        (Boolean(contract) && contract!.agreement_date === saleDay && contract!.renewed_from_client_contract_id == null));
     const windowStart = DateTime.fromMillis(saleMs).minus({ months }).toMillis();
     const recentPt = (ptBy.get(sale.mindbody_client_id as string) ?? []).some((at) => at >= windowStart && at < saleMs);
     return {
@@ -275,6 +287,7 @@ export async function loadSaleLines(admin: Admin, organizationId: string, fromIs
       sellerName: (seller?.display_name as string | undefined) ?? null,
       sellerIsTrainer: Boolean(seller?.is_trainer),
       isNewMembership,
+      frozenMember,
       isNewPtClient: !recentPt,
       handoffApproved: flagBy.get(Number(item.mindbody_sale_detail_id)) ?? false,
       clientTrainerStaffId: trainerBy.get(sale.mindbody_client_id as string) ?? null,

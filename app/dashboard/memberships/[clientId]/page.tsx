@@ -18,6 +18,7 @@ import { isUnlimited } from "@/lib/memberships/profile";
 import { mergePersonal, type MemberPersonal, type PersonalField } from "@/lib/memberships/personal";
 import { AddBillingEdit, CancelBillingEdit, type EditContract } from "./billing-edits";
 import { RefreshFromMindbody } from "./refresh-button";
+import { FREEZE_NOTICE, isInForce } from "@/lib/memberships/freeze-check";
 import { PersonalCard } from "./personal-card";
 import { MemberSearch } from "../member-search";
 import {
@@ -429,6 +430,11 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       }
     >
       <div className="space-y-6">
+        {current.some((contract) => contract.autopay_status === "Suspended" && isInForce(contract, today)) ? (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <span className="font-medium">On freeze.</span> {FREEZE_NOTICE}
+          </div>
+        ) : null}
         <Card className="py-4">
           <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             <Glance
