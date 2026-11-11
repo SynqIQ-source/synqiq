@@ -114,7 +114,12 @@ export function CalendarTab({
                       className={`flex items-start justify-between gap-1 rounded-md border px-2 py-1.5 text-sm ${cancelled ? "opacity-60" : ""}`}
                     >
                       <div className="min-w-0">
-                        <p className={`font-medium ${cancelled ? "line-through" : ""}`}>{session.class_name}</p>
+                        <a
+                          href={`/dashboard/bookings/${session.id}`}
+                          className={`block font-medium underline-offset-4 hover:underline ${cancelled ? "line-through" : ""}`}
+                        >
+                          {session.class_name}
+                        </a>
                         <p className="text-xs text-muted-foreground">
                           {time(merged.start_time)}–{time(merged.end_time)}
                           {merged.mindbody_resource_id ? ` · ${roomName.get(merged.mindbody_resource_id as number) ?? "Room"}` : ""}

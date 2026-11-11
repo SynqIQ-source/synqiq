@@ -8,7 +8,7 @@ import { generateSessions, type CalendarSchedule } from "@/lib/classes/calendar"
 // catalog import and whenever a class type or class time is created or
 // edited. Single-date edits (class_sessions.edits) are never overwritten:
 // a date that drops out of the weekly pattern is deleted, or flagged
-// "removed from schedule" if it was edited.
+// "removed from schedule" if it was edited or has bookings.
 
 export const CALENDAR_DAYS = 21; // the booking window
 const RUNNING_DAYS = 30; // a Mindbody schedule counts if it had a class this recently
@@ -111,10 +111,20 @@ export async function buildClassCalendar(organizationId: string): Promise<BuildC
       .gte("local_date", from)
       .lte("local_date", to);
     const stale = (existing ?? []).filter((row) => !keep.has(`${row.class_schedule_id}|${row.local_date}`));
-    const toDelete = stale.filter((row) => !row.edits || Object.keys(row.edits as object).length === 0).map((row) => row.id as string);
-    const toFlag = stale
-      .filter((row) => row.edits && Object.keys(row.edits as object).length > 0 && !row.removed_from_schedule_at)
-      .map((row) => row.id as string);
+    // Classes with bookings are never deleted, only flagged.
+    const booked = new Set<string>();
+    const staleIds = stale.map((row) => row.id as string);
+    for (let index = 0; index < staleIds.length; index += 200) {
+      const { data: bookingRows } = await supabase
+        .from("class_bookings")
+        .select("class_session_id")
+        .in("class_session_id", staleIds.slice(index, index + 200));
+      for (const booking of bookingRows ?? []) booked.add(booking.class_session_id as string);
+    }
+    const keepRow = (row: (typeof stale)[number]) =>
+      (row.edits && Object.keys(row.edits as object).length > 0) || booked.has(row.id as string);
+    const toDelete = stale.filter((row) => !keepRow(row)).map((row) => row.id as string);
+    const toFlag = stale.filter((row) => keepRow(row) && !row.removed_from_schedule_at).map((row) => row.id as string);
     for (let index = 0; index < toDelete.length; index += 200) {
       await supabase
         .from("class_sessions")

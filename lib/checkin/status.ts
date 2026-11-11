@@ -13,6 +13,7 @@ export type CheckInStatus = {
   client: { mindbodyClientId: string; name: string; status: string | null; photoUrl: string | null; email: string | null };
   decision: CheckInDecision;
   servicesFrom: "mindbody" | "synqiq";
+  services: ServiceInfo[];
   today: string;
   lastCheckIn: string | null;
 };
@@ -145,6 +146,7 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
     },
     decision,
     servicesFrom,
+    services,
     today,
     lastCheckIn: (last?.checked_in_at as string | undefined) ?? null,
   };
