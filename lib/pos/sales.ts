@@ -180,3 +180,51 @@ export async function savePracticeSale(
   }
   return { saleId: sale.id as string, saleNumber: Number(sale.sale_number) };
 }
+
+// Who may void a sale: Club Admins and Sales Leads any sale; the person who
+// rang it up, within 12 hours (a same-shift mistake).
+export function canVoidSale(staff: { id: string; role: string }, sale: { staffId: string; createdAt: string }, now: Date): boolean {
+  if (staff.role === "admin" || staff.role === "sales_lead") return true;
+  return staff.id === sale.staffId && now.getTime() - Date.parse(sale.createdAt) < 12 * 3_600_000;
+}
+
+export type SummaryLine = { revenueCategory: string | null; totalCents: number; taxCents: number; discountCents: number };
+export type SummarySale = { status: string; paymentMethod: string; staffName: string; totalCents: number; lines: SummaryLine[] };
+
+// End-of-day totals (voided sales left out): by payment method, by revenue
+// category (before tax) and by who rang it up.
+export function endOfDaySummary(sales: SummarySale[]) {
+  const counted = sales.filter((sale) => sale.status !== "voided");
+  const add = (map: Map<string, { count: number; cents: number }>, key: string, cents: number) => {
+    const entry = map.get(key) ?? { count: 0, cents: 0 };
+    entry.count += 1;
+    entry.cents += cents;
+    map.set(key, entry);
+  };
+  const byPayment = new Map<string, { count: number; cents: number }>();
+  const byStaff = new Map<string, { count: number; cents: number }>();
+  const byCategory = new Map<string, { count: number; cents: number }>();
+  let taxCents = 0;
+  let discountCents = 0;
+  for (const sale of counted) {
+    add(byPayment, sale.paymentMethod, sale.totalCents);
+    add(byStaff, sale.staffName, sale.totalCents);
+    for (const line of sale.lines) {
+      add(byCategory, line.revenueCategory ?? "Uncategorized", line.totalCents - line.taxCents);
+      taxCents += line.taxCents;
+      discountCents += line.discountCents;
+    }
+  }
+  const sorted = (map: Map<string, { count: number; cents: number }>) =>
+    [...map.entries()].map(([key, value]) => ({ key, ...value })).sort((a, b) => b.cents - a.cents);
+  return {
+    sales: counted.length,
+    voided: sales.length - counted.length,
+    totalCents: counted.reduce((sum, sale) => sum + sale.totalCents, 0),
+    taxCents,
+    discountCents,
+    byPayment: sorted(byPayment),
+    byCategory: sorted(byCategory),
+    byStaff: sorted(byStaff),
+  };
+}

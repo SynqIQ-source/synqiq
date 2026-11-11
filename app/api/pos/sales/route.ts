@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireCheckoutApi } from "@/lib/pos/api";
-import { findPromo, savePracticeSale, type SaleLineRequest } from "@/lib/pos/sales";
+import { canVoidSale, findPromo, savePracticeSale, type SaleLineRequest } from "@/lib/pos/sales";
 
 // Checkout. POST { action: "promo", code } checks a code;
 // POST { action: "sale", clientId?, clientName?, lines[], promoCode?, note? }
@@ -49,6 +49,28 @@ export async function POST(request: NextRequest) {
     });
     if ("error" in result) return NextResponse.json({ success: false, error: result.error }, { status: 400 });
     return NextResponse.json({ success: true, ...result });
+  }
+  if (body.action === "void") {
+    const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
+    if (!reason) return NextResponse.json({ success: false, error: "Add a reason." }, { status: 400 });
+    const saleId = typeof body.saleId === "string" ? body.saleId : "";
+    const admin = createSupabaseAdminClient();
+    const { data: sale } = await admin
+      .from("pos_sales")
+      .select("id, staff_id, status, created_at")
+      .eq("id", saleId)
+      .eq("organization_id", currentStaff.organizationId)
+      .maybeSingle();
+    if (!sale) return NextResponse.json({ success: false, error: "Sale not found." }, { status: 404 });
+    if (sale.status === "voided") return NextResponse.json({ success: false, error: "Already voided." }, { status: 400 });
+    if (!canVoidSale(currentStaff, { staffId: sale.staff_id as string, createdAt: sale.created_at as string }, new Date()))
+      return NextResponse.json({ success: false, error: "Only a Club Admin or Sales Lead can void this sale." }, { status: 403 });
+    const { error } = await admin
+      .from("pos_sales")
+      .update({ status: "voided", voided_at: new Date().toISOString(), voided_by_staff_id: currentStaff.id, void_reason: reason })
+      .eq("id", saleId);
+    if (error) return NextResponse.json({ success: false, error: "Couldn't void. Try again." }, { status: 500 });
+    return NextResponse.json({ success: true });
   }
   return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400 });
 }

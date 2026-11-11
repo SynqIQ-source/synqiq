@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { Button } from "@/components/ui/button";
 import { requireAccess } from "@/lib/require-access";
 import { canCheckout, canDiscountAtCheckout } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -62,6 +64,11 @@ export default async function PosPage() {
   return (
     <DashboardShell
       title="Checkout"
+      actions={
+        <Button asChild variant="outline" size="sm">
+          <Link href="/dashboard/pos/sales">Sales history &amp; end of day</Link>
+        </Button>
+      }
       description="Practice mode: sales are recorded to check the screen and the totals. No card is charged and nothing changes in Mindbody."
     >
       <Checkout

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeCart, promoProblem, type CartLineInput } from "@/lib/pos/cart";
 import { canCheckout, canDiscountAtCheckout } from "@/lib/permissions";
+import { canVoidSale, endOfDaySummary } from "@/lib/pos/sales";
 
 const line = (overrides: Partial<CartLineInput>): CartLineInput => ({
   key: "a",
@@ -90,5 +91,43 @@ describe("who can check out and discount", () => {
     expect(canDiscountAtCheckout(who("sales_lead"))).toBe(true);
     expect(canDiscountAtCheckout(who("staff", { isTrainer: true }))).toBe(false);
     expect(canDiscountAtCheckout(who("staff"))).toBe(false);
+  });
+});
+
+describe("voids and end of day", () => {
+  const now = new Date("2026-11-11T20:00:00Z");
+  it("lets managers void anything and staff void their own sale the same shift", () => {
+    expect(canVoidSale({ id: "a", role: "admin" }, { staffId: "b", createdAt: "2026-10-01T00:00:00Z" }, now)).toBe(true);
+    expect(canVoidSale({ id: "a", role: "sales_lead" }, { staffId: "b", createdAt: "2026-10-01T00:00:00Z" }, now)).toBe(true);
+    expect(canVoidSale({ id: "a", role: "sales" }, { staffId: "a", createdAt: "2026-11-11T15:00:00Z" }, now)).toBe(true);
+    expect(canVoidSale({ id: "a", role: "sales" }, { staffId: "a", createdAt: "2026-11-10T15:00:00Z" }, now)).toBe(false);
+    expect(canVoidSale({ id: "a", role: "sales" }, { staffId: "b", createdAt: "2026-11-11T19:00:00Z" }, now)).toBe(false);
+  });
+  it("totals by payment, category and staff, leaving out voids", () => {
+    const summary = endOfDaySummary([
+      {
+        status: "practice",
+        paymentMethod: "practice",
+        staffName: "Pat",
+        totalCents: 42158,
+        lines: [
+          { revenueCategory: "Drinks", totalCents: 758, taxCents: 58, discountCents: 0 },
+          { revenueCategory: "Personal Training", totalCents: 41400, taxCents: 0, discountCents: 4600 },
+        ],
+      },
+      {
+        status: "voided",
+        paymentMethod: "practice",
+        staffName: "Pat",
+        totalCents: 999,
+        lines: [{ revenueCategory: "Drinks", totalCents: 999, taxCents: 0, discountCents: 0 }],
+      },
+    ]);
+    expect(summary).toMatchObject({ sales: 1, voided: 1, totalCents: 42158, taxCents: 58, discountCents: 4600 });
+    expect(summary.byCategory).toEqual([
+      { key: "Personal Training", count: 1, cents: 41400 },
+      { key: "Drinks", count: 1, cents: 700 },
+    ]);
+    expect(summary.byStaff).toEqual([{ key: "Pat", count: 1, cents: 42158 }]);
   });
 });
