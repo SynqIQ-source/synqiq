@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { CalendarX2, MapPin } from "lucide-react";
@@ -14,8 +15,7 @@ import { requireAccess } from "@/lib/require-access";
 import { isInstructorAccess } from "@/lib/permissions";
 
 const TITLE = "My Schedule";
-const DESCRIPTION =
-  "Your classes, day by day. Need cover? Request a sub right from the class.";
+const DESCRIPTION = "Your classes, day by day. Need cover? Request a sub right from the class.";
 
 type ScheduleOccurrenceRow = {
   id: string;
@@ -31,21 +31,12 @@ type ScheduleOccurrenceRow = {
 async function getOrgTimezone(supabase: ScopedSupabaseClient) {
   // Single-org sandbox today (see app/api/sync/classes/route.ts) -- one row,
   // upserted by mindbody_site_id. Same simplification as the rest of the app.
-  const { data } = await supabase
-    .from("organizations")
-    .select("timezone")
-    .limit(1)
-    .maybeSingle();
+  const { data } = await supabase.from("organizations").select("timezone").limit(1).maybeSingle();
 
   return data?.timezone ?? "utc";
 }
 
-async function getScheduleForStaffOnDate(
-  supabase: ScopedSupabaseClient,
-  staffId: string,
-  date: string,
-  timezone: string,
-) {
+async function getScheduleForStaffOnDate(supabase: ScopedSupabaseClient, staffId: string, date: string, timezone: string) {
   const dayStart = DateTime.fromISO(date, { zone: timezone }).startOf("day");
   const dayEnd = dayStart.plus({ days: 1 });
 
@@ -81,11 +72,7 @@ async function getScheduleForStaffOnDate(
   return data ?? [];
 }
 
-export default async function SchedulePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ date?: string }>;
-}) {
+export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   // Part of the group fitness module: 404 when the studio doesn't have it.
   await requireModule("group_fitness");
   await requireAccess(isInstructorAccess);
@@ -109,8 +96,7 @@ export default async function SchedulePage({
   const supabase = await getScopedClient(currentStaff);
   const timezone = await getOrgTimezone(supabase);
 
-  const date =
-    params.date ?? DateTime.now().setZone(timezone).toISODate() ?? "";
+  const date = params.date ?? DateTime.now().setZone(timezone).toISODate() ?? "";
 
   const occurrences = await getScheduleForStaffOnDate(supabase, staffId, date, timezone);
 
@@ -133,9 +119,7 @@ export default async function SchedulePage({
             <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
               <CalendarX2 className="h-8 w-8 text-muted-foreground" />
               <p className="font-medium">No classes scheduled</p>
-              <p className="text-sm text-muted-foreground">
-                You have nothing on {DateTime.fromISO(date).toFormat("cccc, LLL d")}.
-              </p>
+              <p className="text-sm text-muted-foreground">You have nothing on {DateTime.fromISO(date).toFormat("cccc, LLL d")}.</p>
             </CardContent>
           </Card>
         ) : (
@@ -152,9 +136,7 @@ export default async function SchedulePage({
               const start = occurrence.start_datetime
                 ? DateTime.fromISO(occurrence.start_datetime, { zone: "utc" }).setZone(timezone)
                 : null;
-              const end = occurrence.end_datetime
-                ? DateTime.fromISO(occurrence.end_datetime, { zone: "utc" }).setZone(timezone)
-                : null;
+              const end = occurrence.end_datetime ? DateTime.fromISO(occurrence.end_datetime, { zone: "utc" }).setZone(timezone) : null;
 
               return (
                 <Card key={occurrence.id} className="py-0">
@@ -169,12 +151,19 @@ export default async function SchedulePage({
                     <div className="hidden w-px self-stretch bg-border sm:block" />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold">{className}</h3>
+                        <h3 className="font-semibold">
+                          <Link href={`/dashboard/classes/${occurrence.id}`} className="underline-offset-4 hover:underline">
+                            {className}
+                          </Link>
+                        </h3>
                         {isCovering ? <Badge variant="secondary">Covering for {staffDisplayName}</Badge> : null}
                       </div>
                       <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                         <MapPin className="h-3.5 w-3.5" />
                         {roomName}
+                        <Link href={`/dashboard/classes/${occurrence.id}`} className="ml-2 text-xs underline underline-offset-4">
+                          Who&apos;s in it
+                        </Link>
                       </p>
                     </div>
                     <div className="sm:w-48">

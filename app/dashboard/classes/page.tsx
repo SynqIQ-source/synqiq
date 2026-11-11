@@ -43,20 +43,12 @@ const HISTORY_PAGE_SIZE = 1000;
 async function getOrgTimezone(supabase: ScopedSupabaseClient) {
   // Single-org sandbox today (see app/api/sync/classes/route.ts) -- one row,
   // upserted by mindbody_site_id. Same simplification as the rest of the app.
-  const { data } = await supabase
-    .from("organizations")
-    .select("timezone")
-    .limit(1)
-    .maybeSingle();
+  const { data } = await supabase.from("organizations").select("timezone").limit(1).maybeSingle();
 
   return data?.timezone ?? "utc";
 }
 
-async function getOccurrencesForRange(
-  supabase: ScopedSupabaseClient,
-  rangeStart: DateTime,
-  rangeEnd: DateTime,
-) {
+async function getOccurrencesForRange(supabase: ScopedSupabaseClient, rangeStart: DateTime, rangeEnd: DateTime) {
   const { data, error } = await supabase
     .from("class_occurrences")
     .select(
@@ -92,11 +84,7 @@ async function getOccurrencesForRange(
 // plain unbounded .select() silently truncates past that. Only the columns
 // buildHistoricalAverageMap actually needs are selected here (no joins),
 // since this fetch feeds nothing but the averaging calculation.
-async function getHistoricalOccurrences(
-  supabase: ScopedSupabaseClient,
-  windowStart: DateTime,
-  windowEnd: DateTime,
-) {
+async function getHistoricalOccurrences(supabase: ScopedSupabaseClient, windowStart: DateTime, windowEnd: DateTime) {
   const allRows: HistoricalOccurrenceRow[] = [];
   let offset = 0;
 
@@ -142,10 +130,7 @@ function getFillRate(totalBooked = 0, maxCapacity = 0) {
 // per-instance and won't match across different occurrences of the same
 // recurring weekly slot (a recreated Mindbody series gets a new schedule_id
 // for what a manager would still consider the same slot).
-function getSlotKey(
-  row: { department_id: string | null; class_name: string | null; start_datetime: string | null },
-  timezone: string,
-) {
+function getSlotKey(row: { department_id: string | null; class_name: string | null; start_datetime: string | null }, timezone: string) {
   if (!row.department_id || !row.class_name || !row.start_datetime) {
     return null;
   }
@@ -188,9 +173,7 @@ function resolveViewMode(viewModeParam: string | undefined): ViewMode {
 }
 
 function resolveDate(dateParam: string | undefined, viewMode: ViewMode, timezone: string) {
-  const parsed = dateParam
-    ? DateTime.fromISO(dateParam, { zone: timezone })
-    : DateTime.invalid("no date param");
+  const parsed = dateParam ? DateTime.fromISO(dateParam, { zone: timezone }) : DateTime.invalid("no date param");
   const base = parsed.isValid ? parsed : DateTime.now().setZone(timezone);
 
   if (viewMode === "day") {
@@ -220,8 +203,7 @@ function resolveHistoryWindow(
     return { historyWindow: "custom", historyStart: params.historyStart, historyEnd: params.historyEnd };
   }
 
-  const historyWindow =
-    params.historyWindow && MONTHS_BACK[params.historyWindow] ? params.historyWindow : "3m";
+  const historyWindow = params.historyWindow && MONTHS_BACK[params.historyWindow] ? params.historyWindow : "3m";
 
   return {
     historyWindow,
@@ -346,9 +328,7 @@ export default async function ClassesPage({
                       const slotKey = getSlotKey(occurrence, occurrenceTimezone);
                       const historical = slotKey ? historicalAverageMap.get(slotKey) : undefined;
                       const usual =
-                        historical && historical.capacitySum > 0
-                          ? Math.round((historical.bookedSum / historical.capacitySum) * 100)
-                          : null;
+                        historical && historical.capacitySum > 0 ? Math.round((historical.bookedSum / historical.capacitySum) * 100) : null;
 
                       return (
                         <TableRow key={occurrence.id}>
@@ -377,7 +357,13 @@ export default async function ClassesPage({
                             {occurrence.room?.name ?? "—"}
                           </TableCell>
                           <TableCell className="align-top">
-                            <FillMeter value={booked} max={capacity} className="ml-auto" />
+                            <Link
+                              href={`/dashboard/classes/${occurrence.id}`}
+                              aria-label={`Who's in ${occurrence.class_name?.trim() ?? "this class"}`}
+                              className="block rounded-md hover:bg-muted/60"
+                            >
+                              <FillMeter value={booked} max={capacity} className="ml-auto" />
+                            </Link>
                           </TableCell>
                           <TableCell className="pr-4 align-top">
                             <FillVsUsual current={fillRate} usual={usual} comparedCount={historical?.count ?? 0} />
