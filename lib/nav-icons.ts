@@ -61,6 +61,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/settings": Settings,
   "/dashboard/timesheets": Timer,
   "/dashboard/pay-rates": Banknote,
+  "/dashboard/commissions": Percent,
   "/dashboard/settings/imports": Upload,
   "/dashboard/settings/mindbody-items": Tags,
   "/dashboard/settings/billing": CreditCard,
