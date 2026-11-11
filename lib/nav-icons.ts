@@ -1,4 +1,5 @@
 import {
+  Banknote,
   Bell,
   Building2,
   BookOpen,
@@ -59,6 +60,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/follow-up-activity": Mails,
   "/dashboard/settings": Settings,
   "/dashboard/timesheets": Timer,
+  "/dashboard/pay-rates": Banknote,
   "/dashboard/settings/imports": Upload,
   "/dashboard/settings/mindbody-items": Tags,
   "/dashboard/settings/billing": CreditCard,
