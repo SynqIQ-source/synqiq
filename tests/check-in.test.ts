@@ -66,3 +66,30 @@ describe("check-in eligibility", () => {
     ]);
   });
 });
+
+describe("billing standing", () => {
+  it("red for declined, terminated or frozen; green when covered; neutral otherwise", () => {
+    expect(decideCheckIn(base).standing).toBe("good");
+    expect(decideCheckIn({ ...base, clientStatus: "Declined" })).toMatchObject({
+      standing: "attention",
+      standingReasons: ["Payment declined"],
+    });
+    expect(decideCheckIn({ ...base, clientStatus: "Terminated", services: [] })).toMatchObject({ standing: "attention", covered: false });
+    expect(decideCheckIn({ ...base, contracts: [{ ...base.contracts[0], autopayStatus: "Suspended" }] })).toMatchObject({
+      standing: "attention",
+      standingReasons: ["Membership frozen"],
+    });
+    expect(decideCheckIn({ ...base, clientStatus: "Non-Member", services: [], contracts: [] }).standing).toBe("none");
+  });
+});
+
+describe("key card codes", async () => {
+  const { normalizeCardCode } = await import("@/lib/checkin/card");
+  it("reads what keyboard-style scanners type", () => {
+    expect(normalizeCardCode(" 56184312769\n")).toBe("56184312769");
+    expect(normalizeCardCode("000100009023")).toBe("100009023");
+    expect(normalizeCardCode(";56184312769?")).toBe("56184312769");
+    expect(normalizeCardCode("ABC-123")).toBe("ABC-123");
+    expect(normalizeCardCode("   ")).toBe("");
+  });
+});

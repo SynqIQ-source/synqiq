@@ -8,18 +8,25 @@ import { loadCheckInStatus } from "@/lib/checkin/status";
 // Check someone in. What covers the visit is worked out again here (not
 // trusted from the browser); when nothing covers it a reason is required.
 // Doesn't touch Mindbody, which still records arrivals until the switch.
+// A key-card scan (method "scan") only goes through on its own when the
+// visit is covered, the member is in good standing and not in already
+// today; otherwise it comes back to the front desk with the status.
 export async function POST(request: NextRequest) {
   const currentStaff = await getCurrentStaff();
   if (!currentStaff || !canCheckIn(currentStaff)) {
     return NextResponse.json({ success: false, error: "Not allowed." }, { status: 403 });
   }
-  const body = (await request.json().catch(() => null)) as { mindbodyClientId?: unknown; note?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { mindbodyClientId?: unknown; note?: unknown; method?: unknown } | null;
+  const method = body?.method === "scan" ? "scan" : "front_desk";
   const clientId = typeof body?.mindbodyClientId === "string" ? body.mindbodyClientId : "";
   if (!/^[\w-]{1,40}$/.test(clientId)) return NextResponse.json({ success: false, error: "Pick someone to check in." }, { status: 400 });
   const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
 
   const status = await loadCheckInStatus(currentStaff.organizationId, clientId);
   if (!status) return NextResponse.json({ success: false, error: "Unknown person." }, { status: 404 });
+  if (method === "scan" && (status.decision.standing !== "good" || status.decision.warnings.includes("Already checked in today."))) {
+    return NextResponse.json({ success: false, needsStaff: true, status, error: "Needs the front desk." }, { status: 409 });
+  }
   if (!status.decision.covered && !note) {
     return NextResponse.json(
       { success: false, error: "Nothing covers this visit. Add a reason to check them in anyway." },
@@ -38,7 +45,9 @@ export async function POST(request: NextRequest) {
         .setZone((org?.timezone as string | undefined) ?? "America/Chicago")
         .toISODate(),
       checked_in_by_staff_id: currentStaff.id,
-      method: "front_desk",
+      method,
+      billing_standing: status.decision.standing,
+      standing_reasons: status.decision.standingReasons,
       coverage_kind: status.decision.kind,
       coverage_name: status.decision.coverageName,
       mindbody_client_service_id: status.decision.serviceId,
@@ -52,5 +61,5 @@ export async function POST(request: NextRequest) {
     console.error("[check-in] save failed:", error.message);
     return NextResponse.json({ success: false, error: "Couldn't check in. Try again." }, { status: 500 });
   }
-  return NextResponse.json({ success: true, id: saved.id, coverage: status.decision.coverageName });
+  return NextResponse.json({ success: true, id: saved.id, coverage: status.decision.coverageName, status });
 }

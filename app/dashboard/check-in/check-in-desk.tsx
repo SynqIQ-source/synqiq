@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, CircleAlert, Loader2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, Loader2, ScanLine } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,46 +10,113 @@ import { Input } from "@/components/ui/input";
 import { MemberSearch, type MemberSuggestion } from "../memberships/member-search";
 import type { CheckInStatus } from "@/lib/checkin/status";
 
-// Front desk: find someone, see what covers the visit, check them in.
+const TONE = {
+  good: "border-emerald-400 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/40",
+  attention: "border-red-400 bg-red-50 dark:border-red-700 dark:bg-red-950/40",
+  none: "border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/30",
+} as const;
+
+// Front desk: scan a key card (checks good-standing members straight in) or
+// look someone up by name, see what covers the visit, check them in.
 export function CheckInDesk() {
   const router = useRouter();
+  const scanRef = useRef<HTMLInputElement>(null);
+  const [scanCode, setScanCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<CheckInStatus | null>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [flash, setFlash] = useState<{ ok: boolean; text: string; photo?: string | null } | null>(null);
 
-  async function choose(suggestion: MemberSuggestion) {
+  // Keep the scan field ready whenever nothing else is being typed.
+  useEffect(() => {
+    if (!status) scanRef.current?.focus();
+  }, [status, flash]);
+  useEffect(() => {
+    if (!flash?.ok) return;
+    const timer = setTimeout(() => setFlash(null), 6000);
+    return () => clearTimeout(timer);
+  }, [flash]);
+
+  async function lookup(url: string) {
     setLoading(true);
     setStatus(null);
     setNote("");
-    setMessage(null);
+    setFlash(null);
     try {
-      const response = await fetch(`/api/check-in/status/${encodeURIComponent(suggestion.id)}`);
+      const response = await fetch(url);
       const result = (await response.json().catch(() => ({}))) as { success?: boolean; status?: CheckInStatus; error?: string };
-      if (!response.ok || !result.status) setMessage({ ok: false, text: result.error ?? "Couldn't look them up. Try again." });
-      else setStatus(result.status);
+      if (!response.ok || !result.status) {
+        setFlash({ ok: false, text: result.error ?? "Couldn't look them up. Try again." });
+        return null;
+      }
+      return result.status;
     } finally {
       setLoading(false);
     }
   }
 
+  async function post(found: CheckInStatus, method: "scan" | "front_desk") {
+    const response = await fetch("/api/check-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mindbodyClientId: found.client.mindbodyClientId, note, method }),
+    });
+    return (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      error?: string;
+      coverage?: string | null;
+      needsStaff?: boolean;
+    };
+  }
+
+  async function onScan(event: React.FormEvent) {
+    event.preventDefault();
+    const code = scanCode.trim();
+    setScanCode("");
+    if (!code) return;
+    const found = await lookup(`/api/check-in/scan?code=${encodeURIComponent(code)}`);
+    if (!found) return;
+    const ready = found.decision.standing === "good" && !found.decision.warnings.includes("Already checked in today.");
+    if (!ready) {
+      setStatus(found);
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await post(found, "scan");
+      if (result.success) {
+        setFlash({
+          ok: true,
+          text: `Welcome, ${found.client.name.split(" ")[0]}! Checked in (${result.coverage}).`,
+          photo: found.client.photoUrl,
+        });
+        router.refresh();
+      } else setStatus(found);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function choose(suggestion: MemberSuggestion) {
+    const found = await lookup(`/api/check-in/status/${encodeURIComponent(suggestion.id)}`);
+    if (found) setStatus(found);
+  }
+
   async function checkIn() {
     if (!status) return;
     setSaving(true);
-    setMessage(null);
     try {
-      const response = await fetch("/api/check-in", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mindbodyClientId: status.client.mindbodyClientId, note }),
-      });
-      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; coverage?: string | null };
-      if (!response.ok || !result.success) {
-        setMessage({ ok: false, text: result.error ?? "Couldn't check in. Try again." });
+      const result = await post(status, "front_desk");
+      if (!result.success) {
+        setFlash({ ok: false, text: result.error ?? "Couldn't check in. Try again." });
         return;
       }
-      setMessage({ ok: true, text: `${status.client.name} checked in${result.coverage ? ` (${result.coverage})` : ""}.` });
+      setFlash({
+        ok: true,
+        text: `${status.client.name} checked in${result.coverage ? ` (${result.coverage})` : ""}.`,
+        photo: status.client.photoUrl,
+      });
       setStatus(null);
       setNote("");
       router.refresh();
@@ -61,22 +128,45 @@ export function CheckInDesk() {
   const decision = status?.decision;
   return (
     <div className="space-y-4">
-      <MemberSearch initialQuery="" endpoint="/api/check-in/search" onPick={choose} placeholder="Name or email to check in" />
-      {loading ? (
+      <form onSubmit={onScan} className="flex items-center gap-2">
+        <ScanLine className="size-5 shrink-0 text-muted-foreground" />
+        <Input
+          ref={scanRef}
+          value={scanCode}
+          onChange={(event) => setScanCode(event.target.value)}
+          placeholder="Scan a key card (or type its number and press Enter)"
+          aria-label="Key card number"
+          autoComplete="off"
+          inputMode="numeric"
+          className="max-w-md"
+        />
+      </form>
+      <MemberSearch initialQuery="" endpoint="/api/check-in/search" onPick={choose} placeholder="…or look someone up by name or email" />
+
+      {loading || saving ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Checking with Mindbody…
+          <Loader2 className="size-4 animate-spin" /> {saving ? "Checking in…" : "Checking with Mindbody…"}
         </p>
       ) : null}
-      {message ? (
-        <p
+      {flash ? (
+        <div
           role="status"
-          className={`flex items-center gap-2 text-sm ${message.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}
+          className={`flex items-center gap-3 rounded-md border px-4 py-3 text-base font-medium ${flash.ok ? TONE.good : TONE.attention}`}
         >
-          {message.ok ? <CheckCircle2 className="size-4" /> : <CircleAlert className="size-4" />} {message.text}
-        </p>
+          {flash.photo ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Mindbody-hosted photo
+            <img src={flash.photo} alt="" className="h-12 w-12 rounded-full object-cover" referrerPolicy="no-referrer" />
+          ) : flash.ok ? (
+            <CheckCircle2 className="size-6 text-emerald-600" />
+          ) : (
+            <CircleAlert className="size-6 text-red-600" />
+          )}
+          {flash.text}
+        </div>
       ) : null}
+
       {status && decision ? (
-        <Card className={decision.covered ? "border-emerald-300 dark:border-emerald-800" : "border-amber-300 dark:border-amber-700"}>
+        <Card className={`border-2 ${TONE[decision.standing]}`}>
           <CardContent className="space-y-4 py-2">
             <div className="flex items-center gap-4">
               {status.client.photoUrl ? (
@@ -94,9 +184,16 @@ export function CheckInDesk() {
               <div className="min-w-0">
                 <p className="text-lg font-semibold">{status.client.name}</p>
                 <div className="flex flex-wrap gap-1">
-                  {status.client.status ? (
-                    <Badge variant={status.client.status === "Active" ? "secondary" : "outline"}>{status.client.status}</Badge>
+                  {decision.standing === "attention" ? (
+                    decision.standingReasons.map((reason) => (
+                      <Badge key={reason} variant="destructive">
+                        {reason}
+                      </Badge>
+                    ))
+                  ) : decision.standing === "good" ? (
+                    <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Good standing</Badge>
                   ) : null}
+                  {status.client.status ? <Badge variant="outline">{status.client.status}</Badge> : null}
                   {status.lastCheckIn ? (
                     <Badge variant="outline">
                       Last in {new Date(status.lastCheckIn).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
@@ -105,7 +202,7 @@ export function CheckInDesk() {
                 </div>
               </div>
             </div>
-            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+            <div className="rounded-md bg-background/70 px-3 py-2 text-sm">
               {decision.covered ? (
                 <p className="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-400">
                   <CheckCircle2 className="size-4" /> Covered by {decision.coverageName}
@@ -120,7 +217,7 @@ export function CheckInDesk() {
                 </p>
               )}
               {decision.warnings.length ? (
-                <ul className="mt-1 list-disc pl-5 text-amber-800 dark:text-amber-200">
+                <ul className="mt-1 list-disc pl-5 text-red-800 dark:text-red-200">
                   {decision.warnings.map((warning) => (
                     <li key={warning}>{warning}</li>
                   ))}
@@ -140,7 +237,12 @@ export function CheckInDesk() {
               />
             ) : null}
             <div className="flex gap-2">
-              <Button type="button" onClick={checkIn} disabled={saving || (!decision.covered && !note.trim())}>
+              <Button
+                type="button"
+                variant={decision.standing === "attention" ? "destructive" : "default"}
+                onClick={checkIn}
+                disabled={saving || (!decision.covered && !note.trim())}
+              >
                 {saving ? "Checking in…" : decision.covered ? "Check in" : "Check in anyway"}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setStatus(null)} disabled={saving}>

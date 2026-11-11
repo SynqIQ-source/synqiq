@@ -32,6 +32,18 @@ export type CheckInDecision = {
   contractId: string | null;
   remaining: number | null; // null = unlimited
   warnings: string[];
+  // Billing standing for the front desk: red ("attention") when declined,
+  // terminated or frozen; green ("good") when covered and in good standing;
+  // "none" otherwise (e.g. a guest with nothing).
+  standing: "good" | "attention" | "none";
+  standingReasons: string[];
+};
+
+// Mindbody client statuses that need the front desk's attention.
+const ATTENTION_STATUSES: Record<string, string> = {
+  declined: "Payment declined",
+  terminated: "Membership terminated",
+  suspended: "Membership frozen",
 };
 
 const UNLIMITED = 9999;
@@ -79,8 +91,27 @@ export function decideCheckIn(input: {
   if ((input.clientStatus ?? "").toLowerCase() === "declined") warnings.push("Their last payment was declined.");
   if (input.alreadyCheckedInToday) warnings.push("Already checked in today.");
 
+  const standingReasons: string[] = [];
+  const statusReason = ATTENTION_STATUSES[(input.clientStatus ?? "").toLowerCase()];
+  if (statusReason) standingReasons.push(statusReason);
+  if (frozen && !standingReasons.includes("Membership frozen")) standingReasons.push("Membership frozen");
+  if (warnings.some((warning) => warning.startsWith("Frozen in SynqIQ")) && !standingReasons.includes("Membership frozen"))
+    standingReasons.push("Membership frozen");
+  if (warnings.some((warning) => warning.startsWith("Cancelled in SynqIQ"))) standingReasons.push("Membership cancelled");
+  const standingFor = (covered: boolean): CheckInDecision["standing"] => (standingReasons.length ? "attention" : covered ? "good" : "none");
+
   if (!best) {
-    return { covered: false, kind: "none", coverageName: null, serviceId: null, contractId: null, remaining: null, warnings };
+    return {
+      covered: false,
+      kind: "none",
+      coverageName: null,
+      serviceId: null,
+      contractId: null,
+      remaining: null,
+      warnings,
+      standing: standingFor(false),
+      standingReasons,
+    };
   }
   const unlimited = (best.count ?? 0) >= UNLIMITED;
   if (!unlimited && best.remaining !== null && best.remaining <= 2)
@@ -96,6 +127,8 @@ export function decideCheckIn(input: {
     contractId: contract?.id ?? null,
     remaining: unlimited ? null : best.remaining,
     warnings,
+    standing: standingFor(true),
+    standingReasons,
   };
 }
 
