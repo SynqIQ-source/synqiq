@@ -13,10 +13,14 @@ import { HistoryWindowSelect } from "./history-window-select";
 import { PeriodNav } from "./period-nav";
 import { requireModule } from "@/lib/modules";
 import { requireAccess } from "@/lib/require-access";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 
 type TableOccurrenceRow = {
   id: string;
   mindbody_occurrence_id: number | null;
+  mindbody_class_schedule_id: number | null;
+  synqiqOnly?: boolean;
   class_name: string | null;
   instructor_name: string | null;
   start_datetime: string | null;
@@ -55,6 +59,7 @@ async function getOccurrencesForRange(supabase: ScopedSupabaseClient, rangeStart
       `
       id,
       mindbody_occurrence_id,
+      mindbody_class_schedule_id,
       class_name,
       instructor_name,
       start_datetime,
@@ -78,6 +83,78 @@ async function getOccurrencesForRange(supabase: ScopedSupabaseClient, rangeStart
   }
 
   return data ?? [];
+}
+
+// SynqIQ's calendar for the same range: bookings made in SynqIQ (added to
+// Mindbody's counts) and classes that exist only in SynqIQ.
+async function getSynqiqForRange(organizationId: string, rangeStart: DateTime, rangeEnd: DateTime) {
+  const admin = createSupabaseAdminClient();
+  const { data: sessions } = await admin
+    .from("class_sessions")
+    .select(
+      "id, class_name, starts_at, capacity, mindbody_class_schedule_id, removed_from_schedule_at, staff_mindbody_id, mindbody_resource_id, edits",
+    )
+    .eq("organization_id", organizationId)
+    .gte("starts_at", rangeStart.toUTC().toISO()!)
+    .lt("starts_at", rangeEnd.toUTC().toISO()!)
+    .limit(5000);
+  const rows = sessions ?? [];
+  const booked = new Map<string, number>();
+  const ids = rows.map((row) => row.id as string);
+  for (let index = 0; index < ids.length; index += 300) {
+    const { data } = await admin
+      .from("class_bookings")
+      .select("class_session_id")
+      .in("class_session_id", ids.slice(index, index + 300))
+      .in("status", ["booked", "checked_in"]);
+    for (const row of data ?? []) booked.set(row.class_session_id as string, (booked.get(row.class_session_id as string) ?? 0) + 1);
+  }
+  const bySlot = new Map<string, number>();
+  for (const row of rows) {
+    if (row.mindbody_class_schedule_id && booked.get(row.id as string)) {
+      bySlot.set(`${row.mindbody_class_schedule_id}|${Date.parse(row.starts_at as string)}`, booked.get(row.id as string) ?? 0);
+    }
+  }
+
+  // SynqIQ-only classes, shaped like Mindbody's rows.
+  const only = rows.filter((row) => !row.mindbody_class_schedule_id && !row.removed_from_schedule_at);
+  const [{ data: teachers }, { data: rooms }] = only.length
+    ? await Promise.all([
+        admin
+          .from("staff")
+          .select("mindbody_staff_id, display_name")
+          .eq("organization_id", organizationId)
+          .not("mindbody_staff_id", "is", null),
+        admin.from("rooms").select("mindbody_resource_id, name").eq("organization_id", organizationId),
+      ])
+    : [{ data: [] }, { data: [] }];
+  const teacherName = new Map((teachers ?? []).map((row) => [Number(row.mindbody_staff_id), row.display_name as string]));
+  const roomName = new Map((rooms ?? []).map((row) => [Number(row.mindbody_resource_id), row.name as string]));
+  const synqiqOnly: TableOccurrenceRow[] = only
+    .map((row) => {
+      const merged = effective("class_session", row as Record<string, unknown> & { edits: Record<string, CatalogValue> | null });
+      if (merged.active === false) return null;
+      const teacher = merged.staff_mindbody_id ? teacherName.get(Number(merged.staff_mindbody_id)) : undefined;
+      const room = merged.mindbody_resource_id ? roomName.get(Number(merged.mindbody_resource_id)) : undefined;
+      return {
+        id: row.id as string,
+        mindbody_occurrence_id: null,
+        mindbody_class_schedule_id: null,
+        synqiqOnly: true,
+        class_name: row.class_name as string,
+        instructor_name: null,
+        start_datetime: row.starts_at as string,
+        max_capacity: (merged.capacity as number | null) ?? null,
+        total_booked: booked.get(row.id as string) ?? 0,
+        department_id: null,
+        staff: teacher ? { display_name: teacher } : null,
+        department: { name: "SynqIQ class" },
+        room: room ? { name: room } : null,
+        organization: null,
+      } satisfies TableOccurrenceRow;
+    })
+    .filter((row): row is NonNullable<typeof row> => row !== null);
+  return { bySlot, synqiqOnly };
 }
 
 // This project's PostgREST max-rows is 1000 (confirmed empirically) -- a
@@ -226,7 +303,7 @@ export default async function ClassesPage({
   // Part of the group fitness module: 404 when the studio doesn't have it.
   await requireModule("group_fitness");
   // Every staff member can see the schedule and who is in each class.
-  await requireAccess(() => true);
+  const staff = await requireAccess(() => true);
   const params = await searchParams;
 
   // Adam's real session -> RLS-scoped client, so the same-org select
@@ -247,17 +324,27 @@ export default async function ClassesPage({
   const historyWindowStart = DateTime.fromISO(historyStart, { zone: timezone }).startOf("day");
   const historyWindowEnd = DateTime.fromISO(historyEnd, { zone: timezone }).endOf("day");
 
-  const [rawTableOccurrences, rawHistoricalOccurrences, hiddenDepartmentIds] = await Promise.all([
+  const [rawTableOccurrences, rawHistoricalOccurrences, hiddenDepartmentIds, synqiq] = await Promise.all([
     getOccurrencesForRange(supabase, displayStart, displayEnd),
     getHistoricalOccurrences(supabase, historyWindowStart, historyWindowEnd),
     getExcludedDepartmentIds(supabase),
+    getSynqiqForRange(staff.organizationId, displayStart, displayEnd),
   ]);
 
   // Pool Lanes is excluded from every reporting view except Heat Map -- see
-  // lib/excluded-departments.ts.
-  const tableOccurrences = rawTableOccurrences.filter(
-    (occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id),
-  );
+  // lib/excluded-departments.ts. Booked = Mindbody's + SynqIQ's.
+  const tableOccurrences = [
+    ...rawTableOccurrences
+      .filter((occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id))
+      .map((occurrence) => {
+        const extra =
+          occurrence.mindbody_class_schedule_id && occurrence.start_datetime
+            ? (synqiq.bySlot.get(`${occurrence.mindbody_class_schedule_id}|${Date.parse(occurrence.start_datetime)}`) ?? 0)
+            : 0;
+        return extra ? { ...occurrence, total_booked: (occurrence.total_booked ?? 0) + extra } : occurrence;
+      }),
+    ...synqiq.synqiqOnly.filter((row) => !/pool lane/i.test(row.class_name ?? "")),
+  ].sort((a, b) => (a.start_datetime ?? "").localeCompare(b.start_datetime ?? ""));
   const historicalOccurrences = rawHistoricalOccurrences.filter(
     (occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id),
   );
@@ -281,7 +368,7 @@ export default async function ClassesPage({
   return (
     <DashboardShell
       title="Classes"
-      description="Every class on the schedule, with how full it is compared with its usual. Open a class to see who is in it."
+      description="Every class on the schedule, with how full it is compared with its usual. Open a class to see who is in it and book people in."
     >
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -339,6 +426,11 @@ export default async function ClassesPage({
                             <Link href={`/dashboard/classes/${occurrence.id}`} className="font-medium underline-offset-4 hover:underline">
                               {occurrence.class_name?.trim() ?? "Unknown"}
                             </Link>
+                            {occurrence.synqiqOnly ? (
+                              <Badge variant="secondary" className="ml-2 align-middle">
+                                SynqIQ
+                              </Badge>
+                            ) : null}
                             <div className="text-xs text-muted-foreground">
                               {occurrence.department?.name ?? "No department"}
                               <span className="lg:hidden"> · {occurrence.room?.name ?? "No room"}</span>

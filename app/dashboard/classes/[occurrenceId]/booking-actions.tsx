@@ -94,24 +94,30 @@ export function BookSomeone({ sessionId, open }: { sessionId: string; open: bool
   );
 }
 
-// Per-booking actions: check in, no-show, move in from waitlist, cancel.
+// Per-booking actions: check in, no-show, move in from waitlist, cancel
+// (on time or late; the program's rule picks the default, and only Club
+// Admins and Sales Leads can turn a late cancel into an on-time one).
 export function BookingRowActions({
   id,
   status,
   started,
   canWaive,
   spotOpen,
+  lateNow,
+  feeLabel,
 }: {
   id: string;
   status: string;
   started: boolean;
   canWaive: boolean;
   spotOpen: boolean;
+  lateNow: boolean;
+  feeLabel: string | null;
 }) {
   const router = useRouter();
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
-  const [waive, setWaive] = useState(false);
+  const [kind, setKind] = useState<"on_time" | "late">(lateNow && status !== "waitlisted" ? "late" : "on_time");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,20 +143,24 @@ export function BookingRowActions({
   }
 
   if (cancelling) {
+    const onTimeLocked = lateNow && !canWaive;
     return (
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Input className="h-8 w-44" placeholder="Why cancel" value={reason} onChange={(event) => setReason(event.target.value)} />
-        {canWaive ? (
-          <label className="flex items-center gap-1 text-xs">
-            <input type="checkbox" checked={waive} onChange={(event) => setWaive(event.target.checked)} /> Waive late cancel
-          </label>
+        {status !== "waitlisted" ? (
+          <select
+            aria-label="Cancel type"
+            className="h-8 rounded-md border bg-background px-2 text-xs"
+            value={kind}
+            onChange={(event) => setKind(event.target.value as "on_time" | "late")}
+          >
+            <option value="on_time" disabled={onTimeLocked}>
+              On time{lateNow ? " (waive late cancel)" : ""}
+            </option>
+            <option value="late">Late cancel{feeLabel ? ` · ${feeLabel} fee` : ""}</option>
+          </select>
         ) : null}
-        <Button
-          size="sm"
-          variant="destructive"
-          disabled={saving || !reason.trim()}
-          onClick={() => act("cancel", { reason, waiveLateCancel: waive })}
-        >
+        <Button size="sm" variant="destructive" disabled={saving || !reason.trim()} onClick={() => act("cancel", { reason, kind })}>
           Cancel booking
         </Button>
         <Button size="sm" variant="ghost" onClick={() => setCancelling(false)} disabled={saving}>
@@ -175,6 +185,11 @@ export function BookingRowActions({
       {status === "waitlisted" && spotOpen ? (
         <Button size="sm" variant="outline" disabled={saving} onClick={() => act("move_in")}>
           Move into class
+        </Button>
+      ) : null}
+      {status === "waitlisted" && !spotOpen && canWaive ? (
+        <Button size="sm" variant="outline" disabled={saving} onClick={() => act("move_in", { overCapacity: true })}>
+          Move in (over capacity)
         </Button>
       ) : null}
       {["booked", "waitlisted", "checked_in"].includes(status) ? (

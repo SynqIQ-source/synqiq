@@ -115,7 +115,7 @@ export function CalendarTab({
                     >
                       <div className="min-w-0">
                         <a
-                          href={`/dashboard/bookings/${session.id}`}
+                          href={`/dashboard/classes/${session.id}`}
                           className={`block font-medium underline-offset-4 hover:underline ${cancelled ? "line-through" : ""}`}
                         >
                           {session.class_name}

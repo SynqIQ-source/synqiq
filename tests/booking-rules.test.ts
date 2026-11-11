@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookingCoverage, bookingWindow, cancellationFor, placeFor, type ProgramRules } from "@/lib/booking/rules";
+import { bookingCoverage, bookingWindow, cancellationFor, decideCancel, placeFor, type ProgramRules } from "@/lib/booking/rules";
 import type { ServiceInfo } from "@/lib/checkin/eligibility";
 
 const gx: ProgramRules = {
@@ -83,5 +83,53 @@ describe("spots and cancelling", () => {
       status: "late_cancelled",
       feeCents: 2000,
     });
+  });
+});
+
+describe("staff cancel choice", () => {
+  const pool = { ...gx, name: "Pool Lanes", lateCancelFeeCents: 2000 };
+  const early = at("2026-11-20T09:00:00Z");
+  const inside = at("2026-11-20T11:30:00Z");
+  it("follows the program's rule when staff don't choose", () => {
+    expect(decideCancel({ status: "booked", session, rules: pool, now: early, canWaive: false })).toMatchObject({
+      ok: true,
+      status: "cancelled",
+    });
+    expect(decideCancel({ status: "booked", session, rules: pool, now: inside, canWaive: false })).toMatchObject({
+      ok: true,
+      status: "late_cancelled",
+      feeCents: 2000,
+    });
+  });
+  it("anyone can mark an early cancel late; only managers can waive a late one", () => {
+    expect(decideCancel({ status: "booked", session, rules: pool, now: early, requested: "late", canWaive: false })).toMatchObject({
+      status: "late_cancelled",
+      feeCents: 2000,
+    });
+    expect(decideCancel({ status: "booked", session, rules: pool, now: inside, requested: "on_time", canWaive: false })).toMatchObject({
+      ok: false,
+    });
+    expect(decideCancel({ status: "booked", session, rules: pool, now: inside, requested: "on_time", canWaive: true })).toEqual({
+      ok: true,
+      status: "cancelled",
+      feeCents: null,
+      waived: true,
+    });
+  });
+  it("waitlist spots cancel without a fee; cancelled bookings can't cancel again", () => {
+    expect(decideCancel({ status: "waitlisted", session, rules: pool, now: inside, requested: "late", canWaive: false })).toMatchObject({
+      status: "cancelled",
+      feeCents: null,
+    });
+    expect(decideCancel({ status: "late_cancelled", session, rules: pool, now: inside, canWaive: true })).toMatchObject({ ok: false });
+  });
+});
+
+describe("staff booking after class", () => {
+  it("staff can add someone up to a day after with a reason; members can't", () => {
+    expect(bookingWindow(session, gx, at("2026-11-20T15:00:00Z"), "staff")).toMatchObject({ open: false, overridable: true });
+    expect(bookingWindow(session, gx, at("2026-11-21T13:00:00Z"), "staff")).toMatchObject({ open: false, overridable: false });
+    expect(bookingWindow(session, gx, at("2026-11-20T15:00:00Z"), "member")).toMatchObject({ open: false, overridable: false });
+    expect(bookingWindow({ ...session, active: false }, gx, at("2026-11-20T15:00:00Z"), "staff")).not.toHaveProperty("overridable");
   });
 });
