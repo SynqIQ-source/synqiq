@@ -37,6 +37,7 @@ import {
   Upload,
   UserPlus,
   Users,
+  Wallet,
   type LucideIcon,
   Timer,
 } from "lucide-react";
@@ -60,6 +61,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/follow-up-activity": Mails,
   "/dashboard/settings": Settings,
   "/dashboard/timesheets": Timer,
+  "/dashboard/payroll": Wallet,
   "/dashboard/pay-rates": Banknote,
   "/dashboard/commissions": Percent,
   "/dashboard/settings/imports": Upload,

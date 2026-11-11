@@ -82,19 +82,17 @@ export async function POST(request: NextRequest) {
         .eq("organization_id", org)
         .maybeSingle();
       if (!plan) return fail("Plan not found.", 404);
-      const { error } = await admin
-        .from("commission_rules")
-        .upsert(
-          {
-            organization_id: org,
-            plan_id: body.planId,
-            category: input.category,
-            condition: input.condition,
-            percent,
-            flat_cents: flatCents,
-          },
-          { onConflict: "plan_id,category,condition" },
-        );
+      const { error } = await admin.from("commission_rules").upsert(
+        {
+          organization_id: org,
+          plan_id: body.planId,
+          category: input.category,
+          condition: input.condition,
+          percent,
+          flat_cents: flatCents,
+        },
+        { onConflict: "plan_id,category,condition" },
+      );
       return error ? fail("Couldn't save. Try again.", 500) : ok();
     }
     case "removeRule": {
