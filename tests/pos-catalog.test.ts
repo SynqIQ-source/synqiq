@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REVENUE_CATEGORIES, guessRevenueCategory, isTaxable } from "@/lib/pos/catalog";
+import { DEFAULT_REVENUE_CATEGORIES, guessRevenueCategory, isExcludedFromCatalog, isTaxable } from "@/lib/pos/catalog";
 
 describe("revenue categories", () => {
   it("has The Preserve's nine categories with the right tax", () => {
@@ -40,11 +40,20 @@ describe("first-guess categories for Mindbody items", () => {
     expect(guessRevenueCategory("service", "PT 60 16PK", "Personal Training · Personal Training")).toBe("personal_training");
     expect(guessRevenueCategory("service", "10 Pack Group Reformer", "Group Reformer · Group Reformer Classes")).toBe("pilates");
     expect(guessRevenueCategory("service", "Day Pass", "Memberships & Passes · Gym Passes")).toBe("gym_pass");
-    expect(guessRevenueCategory("service", "Cycling Drop In", "Cycling · Group Class Fees")).toBeNull();
+    expect(guessRevenueCategory("service", "Cycling Drop In", "Cycling · Group Class Fees")).toBe("gym_pass");
+    expect(guessRevenueCategory("service", "No Show Fee", "Class Fees · Group Class Fees")).toBe("gym_pass");
+    expect(guessRevenueCategory("service", "Assessment and Intro Workout", "Enrollment Appointments")).toBe("personal_training");
+    expect(guessRevenueCategory("service", "Termination Fee (50% of remaining balance)", "Fee's")).toBe("membership_dues");
     expect(guessRevenueCategory("membership", "16 PT  (50)", "Membership")).toBe("personal_training");
     expect(guessRevenueCategory("membership", "Semi-Private PT 8", "Membership")).toBe("personal_training");
     expect(guessRevenueCategory("membership", "Unlimited Pilates Updated", "Membership")).toBe("pilates");
     expect(guessRevenueCategory("membership", "Adult Monthly Membership", "Membership")).toBe("membership_dues");
-    expect(guessRevenueCategory("membership", "Unlimited Pool Lanes", "Membership")).toBeNull();
+  });
+  it("never imports dynamic pricing, cycle shoe rental or pool lanes", () => {
+    expect(isExcludedFromCatalog("Dynamic Pricing")).toBe(true);
+    expect(isExcludedFromCatalog("Cycle Shoe Rental")).toBe(true);
+    expect(isExcludedFromCatalog("Unlimited Pool Lanes")).toBe(true);
+    expect(isExcludedFromCatalog("Pool Lanes Access")).toBe(true);
+    expect(isExcludedFromCatalog("Cycling Drop In")).toBe(false);
   });
 });

@@ -44,7 +44,9 @@ export function guessRevenueCategory(
   const text = name.toLowerCase();
   const g = (group ?? "").toLowerCase();
   if (/(registration|enrol?lment)\s*fee/.test(text)) return "registration_fee";
-  if (/termination|pool lanes/.test(text)) return null;
+  if (/termination/.test(text)) return "membership_dues";
+  if (/no[- ]?show fee|drop[- ]?in/.test(text)) return "gym_pass";
+  if (/intro workout|assessment/.test(text)) return "personal_training";
   if (kind === "membership") {
     // Mindbody sells PT and Pilates packages on autopay as contracts too.
     if (/(^|[^a-z])pt([^a-z]|$)|semi[- ]?private|personal training/.test(text)) return "personal_training";
@@ -75,6 +77,15 @@ export function guessRevenueCategory(
 }
 
 const cents = (value: unknown) => Math.round(Number(value ?? 0) * 100);
+
+// Mindbody items SynqIQ never sells (The Preserve, 2026-11-11): dynamic
+// pricing (lets non-members pay per class style -- a different, non-member
+// experience; build separately if ever wanted), cycle shoe rental (going
+// away), and pool lanes (pool access comes with the membership; a resource
+// rule will cover it).
+export function isExcludedFromCatalog(name: string): boolean {
+  return /dynamic pricing|cycle shoe|pool lanes/i.test(name);
+}
 
 export type ImportSummary = {
   products: number;
@@ -160,6 +171,7 @@ export async function importCatalogFromMindbody(organizationId: string, staffId:
   };
   const rows: Row[] = [];
   for (const product of products) {
+    if (isExcludedFromCatalog(String(product.Name ?? ""))) continue;
     rows.push({
       kind: "product",
       mindbody_id: String(product.ProductId),
@@ -173,6 +185,7 @@ export async function importCatalogFromMindbody(organizationId: string, staffId:
     });
   }
   for (const service of services) {
+    if (isExcludedFromCatalog(String(service.Name ?? ""))) continue;
     const discontinued = Boolean(service.Discontinued);
     if (discontinued && !soldRecently.has(Number(service.ProductId ?? service.Id))) continue;
     rows.push({
@@ -188,7 +201,7 @@ export async function importCatalogFromMindbody(organizationId: string, staffId:
     });
   }
   for (const plan of plans.data ?? []) {
-    if (!plan.active) continue;
+    if (!plan.active || isExcludedFromCatalog(String(plan.name ?? ""))) continue;
     rows.push({
       kind: "membership",
       mindbody_id: String(plan.mindbody_contract_id),
