@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PromoCodes, type PromoRow } from "./promo-codes";
 
 export type CatalogCategory = { id: string; key: string; name: string; taxable: boolean; glAccount: string; active: boolean };
 export type CatalogItem = {
@@ -53,13 +54,15 @@ export function CatalogEditor({
   categories,
   taxPercent,
   lastSync,
+  promos,
 }: {
   items: CatalogItem[];
   categories: CatalogCategory[];
   taxPercent: number;
   lastSync: string | null;
+  promos: PromoRow[];
 }) {
-  const [tab, setTab] = useState<"items" | "categories">("items");
+  const [tab, setTab] = useState<"items" | "categories" | "promos">("items");
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1 border-b">
@@ -67,6 +70,7 @@ export function CatalogEditor({
           [
             ["items", "Items"],
             ["categories", "Revenue categories & tax"],
+            ["promos", "Promo codes"],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -79,11 +83,9 @@ export function CatalogEditor({
           </button>
         ))}
       </div>
-      {tab === "items" ? (
-        <Items items={items} categories={categories} lastSync={lastSync} />
-      ) : (
-        <Categories categories={categories} items={items} taxPercent={taxPercent} />
-      )}
+      {tab === "items" ? <Items items={items} categories={categories} lastSync={lastSync} /> : null}
+      {tab === "categories" ? <Categories categories={categories} items={items} taxPercent={taxPercent} /> : null}
+      {tab === "promos" ? <PromoCodes promos={promos} categories={categories} /> : null}
     </div>
   );
 }

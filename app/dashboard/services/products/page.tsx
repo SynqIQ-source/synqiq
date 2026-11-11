@@ -13,7 +13,7 @@ export default async function ProductsPage() {
   const staff = await requireAccess(isClubAdmin);
   const admin = createSupabaseAdminClient();
   await ensureRevenueCategories(admin, staff.organizationId);
-  const [{ data: org }, { data: categories }, { data: items }] = await Promise.all([
+  const [{ data: org }, { data: categories }, { data: items }, { data: promos }] = await Promise.all([
     admin.from("organizations").select("sales_tax_rate").eq("id", staff.organizationId).maybeSingle(),
     admin
       .from("revenue_categories")
@@ -28,6 +28,12 @@ export default async function ProductsPage() {
       .eq("organization_id", staff.organizationId)
       .order("name")
       .limit(3000),
+    admin
+      .from("promo_codes")
+      .select("id, code, kind, percent, amount_cents, revenue_category_ids, starts_on, ends_on, max_uses, uses, note")
+      .eq("organization_id", staff.organizationId)
+      .eq("active", true)
+      .order("created_at", { ascending: false }),
   ]);
   const categoryRows: CatalogCategory[] = (categories ?? []).map((row) => ({
     id: row.id as string,
@@ -70,6 +76,19 @@ export default async function ProductsPage() {
         categories={categoryRows}
         taxPercent={Math.round(Number(org?.sales_tax_rate ?? 0.0825) * 1_000_000) / 10_000}
         lastSync={lastSync}
+        promos={(promos ?? []).map((row) => ({
+          id: row.id as string,
+          code: row.code as string,
+          kind: row.kind as "percent" | "amount",
+          percent: row.percent == null ? null : Number(row.percent),
+          amountCents: row.amount_cents == null ? null : Number(row.amount_cents),
+          categoryIds: (row.revenue_category_ids as string[] | null) ?? null,
+          startsOn: (row.starts_on as string | null) ?? null,
+          endsOn: (row.ends_on as string | null) ?? null,
+          maxUses: row.max_uses == null ? null : Number(row.max_uses),
+          uses: Number(row.uses ?? 0),
+          note: (row.note as string | null) ?? null,
+        }))}
       />
     </DashboardShell>
   );

@@ -52,6 +52,14 @@ export const isTrainerAccess = (staff: Who) => isClubAdmin(staff) || staff.isTra
 // trainers. Instructor-only staff don't check people in.
 export const canCheckIn = (staff: Who) => canUseCrm(staff) || isClubAdmin(staff) || staff.isTrainer;
 
+// Checkout (POS): Club Admins, Sales Leads, Sales, trainers and front-desk
+// staff. Instructor-only staff (Staff role, Instructor tag, no Trainer tag)
+// don't ring up sales.
+export const canCheckout = (staff: Who) => staff.role !== "staff" || staff.isTrainer || staff.canSell || !staff.isInstructor;
+// Manual discounts at checkout: Sales and up. Trainers never (unless they
+// also hold a Sales role).
+export const canDiscountAtCheckout = (staff: Who) => staff.role === "admin" || staff.role === "sales_lead" || staff.role === "sales";
+
 export const canViewOverview = (staff: Who) => isClubAdmin(staff) || staff.isInstructor;
 // Instructor pay / cost figures from payroll imports.
 export const canViewPay = (staff: Who) => isClubAdmin(staff);

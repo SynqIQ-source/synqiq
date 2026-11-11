@@ -9,7 +9,7 @@ import { SidebarNav, type NavGroup } from "@/components/sidebar-nav";
 import { AccountMenu } from "@/components/account-menu";
 import { isCrmEnabled } from "@/lib/crm/module";
 import type { CurrentStaff } from "@/lib/current-staff";
-import { canUseCrm, canViewOverview, isClubAdmin, isInstructorAccess, canCheckIn, isTrainerAccess } from "@/lib/permissions";
+import { canUseCrm, canViewOverview, isClubAdmin, isInstructorAccess, canCheckIn, canCheckout, isTrainerAccess } from "@/lib/permissions";
 import { unreadGuestMessageCount } from "@/lib/crm/unread";
 import { TimeClockButton } from "@/components/time-clock-button";
 import { signsOutOnClockOut } from "@/lib/time-clock/hours";
@@ -52,6 +52,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     label: "Sales",
     items: [
       { href: "/dashboard/check-in", label: "Check-in", who: canCheckIn },
+      { href: "/dashboard/pos", label: "Checkout", who: canCheckout },
       { href: "/dashboard/sales", label: "Sales Dashboard", who: canUseCrm, crm: true },
       { href: "/dashboard/sales/history", label: "Sales History", who: canUseCrm, crm: true },
       { href: "/dashboard/guests", label: "Guests", who: canUseCrm, crm: true },
