@@ -101,7 +101,7 @@ export default async function CheckInPage({ searchParams }: { searchParams: Prom
           Until the switch, Mindbody still records arrivals. SynqIQ check-ins are its own record for the parallel run.
         </div>
         {date === today ? (
-          <Card>
+          <Card className="overflow-visible">
             <CardContent className="py-2">
               <CheckInDesk />
             </CardContent>

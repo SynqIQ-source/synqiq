@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type Suggestion = { id: string; name: string; status: string; plans: string[] };
+type Suggestion = { id: string; name: string; status: string; plans: string[]; detail?: string };
 
 // Member search with a dropdown of matches as you type ("paige" lists every
 // Paige). Pick one to open their page; Enter without a pick shows the full
@@ -17,14 +17,21 @@ export function MemberSearch({
   compact = false,
   endpoint = "/api/memberships/search",
   onPick,
+  onSubmitQuery,
   placeholder,
+  ariaLabel,
+  autoFocus,
 }: {
   initialQuery: string;
   compact?: boolean;
   endpoint?: string;
   // When given, picking someone calls this instead of opening their page.
   onPick?: (suggestion: Suggestion) => void;
+  // Enter with nothing highlighted (e.g. a scanner typing a card number).
+  onSubmitQuery?: (query: string) => void;
   placeholder?: string;
+  ariaLabel?: string;
+  autoFocus?: boolean;
 }) {
   const router = useRouter();
   const listId = useId();
@@ -76,6 +83,17 @@ export function MemberSearch({
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" && onSubmitQuery && (active < 0 || !open)) {
+      event.preventDefault();
+      const value = query.trim();
+      if (!value) return;
+      latest.current += 1; // drop any search still in flight
+      setOpen(false);
+      setSuggestions([]);
+      setQuery("");
+      onSubmitQuery(value);
+      return;
+    }
     if (!open || suggestions.length === 0) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -95,7 +113,7 @@ export function MemberSearch({
 
   return (
     <form
-      className={compact ? "relative w-full sm:w-64" : "relative flex max-w-xl gap-2"}
+      className={compact ? (onPick ? "relative w-full" : "relative w-full sm:w-64") : "relative flex max-w-xl gap-2"}
       action="/dashboard/memberships"
       onSubmit={(event) => {
         setOpen(false);
@@ -115,9 +133,9 @@ export function MemberSearch({
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={onKeyDown}
           placeholder={placeholder ?? (compact ? "Find another member…" : "Member name or email")}
-          aria-label="Member name or email"
+          aria-label={ariaLabel ?? "Member name or email"}
           autoComplete="off"
-          autoFocus={!compact}
+          autoFocus={autoFocus ?? !compact}
           role="combobox"
           aria-expanded={showList}
           aria-controls={listId}
@@ -128,7 +146,7 @@ export function MemberSearch({
           <ul
             id={listId}
             role="listbox"
-            className="absolute top-full right-0 left-0 z-20 mt-1 max-h-80 overflow-auto rounded-md border bg-popover py-1 shadow-md"
+            className="absolute top-full left-0 z-50 mt-1 max-h-96 w-full min-w-[min(24rem,90vw)] overflow-auto rounded-md border bg-popover py-1 shadow-lg"
           >
             {suggestions.map((suggestion, index) => (
               <li
@@ -146,7 +164,7 @@ export function MemberSearch({
                 <span className="font-medium">{suggestion.name}</span>
                 <span className="ml-2 text-xs text-muted-foreground">{suggestion.status}</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  {suggestion.plans.length ? suggestion.plans.join(", ") : "No current membership"}
+                  {suggestion.detail ?? (suggestion.plans.length ? suggestion.plans.join(", ") : onPick ? "" : "No current membership")}
                 </span>
               </li>
             ))}

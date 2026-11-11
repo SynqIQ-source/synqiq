@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, CircleAlert, Loader2, ScanLine } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -18,19 +18,19 @@ const TONE = {
 
 // Front desk: scan a key card (checks good-standing members straight in) or
 // look someone up by name, see what covers the visit, check them in.
+const SEARCH_LABEL = "Scan a card or search";
+
 export function CheckInDesk() {
   const router = useRouter();
-  const scanRef = useRef<HTMLInputElement>(null);
-  const [scanCode, setScanCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<CheckInStatus | null>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [flash, setFlash] = useState<{ ok: boolean; text: string; photo?: string | null } | null>(null);
 
-  // Keep the scan field ready whenever nothing else is being typed.
+  // Keep the search box ready for the next scan whenever nobody is open.
   useEffect(() => {
-    if (!status) scanRef.current?.focus();
+    if (!status) document.querySelector<HTMLInputElement>(`input[aria-label="${SEARCH_LABEL}"]`)?.focus();
   }, [status, flash]);
   useEffect(() => {
     if (!flash?.ok) return;
@@ -70,11 +70,14 @@ export function CheckInDesk() {
     };
   }
 
-  async function onScan(event: React.FormEvent) {
-    event.preventDefault();
-    const code = scanCode.trim();
-    setScanCode("");
-    if (!code) return;
+  // Enter without picking from the list: a key-card scan (or a typed card
+  // number) checks a covered, good-standing member straight in.
+  async function onEnter(value: string) {
+    const code = value.trim();
+    if (!/^\d{5,}$/.test(code.replace(/^[;%]+|[?]+$/g, ""))) {
+      setFlash({ ok: false, text: "Pick someone from the list, or scan their key card." });
+      return;
+    }
     const found = await lookup(`/api/check-in/scan?code=${encodeURIComponent(code)}`);
     if (!found) return;
     const ready = found.decision.standing === "good" && !found.decision.warnings.includes("Already checked in today.");
@@ -128,20 +131,21 @@ export function CheckInDesk() {
   const decision = status?.decision;
   return (
     <div className="space-y-4">
-      <form onSubmit={onScan} className="flex items-center gap-2">
-        <ScanLine className="size-5 shrink-0 text-muted-foreground" />
-        <Input
-          ref={scanRef}
-          value={scanCode}
-          onChange={(event) => setScanCode(event.target.value)}
-          placeholder="Scan a key card (or type its number and press Enter)"
-          aria-label="Key card number"
-          autoComplete="off"
-          inputMode="numeric"
-          className="max-w-md"
-        />
-      </form>
-      <MemberSearch initialQuery="" endpoint="/api/check-in/search" onPick={choose} placeholder="…or look someone up by name or email" />
+      <div className="flex items-start gap-2">
+        <ScanLine className="mt-2 size-5 shrink-0 text-muted-foreground" />
+        <div className="w-full max-w-xl">
+          <MemberSearch
+            initialQuery=""
+            endpoint="/api/check-in/search"
+            onPick={choose}
+            onSubmitQuery={onEnter}
+            placeholder="Scan a key card, or search name, phone, email or card number"
+            ariaLabel={SEARCH_LABEL}
+            autoFocus
+            compact
+          />
+        </div>
+      </div>
 
       {loading || saving ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
