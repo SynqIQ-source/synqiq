@@ -48,6 +48,10 @@ export const seesOnlyOwnSales = (staff: Who) => canUseCrm(staff) && !managesSale
 export const isInstructorAccess = (staff: Who) => isClubAdmin(staff) || staff.isInstructor;
 export const isTrainerAccess = (staff: Who) => isClubAdmin(staff) || staff.isTrainer;
 
+// Front-desk check-in: sales staff (the front desk today), Club Admins and
+// trainers. Instructor-only staff don't check people in.
+export const canCheckIn = (staff: Who) => canUseCrm(staff) || isClubAdmin(staff) || staff.isTrainer;
+
 export const canViewOverview = (staff: Who) => isClubAdmin(staff) || staff.isInstructor;
 // Instructor pay / cost figures from payroll imports.
 export const canViewPay = (staff: Who) => isClubAdmin(staff);

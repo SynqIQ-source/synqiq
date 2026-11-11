@@ -14,6 +14,7 @@ import {
   canViewOverview,
   isClubAdmin,
   isInstructorAccess,
+  canCheckIn,
   isTrainerAccess,
 } from "@/lib/permissions";
 import { unreadGuestMessageCount } from "@/lib/crm/unread";
@@ -54,6 +55,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
   {
     label: "Sales",
     items: [
+      { href: "/dashboard/check-in", label: "Check-in", who: canCheckIn },
       { href: "/dashboard/sales", label: "Sales Dashboard", who: canUseCrm, crm: true },
       { href: "/dashboard/sales/history", label: "Sales History", who: canUseCrm, crm: true },
       { href: "/dashboard/guests", label: "Guests", who: canUseCrm, crm: true },

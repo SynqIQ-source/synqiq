@@ -10,7 +10,22 @@ type Suggestion = { id: string; name: string; status: string; plans: string[] };
 // Member search with a dropdown of matches as you type ("paige" lists every
 // Paige). Pick one to open their page; Enter without a pick shows the full
 // results list.
-export function MemberSearch({ initialQuery, compact = false }: { initialQuery: string; compact?: boolean }) {
+export type MemberSuggestion = Suggestion;
+
+export function MemberSearch({
+  initialQuery,
+  compact = false,
+  endpoint = "/api/memberships/search",
+  onPick,
+  placeholder,
+}: {
+  initialQuery: string;
+  compact?: boolean;
+  endpoint?: string;
+  // When given, picking someone calls this instead of opening their page.
+  onPick?: (suggestion: Suggestion) => void;
+  placeholder?: string;
+}) {
   const router = useRouter();
   const listId = useId();
   const [query, setQuery] = useState(initialQuery);
@@ -38,7 +53,7 @@ export function MemberSearch({ initialQuery, compact = false }: { initialQuery: 
     const request = ++latest.current;
     const timer = setTimeout(async () => {
       try {
-        const response = await fetch(`/api/memberships/search?q=${encodeURIComponent(q)}`);
+        const response = await fetch(`${endpoint}?q=${encodeURIComponent(q)}`);
         const result = (await response.json()) as { success?: boolean; members?: Suggestion[] };
         if (request !== latest.current) return; // a newer keystroke won
         setSuggestions(result.members ?? []);
@@ -48,10 +63,15 @@ export function MemberSearch({ initialQuery, compact = false }: { initialQuery: 
       }
     }, 200);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, endpoint]);
 
   function pick(suggestion: Suggestion) {
     setOpen(false);
+    if (onPick) {
+      onPick(suggestion);
+      setQuery("");
+      return;
+    }
     router.push(`/dashboard/memberships/${suggestion.id}`);
   }
 
@@ -77,7 +97,10 @@ export function MemberSearch({ initialQuery, compact = false }: { initialQuery: 
     <form
       className={compact ? "relative w-full sm:w-64" : "relative flex max-w-xl gap-2"}
       action="/dashboard/memberships"
-      onSubmit={() => setOpen(false)}
+      onSubmit={(event) => {
+        setOpen(false);
+        if (onPick) event.preventDefault();
+      }}
     >
       <div className="relative flex-1">
         <Input
@@ -91,7 +114,7 @@ export function MemberSearch({ initialQuery, compact = false }: { initialQuery: 
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           onKeyDown={onKeyDown}
-          placeholder={compact ? "Find another member…" : "Member name or email"}
+          placeholder={placeholder ?? (compact ? "Find another member…" : "Member name or email")}
           aria-label="Member name or email"
           autoComplete="off"
           autoFocus={!compact}
