@@ -141,6 +141,10 @@ export default async function ClassPage({ params }: { params: Params }) {
         .in("mindbody_unique_id", uniqueIds)
     : { data: [] };
   const clientByUnique = new Map((clients ?? []).map((client) => [Number(client.mindbody_unique_id), client]));
+  // Mindbody flags bookings as missed before the class happens; that only
+  // means "not checked in" once it has started.
+  const classStarted = Date.now() >= Date.parse(occurrence?.start_datetime ?? "") || false;
+  if (!classStarted) visits = visits.map((visit) => ({ ...visit, Missed: false }));
   const roster = buildRoster(visits, (visit) => {
     const client = visit.ClientUniqueId ? clientByUnique.get(visit.ClientUniqueId) : undefined;
     return client ? `${client.first_name} ${client.last_name}`.trim() : "Client not synced yet";
