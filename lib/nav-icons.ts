@@ -37,6 +37,7 @@ import {
   UserPlus,
   Users,
   type LucideIcon,
+  Timer,
 } from "lucide-react";
 
 // Shared by the desktop sidebar and the mobile bottom nav so a page's icon
@@ -57,6 +58,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/substitutions": ClipboardList,
   "/dashboard/follow-up-activity": Mails,
   "/dashboard/settings": Settings,
+  "/dashboard/timesheets": Timer,
   "/dashboard/settings/imports": Upload,
   "/dashboard/settings/mindbody-items": Tags,
   "/dashboard/settings/billing": CreditCard,

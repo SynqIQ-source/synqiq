@@ -9,15 +9,11 @@ import { SidebarNav, type NavGroup } from "@/components/sidebar-nav";
 import { AccountMenu } from "@/components/account-menu";
 import { isCrmEnabled } from "@/lib/crm/module";
 import type { CurrentStaff } from "@/lib/current-staff";
-import {
-  canUseCrm,
-  canViewOverview,
-  isClubAdmin,
-  isInstructorAccess,
-  canCheckIn,
-  isTrainerAccess,
-} from "@/lib/permissions";
+import { canUseCrm, canViewOverview, isClubAdmin, isInstructorAccess, canCheckIn, isTrainerAccess } from "@/lib/permissions";
 import { unreadGuestMessageCount } from "@/lib/crm/unread";
+import { TimeClockButton } from "@/components/time-clock-button";
+import { signsOutOnClockOut } from "@/lib/time-clock/hours";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 // who: which staff see the link (lib/permissions.ts); omitted = everyone.
 // The pages enforce the same rule themselves -- hiding a link is not the
@@ -95,6 +91,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/settings/staff", label: "Staff & Roles", who: isClubAdmin },
       { href: "/dashboard/settings/billing", label: "Billing", who: isClubAdmin },
       { href: "/dashboard/settings/eligibility", label: "Class Eligibility", who: isClubAdmin, modules: ["group_fitness"] },
+      { href: "/dashboard/timesheets", label: "Timesheets", who: isClubAdmin },
       { href: "/dashboard/settings/imports", label: "Imports", who: isClubAdmin },
       { href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", who: isClubAdmin },
       { href: "/dashboard/settings/crm", label: "CRM", who: isClubAdmin, crm: true },
@@ -156,17 +153,29 @@ export async function DashboardShell({ children, title, description, actions }: 
   const enabledModules = currentStaff ? await getEnabledModules(currentStaff.organizationId) : null;
   // Unread guest texts/emails, shown as a count on "Guests" -- or, for
   // trainers (who work assigned new members), on "Follow Up".
-  const guestUnread =
-    currentStaff && (crmEnabled || enabledModules?.has("trainer")) ? await unreadGuestMessageCount(currentStaff) : 0;
-  const unreadHref =
-    currentStaff && crmEnabled && canUseCrm(currentStaff) ? "/dashboard/guests" : "/dashboard/follow-up";
+  const guestUnread = currentStaff && (crmEnabled || enabledModules?.has("trainer")) ? await unreadGuestMessageCount(currentStaff) : 0;
+  const unreadHref = currentStaff && crmEnabled && canUseCrm(currentStaff) ? "/dashboard/guests" : "/dashboard/follow-up";
+  // The time clock: their open shift, if any.
+  const { data: openShift } = currentStaff
+    ? await createSupabaseAdminClient()
+        .from("time_punches")
+        .select("clock_in_at")
+        .eq("staff_id", currentStaff.id)
+        .is("clock_out_at", null)
+        .is("deleted_at", null)
+        .maybeSingle()
+    : { data: null };
   const allowed = (entry: NavEntry) => !entry.who || (currentStaff !== null && entry.who(currentStaff));
 
   const visibleGroups: NavGroup[] = navigation
     .map((group) => ({
       label: group.label,
       items: group.items
-        .filter((item) => allowed(item) && (!item.crm || crmEnabled) && (!item.platform || isPlatformAdmin) &&
+        .filter(
+          (item) =>
+            allowed(item) &&
+            (!item.crm || crmEnabled) &&
+            (!item.platform || isPlatformAdmin) &&
             (!item.modules || !enabledModules || item.modules.some((module) => enabledModules.has(module))),
         )
         .map(({ href, label }) => ({ href, label, badge: href === unreadHref ? guestUnread : undefined })),
@@ -206,6 +215,12 @@ export async function DashboardShell({ children, title, description, actions }: 
             <div className="flex shrink-0 items-center gap-3">
               {actions}
               {currentStaff ? (
+                <TimeClockButton
+                  clockedInAt={(openShift?.clock_in_at as string | undefined) ?? null}
+                  signsOut={signsOutOnClockOut(currentStaff)}
+                />
+              ) : null}
+              {currentStaff ? (
                 <AccountMenu
                   displayName={currentStaff.displayName}
                   role={currentStaff.role}
@@ -221,8 +236,8 @@ export async function DashboardShell({ children, title, description, actions }: 
           {currentStaff && currentStaff.mfa !== "ok" ? (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
               <span>
-                <strong>Turn on two-step sign-in.</strong> Club Admins need a code from an authenticator app at sign-in;
-                it will be required before member payments go live.
+                <strong>Turn on two-step sign-in.</strong> Club Admins need a code from an authenticator app at sign-in; it will be required
+                before member payments go live.
               </span>
               <Link href="/dashboard/account#two-step" className="font-medium underline underline-offset-4">
                 Set it up
