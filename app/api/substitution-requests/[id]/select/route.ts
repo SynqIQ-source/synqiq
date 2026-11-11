@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { applyApprovedSub } from "@/lib/classes/session-subs";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
@@ -29,10 +30,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // approve any candidate for any request. That's the gap this closes.
     const currentStaff = await getCurrentStaff();
     if (!currentStaff || currentStaff.role !== "admin") {
-      return NextResponse.json(
-        { error: "Only an authenticated admin can approve a substitute." },
-        { status: 403 },
-      );
+      return NextResponse.json({ error: "Only an authenticated admin can approve a substitute." }, { status: 403 });
     }
 
     const supabase = await getScopedClient(currentStaff);
@@ -44,10 +42,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .single();
 
     if (requestError || !substitutionRequest) {
-      return NextResponse.json(
-        { error: "Substitution request not found." },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Substitution request not found." }, { status: 404 });
     }
 
     // Fast-path only -- a plain read, not a lock, so it can't by itself
@@ -60,10 +55,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // DB write commits last silently wins with no error to the loser --
     // see conversation history.
     if (substitutionRequest.status !== "open") {
-      return NextResponse.json(
-        { error: `This request is no longer open (status: ${substitutionRequest.status}).` },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: `This request is no longer open (status: ${substitutionRequest.status}).` }, { status: 409 });
     }
 
     const { data: interestRow, error: interestError } = await supabase
@@ -78,10 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (!interestRow) {
-      return NextResponse.json(
-        { error: "This staff member has not responded to this request." },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "This staff member has not responded to this request." }, { status: 404 });
     }
 
     if (interestRow.status !== "interested") {
@@ -104,17 +93,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const { data: chosenStaff, error: staffError } = await supabase
-      .from("staff")
-      .select("mindbody_staff_id")
-      .eq("id", staffId)
-      .single();
+    const { data: chosenStaff, error: staffError } = await supabase.from("staff").select("mindbody_staff_id").eq("id", staffId).single();
 
     if (staffError || !chosenStaff || chosenStaff.mindbody_staff_id === null) {
-      return NextResponse.json(
-        { error: "The chosen staff member has no MindBody staff id -- cannot substitute." },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: "The chosen staff member has no MindBody staff id -- cannot substitute." }, { status: 409 });
     }
 
     // The actual concurrency guard: atomically claim this request before
@@ -140,10 +122,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (!claimedRows || claimedRows.length === 0) {
-      return NextResponse.json(
-        { error: "This request was just resolved by someone else -- refresh and try again." },
-        { status: 409 },
-      );
+      return NextResponse.json({ error: "This request was just resolved by someone else -- refresh and try again." }, { status: 409 });
     }
 
     // Call MindBody FIRST. Our own DB is only ever finalized after this
@@ -161,23 +140,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .select("mindbody_site_id")
       .eq("id", occurrence.organization_id)
       .maybeSingle();
-    const mindbody = createMindbodyClient(
-      orgSite?.mindbody_site_id ? { siteId: String(orgSite.mindbody_site_id) } : undefined,
-    );
+    const mindbody = createMindbodyClient(orgSite?.mindbody_site_id ? { siteId: String(orgSite.mindbody_site_id) } : undefined);
 
     try {
       const { AccessToken: accessToken } = await mindbody.authenticate();
-      await mindbody.substituteClassTeacher(
-        asOccurrenceId(occurrence.mindbody_occurrence_id),
-        chosenStaff.mindbody_staff_id,
-        accessToken,
-      );
+      await mindbody.substituteClassTeacher(asOccurrenceId(occurrence.mindbody_occurrence_id), chosenStaff.mindbody_staff_id, accessToken);
     } catch (mindbodyError) {
-      await supabase
-        .from("substitution_requests")
-        .update({ status: "open" })
-        .eq("id", requestId)
-        .eq("status", "pending_selection");
+      await supabase.from("substitution_requests").update({ status: "open" }).eq("id", requestId).eq("status", "pending_selection");
 
       return NextResponse.json(
         {
@@ -220,9 +189,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           // pending_selection once this request claimed it. Surfaced as a
           // retriable error rather than silently swallowed, same as any
           // other unexpected write failure in this block.
-          throw new Error(
-            "Expected this request to still be pending_selection after the claim, but it wasn't.",
-          );
+          throw new Error("Expected this request to still be pending_selection after the claim, but it wasn't.");
         }
 
         const { error: updateOccurrenceError } = await supabase
@@ -245,6 +212,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         },
         { status: 500 },
       );
+    }
+
+    // Best-effort: put the sub on SynqIQ's own class calendar for that date
+    // too (the nightly calendar build catches up if this fails).
+    try {
+      await applyApprovedSub(substitutionRequest.occurrence_id, staffId, currentStaff.id);
+    } catch (calendarError) {
+      console.error("[sub-select] calendar update failed:", calendarError instanceof Error ? calendarError.message : calendarError);
     }
 
     // Non-critical, best-effort: a sub-specific chat board for the
@@ -337,11 +312,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const notChosen = reachable.filter((row) => row.staff_id !== staffId).map(toRecipient);
 
         if (chosen.length > 0 || notChosen.length > 0) {
-          const { data: org } = await supabase
-            .from("organizations")
-            .select("timezone")
-            .eq("id", occurrence.organization_id)
-            .maybeSingle();
+          const { data: org } = await supabase.from("organizations").select("timezone").eq("id", occurrence.organization_id).maybeSingle();
 
           const classInfo = {
             className: occurrence.class_name,

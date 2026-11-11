@@ -53,3 +53,22 @@ describe("class catalog edits", () => {
     });
   });
 });
+
+describe("subs on the calendar", () => {
+  const session = {
+    id: "s",
+    start_time: "06:05:00",
+    end_time: "06:50:00",
+    staff_mindbody_id: 5,
+    edits: { staff_mindbody_id: 9, sub_source: "mindbody" },
+  };
+  it("a manual instructor change takes over from a sub", () => {
+    const result = applyCatalogEdit("class_session", session as never, { set: { staff_mindbody_id: 7 } });
+    expect(result).toMatchObject({ ok: true, edits: { staff_mindbody_id: 7 } });
+    expect(result.ok && "sub_source" in result.edits).toBe(false);
+  });
+  it("resetting the instructor drops the sub too", () => {
+    const result = applyCatalogEdit("class_session", session as never, { reset: ["staff_mindbody_id"] });
+    expect(result).toMatchObject({ ok: true, edits: {} });
+  });
+});

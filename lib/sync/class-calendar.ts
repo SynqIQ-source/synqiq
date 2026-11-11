@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { generateSessions, type CalendarSchedule } from "@/lib/classes/calendar";
+import { syncSubsIntoCalendar } from "@/lib/classes/session-subs";
 
 // Builds SynqIQ's class calendar (class_sessions) for the booking window
 // from the class schedules with their SynqIQ edits. Runs after the nightly
@@ -14,7 +15,16 @@ export const CALENDAR_DAYS = 21; // the booking window
 const RUNNING_DAYS = 30; // a Mindbody schedule counts if it had a class this recently
 
 export type BuildCalendarResult =
-  { success: true; sessions: number; removed: number; flagged: number; from: string; to: string } | { success: false; error: string };
+  | {
+      success: true;
+      sessions: number;
+      removed: number;
+      flagged: number;
+      subs: { synqiq: number; mindbody: number };
+      from: string;
+      to: string;
+    }
+  | { success: false; error: string };
 
 type ScheduleRow = {
   id: string;
@@ -133,7 +143,14 @@ export async function buildClassCalendar(organizationId: string): Promise<BuildC
     }
     if (toFlag.length) await supabase.from("class_sessions").update({ removed_from_schedule_at: generatedAt }).in("id", toFlag);
 
-    return { success: true, sessions: generated.length, removed: toDelete.length, flagged: toFlag.length, from, to };
+    // Subs: approved in SynqIQ, or set directly in Mindbody.
+    const subs = await syncSubsIntoCalendar(
+      organizationId,
+      today.startOf("day").toUTC().toISO()!,
+      today.plus({ days: CALENDAR_DAYS }).endOf("day").toUTC().toISO()!,
+    );
+
+    return { success: true, sessions: generated.length, removed: toDelete.length, flagged: toFlag.length, subs, from, to };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

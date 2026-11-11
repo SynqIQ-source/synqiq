@@ -202,6 +202,7 @@ export function applyCatalogEdit(
     if (!specs[field]) return { ok: false, error: "Unknown field." };
     if (!Object.prototype.hasOwnProperty.call(edits, field)) continue;
     delete edits[field];
+    if (field === "staff_mindbody_id") delete edits.sub_source;
     changes[field] = { from: current[field], to: "(Mindbody)" };
   }
   for (const [field, raw] of Object.entries(input.set ?? {})) {
@@ -211,6 +212,8 @@ export function applyCatalogEdit(
     if (!result.ok) return result;
     if (same(result.value, current[field])) continue;
     edits[field] = result.value;
+    // A manual instructor change takes over from a sub.
+    if (field === "staff_mindbody_id") delete edits.sub_source;
     changes[field] = { from: current[field], to: result.value };
   }
 

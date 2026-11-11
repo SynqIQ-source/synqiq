@@ -129,7 +129,15 @@ export function CalendarTab({
                         <div className="mt-1 flex flex-wrap gap-1">
                           {merged.active === false ? <Badge variant="destructive">Cancelled</Badge> : null}
                           {session.removed_from_schedule_at ? <Badge variant="outline">No longer on the weekly schedule</Badge> : null}
-                          {merged.edited.length && merged.active !== false ? <Badge variant="outline">Changed for this date</Badge> : null}
+                          {session.edits?.sub_source && merged.active !== false ? (
+                            <Badge variant="secondary">
+                              {session.edits.sub_source === "synqiq" ? "Sub (approved in SynqIQ)" : "Sub (set in Mindbody)"}
+                            </Badge>
+                          ) : null}
+                          {merged.edited.filter((field) => !(field === "staff_mindbody_id" && session.edits?.sub_source)).length &&
+                          merged.active !== false ? (
+                            <Badge variant="outline">Changed for this date</Badge>
+                          ) : null}
                           {!cancelled && MATCH_LABEL[match] ? (
                             <Badge variant="outline" className="border-amber-300 text-amber-800 dark:border-amber-700 dark:text-amber-200">
                               {MATCH_LABEL[match]}
