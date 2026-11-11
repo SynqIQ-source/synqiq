@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Fragment } from "react";
@@ -12,7 +13,6 @@ import { HistoryWindowSelect } from "./history-window-select";
 import { PeriodNav } from "./period-nav";
 import { requireModule } from "@/lib/modules";
 import { requireAccess } from "@/lib/require-access";
-import { isInstructorAccess } from "@/lib/permissions";
 
 type TableOccurrenceRow = {
   id: string;
@@ -243,7 +243,8 @@ export default async function ClassesPage({
 }) {
   // Part of the group fitness module: 404 when the studio doesn't have it.
   await requireModule("group_fitness");
-  await requireAccess(isInstructorAccess);
+  // Every staff member can see the schedule and who is in each class.
+  await requireAccess(() => true);
   const params = await searchParams;
 
   // Adam's real session -> RLS-scoped client, so the same-org select
@@ -298,7 +299,7 @@ export default async function ClassesPage({
   return (
     <DashboardShell
       title="Classes"
-      description="Every class on the schedule, with how full it is compared with its usual."
+      description="Every class on the schedule, with how full it is compared with its usual. Open a class to see who is in it."
     >
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -355,7 +356,9 @@ export default async function ClassesPage({
                             {formatTime(occurrence.start_datetime, occurrenceTimezone)}
                           </TableCell>
                           <TableCell className="align-top">
-                            <div className="font-medium">{occurrence.class_name?.trim() ?? "Unknown"}</div>
+                            <Link href={`/dashboard/classes/${occurrence.id}`} className="font-medium underline-offset-4 hover:underline">
+                              {occurrence.class_name?.trim() ?? "Unknown"}
+                            </Link>
                             <div className="text-xs text-muted-foreground">
                               {occurrence.department?.name ?? "No department"}
                               <span className="lg:hidden"> · {occurrence.room?.name ?? "No room"}</span>

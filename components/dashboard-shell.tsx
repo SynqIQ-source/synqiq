@@ -44,7 +44,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     label: "Teaching",
     items: [
       { href: "/dashboard/schedule", label: "My Schedule", who: isInstructorAccess, modules: ["group_fitness"] },
-      { href: "/dashboard/classes", label: "Classes", who: isInstructorAccess, modules: ["group_fitness"] },
+      { href: "/dashboard/classes", label: "Classes", modules: ["group_fitness"] },
       { href: "/dashboard/sub-requests", label: "Sub Requests", who: isInstructorAccess, modules: ["group_fitness"] },
       { href: "/dashboard/follow-up", label: "Follow Up", who: instructorOrTrainer, modules: ["group_fitness", "trainer"] },
       { href: "/dashboard/messages", label: "Message Boards" },
@@ -101,11 +101,11 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
 // everything else is in the "More" popover, so nothing becomes unreachable
 // on mobile, just not primary.
 const MOBILE_PRIMARY_PREFERENCE = [
+  "/dashboard/sales",
+  "/dashboard/guests",
   "/dashboard/classes",
   "/dashboard/schedule",
   "/dashboard/sub-requests",
-  "/dashboard/sales",
-  "/dashboard/guests",
   "/dashboard/sales/calendar",
   "/dashboard/sales/new-members",
   "/dashboard/follow-up",
