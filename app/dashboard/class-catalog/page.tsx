@@ -11,6 +11,7 @@ import { DAY_NAMES } from "@/lib/classes/catalog";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { CatalogEditDialog } from "./edit-dialog";
 import { CatalogCreateDialog } from "./create-dialog";
+import { WidgetTab } from "./widget-tab";
 import { CalendarTab, type SessionRow } from "./calendar-tab";
 import { CALENDAR_DAYS } from "@/lib/sync/class-calendar";
 import type { MindbodyClass } from "@/lib/classes/calendar";
@@ -192,7 +193,8 @@ export default async function ClassCatalogPage() {
   const bookable = programs.filter((program) => program.schedule_type === "Class" || program.schedule_type === "Appointment");
 
   // SynqIQ's calendar and Mindbody's classes over the same dates.
-  const { data: org } = await supabase.from("organizations").select("timezone").eq("id", orgId).maybeSingle();
+  const { data: org } = await supabase.from("organizations").select("timezone, mindbody_site_id").eq("id", orgId).maybeSingle();
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://synqiq.co").replace(/\/$/, "");
   const timezone = (org?.timezone as string | undefined) ?? "America/Chicago";
   const today = DateTime.now().setZone(timezone);
   const windowEnd = today.plus({ days: CALENDAR_DAYS });
@@ -264,6 +266,7 @@ export default async function ClassCatalogPage() {
             <TabsTrigger value="rules">Booking rules</TabsTrigger>
             <TabsTrigger value="rooms">Rooms</TabsTrigger>
             <TabsTrigger value="appointments">Appointment types</TabsTrigger>
+            <TabsTrigger value="widget">Website widget</TabsTrigger>
           </TabsList>
 
           <TabsContent value="calendar">
@@ -519,6 +522,10 @@ export default async function ClassCatalogPage() {
                 </TableBody>
               </Table>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="widget">
+            <WidgetTab siteUrl={siteUrl} siteId={(org?.mindbody_site_id as number | null) ?? null} />
           </TabsContent>
 
           <TabsContent value="appointments">
