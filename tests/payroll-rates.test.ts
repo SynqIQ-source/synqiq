@@ -41,6 +41,19 @@ describe("class pay", () => {
     expect(classPayCents(pilates50, 10)).toBe(10250);
     expect(classPayCents(pilates50, 12)).toBe(10250);
   });
+  it("matches Group Pilates with a $35 base, capped at $95", () => {
+    const pilates35 = rate({ baseCents: 3500, perHeadCents: 750, headsAbove: 2, capCents: 9500, noRegistrationCents: 3500 });
+    expect(classPayCents(pilates35, 9)).toBe(8750);
+    expect(classPayCents(pilates35, 10)).toBe(9500);
+    expect(classPayCents(pilates35, 12)).toBe(9500);
+  });
+  it("pays the no-registrations rate when nobody came", () => {
+    const pilates50 = rate({ baseCents: 5000, perHeadCents: 750, headsAbove: 2, capCents: 11000, noRegistrationCents: 3500 });
+    expect(classPayCents(pilates50, 0)).toBe(3500);
+    expect(classPayCents(pilates50, 1)).toBe(5000);
+    expect(classPayCents(rate({ method: "flat", flatCents: 7500, noRegistrationCents: 4000 }), 0)).toBe(4000);
+    expect(classPayCents(peak, 0)).toBe(4000); // no override set: normal formula
+  });
   it("pays a flat class rate whatever the headcount", () => {
     expect(classPayCents(rate({ method: "flat", flatCents: 3000 }), 13)).toBe(3000);
     expect(classPayCents(rate({ baseCents: 5000 }), 9)).toBe(5000);

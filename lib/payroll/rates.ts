@@ -16,9 +16,11 @@ export type PayRate = {
   capCents: number | null;
   percent: number | null;
   flatCents: number | null;
+  noRegistrationCents?: number | null; // classes: pay when nobody came (null = the normal amount)
 };
 
 export function classPayCents(rate: PayRate, paidHeads: number): number {
+  if (paidHeads <= 0 && rate.noRegistrationCents != null) return rate.noRegistrationCents;
   if (rate.method === "flat") return rate.flatCents ?? 0;
   const extra = Math.max(0, Math.floor(paidHeads) - rate.headsAbove);
   const total = rate.baseCents + extra * rate.perHeadCents;
@@ -79,11 +81,13 @@ export function rateProblem(input: {
 // "$40 + $5 per person above 6, up to $75" -- for the settings page.
 export function describeRate(rate: PayRate): string {
   const money = (cents: number) => `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
-  if (rate.method === "flat") return `${money(rate.flatCents ?? 0)} ${rate.appliesTo === "class" ? "per class" : "per session"}`;
+  const empty =
+    rate.appliesTo === "class" && rate.noRegistrationCents != null ? `; ${money(rate.noRegistrationCents)} if nobody comes` : "";
+  if (rate.method === "flat") return `${money(rate.flatCents ?? 0)} ${rate.appliesTo === "class" ? "per class" : "per session"}${empty}`;
   if (rate.method === "percent") return `${rate.percent}% of the session's value`;
-  if (!rate.perHeadCents) return `${money(rate.baseCents)} per class`;
+  if (!rate.perHeadCents) return `${money(rate.baseCents)} per class${empty}`;
   const cap = rate.capCents == null ? "" : `, up to ${money(rate.capCents)}`;
-  return `${money(rate.baseCents)} + ${money(rate.perHeadCents)} per person above ${rate.headsAbove}${cap}`;
+  return `${money(rate.baseCents)} + ${money(rate.perHeadCents)} per person above ${rate.headsAbove}${cap}${empty}`;
 }
 
 export function toPayRate(row: Record<string, unknown>): PayRate {
@@ -98,5 +102,6 @@ export function toPayRate(row: Record<string, unknown>): PayRate {
     capCents: row.cap_cents == null ? null : Number(row.cap_cents),
     percent: row.percent == null ? null : Number(row.percent),
     flatCents: row.flat_cents == null ? null : Number(row.flat_cents),
+    noRegistrationCents: row.no_registration_cents == null ? null : Number(row.no_registration_cents),
   };
 }

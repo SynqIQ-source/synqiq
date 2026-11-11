@@ -53,6 +53,9 @@ export async function POST(request: NextRequest) {
   };
   const problem = rateProblem(input);
   if (problem) return fail(problem);
+  const noRegistrationCents = input.appliesTo === "class" ? dollarsToCents(body.noRegistration) : null;
+  if (Number.isNaN(noRegistrationCents) || (noRegistrationCents != null && (noRegistrationCents < 0 || noRegistrationCents > 1_000_000)))
+    return fail("Enter the no-registrations amount in dollars, or leave it blank.");
   const row = {
     organization_id: currentStaff.organizationId,
     name: input.name,
@@ -64,6 +67,7 @@ export async function POST(request: NextRequest) {
     cap_cents: input.capCents,
     percent: input.percent,
     flat_cents: input.flatCents,
+    no_registration_cents: noRegistrationCents,
     updated_at: new Date().toISOString(),
     updated_by_staff_id: currentStaff.id,
   };

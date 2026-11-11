@@ -158,6 +158,7 @@ function RateForm({ rate, onDone }: { rate?: RateRow; onDone?: () => void }) {
   const [cap, setCap] = useState(cents(rate?.capCents ?? null));
   const [percent, setPercent] = useState(rate?.percent == null ? "" : String(rate.percent));
   const [flat, setFlat] = useState(cents(rate?.flatCents ?? null));
+  const [noRegistration, setNoRegistration] = useState(cents(rate?.noRegistrationCents ?? null));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,6 +187,7 @@ function RateForm({ rate, onDone }: { rate?: RateRow; onDone?: () => void }) {
       cap,
       percent,
       flat,
+      noRegistration,
     });
     setSaving(false);
     if (problem) return setError(problem);
@@ -197,6 +199,7 @@ function RateForm({ rate, onDone }: { rate?: RateRow; onDone?: () => void }) {
       setCap("");
       setPercent("");
       setFlat("");
+      setNoRegistration("");
     }
     onDone?.();
     router.refresh();
@@ -245,6 +248,7 @@ function RateForm({ rate, onDone }: { rate?: RateRow; onDone?: () => void }) {
           </label>
         ) : null}
         {method === "flat" ? <Money label="Amount" value={flat} onChange={setFlat} /> : null}
+        {appliesTo === "class" ? <Money label="If nobody comes (optional)" value={noRegistration} onChange={setNoRegistration} /> : null}
         <Button size="sm" disabled={saving || !name.trim()} onClick={save}>
           {rate ? "Save" : "Add rate"}
         </Button>
