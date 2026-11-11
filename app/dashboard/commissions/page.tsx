@@ -85,7 +85,10 @@ export default async function CommissionsPage({ searchParams }: Props) {
   }));
   // Commissionable sale lines and who is credited on each.
   const sales: SaleRow[] = saleLines
+    // Autopay / renewal membership charges never earn commission, so they
+    // aren't listed (only a new contract's first payment can).
     .filter((line) => line.category !== "none" && line.totalCents > 0 && !line.returned)
+    .filter((line) => line.category !== "membership" || line.isNewMembership)
     .sort((a, b) => b.saleAt.localeCompare(a.saleAt))
     .map((line) => ({
       detailId: line.detailId,
