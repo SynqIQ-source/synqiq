@@ -20,6 +20,7 @@ export type BookingRow = {
   late_cancel_fee_cents: number | null;
   booked_at: string;
   booked_by_staff_id: string | null;
+  booked_by_member_account_id: string | null;
   cancelled_at: string | null;
   cancel_reason: string | null;
   checked_in_at: string | null;
@@ -111,7 +112,7 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
   const { data: bookings } = await admin
     .from("class_bookings")
     .select(
-      "id, mindbody_client_id, client_name, status, waitlisted_at, coverage_kind, coverage_name, note, late_cancel_fee_cents, booked_at, booked_by_staff_id, cancelled_at, cancel_reason, checked_in_at",
+      "id, mindbody_client_id, client_name, status, waitlisted_at, coverage_kind, coverage_name, note, late_cancel_fee_cents, booked_at, booked_by_staff_id, booked_by_member_account_id, cancelled_at, cancel_reason, checked_in_at",
     )
     .eq("class_session_id", sessionId)
     .order("booked_at")

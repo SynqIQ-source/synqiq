@@ -193,7 +193,16 @@ export default async function ClassCatalogPage() {
   const bookable = programs.filter((program) => program.schedule_type === "Class" || program.schedule_type === "Appointment");
 
   // SynqIQ's calendar and Mindbody's classes over the same dates.
-  const { data: org } = await supabase.from("organizations").select("timezone, mindbody_site_id").eq("id", orgId).maybeSingle();
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("timezone, mindbody_site_id, member_portal_mode")
+    .eq("id", orgId)
+    .maybeSingle();
+  const { data: testerRows } = await supabase
+    .from("member_portal_testers")
+    .select("mindbody_client_id, client_name")
+    .eq("organization_id", orgId)
+    .order("client_name");
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://synqiq.co").replace(/\/$/, "");
   const timezone = (org?.timezone as string | undefined) ?? "America/Chicago";
   const today = DateTime.now().setZone(timezone);
@@ -525,7 +534,12 @@ export default async function ClassCatalogPage() {
           </TabsContent>
 
           <TabsContent value="widget">
-            <WidgetTab siteUrl={siteUrl} siteId={(org?.mindbody_site_id as number | null) ?? null} />
+            <WidgetTab
+              siteUrl={siteUrl}
+              siteId={(org?.mindbody_site_id as number | null) ?? null}
+              portalMode={(org?.member_portal_mode as string | null) ?? "testers"}
+              testers={(testerRows ?? []).map((row) => ({ id: row.mindbody_client_id as string, name: row.client_name as string }))}
+            />
           </TabsContent>
 
           <TabsContent value="appointments">

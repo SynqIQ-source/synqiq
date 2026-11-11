@@ -18,12 +18,7 @@ function formatClassTime(startDatetime: string, timezone: string): string {
 // field and escape it, or a crafted name/studio field could inject markup
 // into the notification email itself.
 function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // Deliberately plain -- no heavy HTML-email styling/layout system. This is
@@ -96,13 +91,10 @@ type NewClassTypeInfo = {
 // instructors were made eligible automatically; this is the prompt to add
 // anyone else qualified to sub it. Escaped even though the values come from
 // synced MindBody data -- class names are free text typed into MindBody.
-export function newClassTypesEmail({
-  newClassTypes,
-  siteUrl,
-}: {
-  newClassTypes: NewClassTypeInfo[];
-  siteUrl: string;
-}): { subject: string; html: string } {
+export function newClassTypesEmail({ newClassTypes, siteUrl }: { newClassTypes: NewClassTypeInfo[]; siteUrl: string }): {
+  subject: string;
+  html: string;
+} {
   const names = newClassTypes.map((type) => type.className);
   const items = newClassTypes
     .map(
@@ -114,8 +106,7 @@ export function newClassTypesEmail({
     .join("");
 
   return {
-    subject:
-      names.length === 1 ? `New class type in SynqIQ: ${names[0]}` : `${names.length} new class types in SynqIQ`,
+    subject: names.length === 1 ? `New class type in SynqIQ: ${names[0]}` : `${names.length} new class types in SynqIQ`,
     html: `
       <p>SynqIQ found ${names.length === 1 ? "a new class type" : "new class types"} on the schedule. The instructors scheduled to teach ${
         names.length === 1 ? "it were" : "them were"
@@ -135,13 +126,7 @@ type VolunteerInfo = ClassInfo & {
 // this is the action-relevant moment (someone is available, an approval
 // decision is now possible), unlike a plain decline which needs no admin
 // action and stays silent.
-export function substitutionRequestVolunteerEmail({
-  className,
-  startDatetime,
-  timezone,
-  siteUrl,
-  instructorName,
-}: VolunteerInfo): {
+export function substitutionRequestVolunteerEmail({ className, startDatetime, timezone, siteUrl, instructorName }: VolunteerInfo): {
   subject: string;
   html: string;
 } {
@@ -278,6 +263,33 @@ export function leadAutoResponseEmail({ name, studioName }: Pick<NewLead, "name"
       </ol>
       <p>You can expect to hear from us within the next few — 3-4 — business days.</p>
       <p>Talk soon,<br>The SynqIQ Team</p>
+    `,
+  };
+}
+
+// Member account: a one-time link to set (or reset) their password.
+export function memberPasswordLinkEmail({
+  studioName,
+  firstName,
+  link,
+  isNew,
+}: {
+  studioName: string;
+  firstName: string;
+  link: string;
+  isNew: boolean;
+}): {
+  subject: string;
+  html: string;
+} {
+  const action = isNew ? "create your account" : "reset your password";
+  return {
+    subject: `${studioName}: ${isNew ? "set up your class booking account" : "reset your password"}`,
+    html: `
+      <p>Hi ${escapeHtml(firstName)},</p>
+      <p>Use this link to ${action} for booking classes at ${escapeHtml(studioName)}:</p>
+      <p><a href="${escapeHtml(link)}">${isNew ? "Create my password" : "Reset my password"}</a></p>
+      <p>The link works once and expires in an hour. If you didn't ask for it, you can ignore this email.</p>
     `,
   };
 }

@@ -321,7 +321,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="secondary">SynqIQ</Badge>
+                          <Badge variant="secondary">SynqIQ{booking.booked_by_member_account_id ? " · online" : ""}</Badge>
                         </TableCell>
                         {manage ? (
                           <TableCell className="text-right">

@@ -1,19 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { PublicSchedule } from "@/lib/widget/schedule";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { PublicClass, PublicSchedule } from "@/lib/widget/schedule";
 
 // The schedule widget: pick a day, filter by program or class, tap a class
 // for its description. Tells the page embedding it how tall it is, so the
 // iframe can grow to fit (see the embed snippet).
-export function ScheduleWidget({ schedule }: { schedule: PublicSchedule }) {
+//
+// Booking: on the website (iframe) `bookingHref` adds Book links that open
+// the member booking page in a new tab (Safari blocks sign-in cookies
+// inside iframes); on the member booking page `renderAction` draws the
+// Book / Cancel buttons and `initialClassId` opens the class they picked.
+export function ScheduleWidget({
+  schedule,
+  bookingHref,
+  renderAction,
+  initialClassId,
+  header,
+  footer = "Book through the studio app or at the front desk.",
+}: {
+  schedule: PublicSchedule;
+  bookingHref?: string;
+  renderAction?: (item: PublicClass) => ReactNode;
+  initialClassId?: string;
+  header?: ReactNode;
+  footer?: string | null;
+}) {
   const { studio, days, classes, types } = schedule;
-  const firstDay = days.find((day) => classes.some((item) => item.date === day && !item.isPool)) ?? days[0];
+  const picked = initialClassId ? classes.find((item) => item.id === initialClassId) : undefined;
+  const firstDay = picked?.date ?? days.find((day) => classes.some((item) => item.date === day && !item.isPool)) ?? days[0];
   const [day, setDay] = useState(firstDay);
   const [program, setProgram] = useState("all");
   const [classType, setClassType] = useState("all");
-  const [showPool, setShowPool] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [showPool, setShowPool] = useState(Boolean(picked?.isPool));
+  const [openId, setOpenId] = useState<string | null>(picked?.id ?? null);
   const rootRef = useRef<HTMLDivElement>(null);
   const color = studio.primaryColor;
 
@@ -64,6 +84,7 @@ export function ScheduleWidget({ schedule }: { schedule: PublicSchedule }) {
         ) : null}
         <h1 className="text-base font-semibold">{studio.name} class schedule</h1>
       </header>
+      {header}
 
       <div className="-mx-1 mb-3 flex gap-1 overflow-x-auto pb-1" role="tablist" aria-label="Day">
         {days.map((iso) => {
@@ -170,6 +191,18 @@ export function ScheduleWidget({ schedule }: { schedule: PublicSchedule }) {
                       {item.capacity ? <span className="rounded-full border px-2 py-0.5">{item.capacity} spots</span> : null}
                     </div>
                     <p className="whitespace-pre-line text-neutral-700">{type?.description ?? "No description yet."}</p>
+                    {!item.cancelled && renderAction ? <div className="pt-1">{renderAction(item)}</div> : null}
+                    {!item.cancelled && !renderAction && bookingHref ? (
+                      <a
+                        href={`${bookingHref}${bookingHref.includes("?") ? "&" : "?"}class=${item.id}`}
+                        target="_blank"
+                        rel="noopener"
+                        className="inline-block rounded-md px-3 py-1.5 text-sm font-medium text-white"
+                        style={{ background: color }}
+                      >
+                        {full ? "Join waitlist" : "Book"}
+                      </a>
+                    ) : null}
                     {type?.lateCancelMinutes ? (
                       <p className="text-xs text-neutral-500">
                         Cancel at least{" "}
@@ -186,7 +219,7 @@ export function ScheduleWidget({ schedule }: { schedule: PublicSchedule }) {
           })}
         </ul>
       )}
-      <p className="mt-3 text-center text-xs text-neutral-400">Book through the studio app or at the front desk.</p>
+      {footer ? <p className="mt-3 text-center text-xs text-neutral-400">{footer}</p> : null}
     </div>
   );
 }
