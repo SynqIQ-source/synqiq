@@ -46,6 +46,8 @@ export type CommissionSaleLine = {
   isNewPtClient: boolean;
   handoffApproved: boolean;
   clientTrainerStaffId: string | null; // trainer of record (CRM onboarding), for the handoff hint
+  credits: CommissionCredit[]; // who earns on this line, and their share
+  noCommission: boolean; // "None" chosen: nobody earns on this line
 };
 
 export async function loadPlans(admin: Admin, organizationId: string): Promise<CommissionPlan[]> {
@@ -153,7 +155,7 @@ export async function loadSaleLines(admin: Admin, organizationId: string, fromIs
     all((from, to) =>
       admin
         .from("commission_sale_flags")
-        .select("mindbody_sale_detail_id, handoff_approved")
+        .select("mindbody_sale_detail_id, handoff_approved, no_commission")
         .eq("organization_id", organizationId)
         .order("mindbody_sale_detail_id")
         .range(from, to),
@@ -208,6 +210,32 @@ export async function loadSaleLines(admin: Admin, organizationId: string, fromIs
   const staffByMindbody = new Map(staff.map((row) => [Number(row.mindbody_staff_id), row]));
   const contractBy = new Map(contracts.map((row) => [Number(row.mindbody_client_contract_id), row]));
   const flagBy = new Map(flags.map((row) => [Number(row.mindbody_sale_detail_id), Boolean(row.handoff_approved)]));
+  const noneBy = new Set(flags.filter((row) => row.no_commission).map((row) => Number(row.mindbody_sale_detail_id)));
+  const detailIds = items.map((item) => Number(item.mindbody_sale_detail_id));
+  const credits = (
+    await Promise.all(
+      chunks(detailIds).map((ids) =>
+        admin
+          .from("commission_sale_credits")
+          .select("mindbody_sale_detail_id, staff_id, share_percent, source")
+          .eq("organization_id", organizationId)
+          .in("mindbody_sale_detail_id", ids),
+      ),
+    )
+  ).flatMap((result) => result.data ?? []);
+  const staffById = new Map(staff.map((row) => [row.id as string, row]));
+  const creditsBy = new Map<number, CommissionCredit[]>();
+  for (const credit of credits) {
+    const list = creditsBy.get(Number(credit.mindbody_sale_detail_id)) ?? [];
+    const person = staffById.get(credit.staff_id as string);
+    list.push({
+      staffId: credit.staff_id as string,
+      name: (person?.display_name as string | undefined) ?? "Unknown",
+      sharePercent: Number(credit.share_percent),
+      source: credit.source as CommissionCredit["source"],
+    });
+    creditsBy.set(Number(credit.mindbody_sale_detail_id), list);
+  }
   const trainerBy = new Map(contacts.map((row) => [row.mindbody_client_id as string, (row.trainer_staff_id as string | null) ?? null]));
   const ptBy = new Map<string, number[]>();
   for (const appt of appointments) {
@@ -250,9 +278,13 @@ export async function loadSaleLines(admin: Admin, organizationId: string, fromIs
       isNewPtClient: !recentPt,
       handoffApproved: flagBy.get(Number(item.mindbody_sale_detail_id)) ?? false,
       clientTrainerStaffId: trainerBy.get(sale.mindbody_client_id as string) ?? null,
+      credits: creditsBy.get(Number(item.mindbody_sale_detail_id)) ?? [],
+      noCommission: noneBy.has(Number(item.mindbody_sale_detail_id)),
     };
   });
 }
+
+export type CommissionCredit = { staffId: string; name: string; sharePercent: number; source: "import" | "manual" | "pos" };
 
 export async function computeCommissions(organizationId: string, fromIso: string, toIso: string) {
   const admin = createSupabaseAdminClient();
@@ -267,42 +299,53 @@ export async function computeCommissions(organizationId: string, fromIso: string
 
   const earn: Record<string, unknown>[] = [];
   const shouldExist = new Set<string>(); // detailId|staffId of earn lines that still qualify
+  // Only the people credited on a line earn on it (chosen at checkout,
+  // imported from Mindbody's commission report, or set by a Club Admin),
+  // each on their share. "None" or no credit = nobody.
   for (const line of lines) {
-    if (!line.sellerStaffId || line.category === "none" || line.totalCents <= 0 || line.returned) continue;
-    const person = personBy.get(line.sellerStaffId);
-    if (!person) continue;
-    const setting = settingBy.get(line.sellerStaffId);
-    const assigned = planForPerson(
-      { role: person.role as string, isTrainer: Boolean(person.is_trainer) },
-      setting
-        ? { planId: (setting.commission_plan_id as string | null) ?? null, enabled: (setting.commission_enabled as boolean | null) ?? null }
-        : null,
-      plans,
-    );
-    if (!assigned?.enabled) continue;
-    const result = commissionForLine(assigned.plan, line);
-    if (!result) continue;
-    shouldExist.add(`${line.detailId}|${line.sellerStaffId}`);
-    earn.push({
-      organization_id: organizationId,
-      staff_id: line.sellerStaffId,
-      kind: "earn",
-      mindbody_sale_id: line.saleId,
-      mindbody_sale_detail_id: line.detailId,
-      mindbody_client_id: line.clientId,
-      sale_at: line.saleAt,
-      earned_at: line.saleAt,
-      description: line.description,
-      category: line.category,
-      condition: result.rule.condition,
-      plan_id: assigned.plan.id,
-      rule_id: result.rule.id,
-      quantity: line.quantity,
-      base_cents: result.baseCents,
-      percent: result.rule.percent,
-      flat_cents: result.rule.flatCents,
-      amount_cents: result.amountCents,
-    });
+    if (line.noCommission || line.category === "none" || line.totalCents <= 0 || line.returned) continue;
+    for (const credit of line.credits) {
+      const person = personBy.get(credit.staffId);
+      if (!person) continue;
+      const setting = settingBy.get(credit.staffId);
+      const assigned = planForPerson(
+        { role: person.role as string, isTrainer: Boolean(person.is_trainer) },
+        setting
+          ? {
+              planId: (setting.commission_plan_id as string | null) ?? null,
+              enabled: (setting.commission_enabled as boolean | null) ?? null,
+            }
+          : null,
+        plans,
+      );
+      if (!assigned?.enabled) continue;
+      const result = commissionForLine(assigned.plan, line);
+      if (!result) continue;
+      const amountCents = Math.round((result.amountCents * credit.sharePercent) / 100);
+      if (amountCents <= 0) continue;
+      shouldExist.add(`${line.detailId}|${credit.staffId}`);
+      earn.push({
+        organization_id: organizationId,
+        staff_id: credit.staffId,
+        share_percent: credit.sharePercent,
+        kind: "earn",
+        mindbody_sale_id: line.saleId,
+        mindbody_sale_detail_id: line.detailId,
+        mindbody_client_id: line.clientId,
+        sale_at: line.saleAt,
+        earned_at: line.saleAt,
+        description: line.description,
+        category: line.category,
+        condition: result.rule.condition,
+        plan_id: assigned.plan.id,
+        rule_id: result.rule.id,
+        quantity: line.quantity,
+        base_cents: result.baseCents,
+        percent: result.rule.percent,
+        flat_cents: result.rule.flatCents,
+        amount_cents: amountCents,
+      });
+    }
   }
   if (earn.length) {
     const { error } = await admin
@@ -316,7 +359,7 @@ export async function computeCommissions(organizationId: string, fromIso: string
     admin
       .from("commission_lines")
       .select(
-        "id, staff_id, kind, mindbody_sale_id, mindbody_sale_detail_id, mindbody_client_id, sale_at, description, category, condition, plan_id, rule_id, quantity, base_cents, percent, flat_cents, amount_cents",
+        "id, staff_id, kind, mindbody_sale_id, mindbody_sale_detail_id, mindbody_client_id, sale_at, description, category, condition, plan_id, rule_id, quantity, base_cents, percent, flat_cents, amount_cents, share_percent",
       )
       .eq("organization_id", organizationId)
       .gte("sale_at", fromIso)
@@ -332,7 +375,9 @@ export async function computeCommissions(organizationId: string, fromIso: string
     if (row.kind !== "earn") continue;
     const key = `${row.mindbody_sale_detail_id}|${row.staff_id}`;
     const line = lineBy.get(Number(row.mindbody_sale_detail_id));
-    if (row.condition === "handoff" && !shouldExist.has(key) && !line?.returned) {
+    // Credit removed or changed to someone else (or "None" chosen): this
+    // person no longer earns on the line.
+    if (line && !shouldExist.has(key) && !line.returned) {
       removeIds.push(row.id as string);
       continue;
     }

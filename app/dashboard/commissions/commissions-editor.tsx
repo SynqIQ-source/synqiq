@@ -31,14 +31,15 @@ export type CommissionLineRow = {
   flatCents: number | null;
   amountCents: number;
 };
-export type HandoffRow = {
+export type SaleRow = {
   detailId: number;
   saleAt: string;
   description: string;
-  seller: string;
+  category: CommissionCategory;
+  rungUpBy: string | null;
   preTaxCents: number;
-  approved: boolean;
-  hint: string;
+  credits: { staffId: string; name: string; share: number; source: string }[];
+  none: boolean;
 };
 
 const ROLES = [
@@ -73,12 +74,14 @@ export function CommissionsEditor(props: {
   people: PersonRow[];
   products: ProductRow[];
   lines: CommissionLineRow[];
-  handoffs: HandoffRow[];
+  sales: SaleRow[];
+  pickable: { id: string; name: string }[];
 }) {
-  const [tab, setTab] = useState<"earned" | "handoffs" | "plans" | "people" | "products">("earned");
+  const [tab, setTab] = useState<"earned" | "sales" | "plans" | "people" | "products">("earned");
+  const uncredited = props.sales.filter((row) => !row.none && row.credits.length === 0).length;
   const tabs = [
     { key: "earned", label: "Earned" },
-    { key: "handoffs", label: `Handoffs (${props.handoffs.filter((h) => !h.approved).length})` },
+    { key: "sales", label: `Sales${uncredited ? ` (${uncredited} not credited)` : ""}` },
     { key: "plans", label: "Plans" },
     { key: "people", label: "People" },
     { key: "products", label: "Products" },
@@ -97,9 +100,9 @@ export function CommissionsEditor(props: {
           </button>
         ))}
       </div>
-      {tab === "earned" || tab === "handoffs" ? <RangeBar from={props.from} to={props.to} /> : null}
+      {tab === "earned" || tab === "sales" ? <RangeBar from={props.from} to={props.to} /> : null}
       {tab === "earned" ? <Earned lines={props.lines} timezone={props.timezone} /> : null}
-      {tab === "handoffs" ? <Handoffs rows={props.handoffs} timezone={props.timezone} /> : null}
+      {tab === "sales" ? <Sales rows={props.sales} pickable={props.pickable} timezone={props.timezone} /> : null}
       {tab === "plans" ? <Plans plans={props.plans} ptMonths={props.ptMonths} /> : null}
       {tab === "people" ? <People people={props.people} plans={props.plans} /> : null}
       {tab === "products" ? <Products products={props.products} /> : null}
@@ -223,58 +226,226 @@ function Earned({ lines, timezone }: { lines: CommissionLineRow[]; timezone: str
   );
 }
 
-function Handoffs({ rows, timezone }: { rows: HandoffRow[]; timezone: string }) {
+function Sales({ rows, pickable, timezone }: { rows: SaleRow[]; pickable: { id: string; name: string }[]; timezone: string }) {
+  const [filter, setFilter] = useState<"all" | "uncredited">("all");
+  const shown = rows.filter((row) => (filter === "uncredited" ? !row.none && row.credits.length === 0 : true));
   return (
-    <Card className="py-0">
-      <CardHeader className="pt-6">
-        <CardTitle>Trainer handoffs</CardTitle>
+    <div className="space-y-4">
+      <ImportReport />
+      <Card className="py-0">
+        <CardHeader className="pt-6">
+          <CardTitle>Who earns on each sale</CardTitle>
+          <CardDescription>
+            Commission goes only to the people credited on a sale line, on their share (split a sale between two people with 50% each).
+            Choose None when nobody should earn on it. Whoever rang up the sale doesn&apos;t earn unless they&apos;re credited.
+          </CardDescription>
+          <select
+            aria-label="Show"
+            className={`${selectClass} mt-2 w-60`}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as "all" | "uncredited")}
+          >
+            <option value="all">All commissionable sales</option>
+            <option value="uncredited">Not credited to anyone yet</option>
+          </select>
+        </CardHeader>
+        {shown.length === 0 ? (
+          <p className="border-t px-6 py-4 text-sm text-muted-foreground">Nothing to show for these dates.</p>
+        ) : (
+          <div className="divide-y border-t">
+            {shown.map((row) => (
+              <SaleLine key={row.detailId} row={row} pickable={pickable} timezone={timezone} />
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function ImportReport() {
+  const router = useRouter();
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ error: string | null; data?: Record<string, unknown> } | null>(null);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Import Mindbody&apos;s commission report</CardTitle>
         <CardDescription>
-          PT packages a trainer sold. Check the box when the client was handed off to another trainer, so the seller earns their handoff
-          commission. Unchecking it removes the commission.
+          While Mindbody is still the checkout: in Mindbody, open Reports &gt; Commission, pick View: All staff members - Detail, tick
+          Include inactive staff and Show split commission detail, set the pay period and Generate. Then export it to Excel and choose the
+          file here, or select the whole report on the page, copy, and paste it below. Each line is matched to the synced sale and the
+          people Mindbody paid are credited (two reps on one line split it 50/50).
         </CardDescription>
       </CardHeader>
-      {rows.length === 0 ? (
-        <p className="px-6 pb-6 text-sm text-muted-foreground">No PT packages sold by trainers in these dates.</p>
-      ) : (
-        <div className="divide-y border-t">
-          {rows.map((row) => (
-            <HandoffLine key={row.detailId} row={row} timezone={timezone} />
-          ))}
+      <CardContent className="space-y-2">
+        <input
+          type="file"
+          accept=".xls,.xlsx,.htm,.html,.csv,.txt"
+          className="text-sm"
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (file) setText(await file.text());
+          }}
+        />
+        <textarea
+          className="min-h-24 w-full rounded-md border bg-background p-2 font-mono text-xs"
+          placeholder="…or paste the report here"
+          value={text.length > 20000 ? `${text.slice(0, 20000)}\n… (${text.length.toLocaleString()} characters loaded)` : text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            disabled={busy || !text.trim()}
+            onClick={async () => {
+              setBusy(true);
+              setResult(null);
+              const response = await act({ action: "import", text });
+              setBusy(false);
+              setResult(response);
+              if (!response.error) router.refresh();
+            }}
+          >
+            {busy ? "Importing…" : "Import and credit sales"}
+          </Button>
+          {result?.error ? <span className="text-sm text-destructive">{result.error}</span> : null}
+          {result?.data ? (
+            <span className="text-sm text-muted-foreground">
+              {String(result.data.matched)} of {String(Number(result.data.lines) - Number(result.data.skipped))} report lines matched;{" "}
+              {String(result.data.credited)} sale lines credited.
+            </span>
+          ) : null}
         </div>
-      )}
+        {Array.isArray(result?.data?.unmatched) && (result!.data!.unmatched as string[]).length ? (
+          <div className="rounded-md border bg-muted/30 p-2 text-xs">
+            <p className="font-medium">Not matched (credit these by hand below, or import again after tonight&apos;s sync):</p>
+            <ul className="list-disc pl-4">
+              {(result!.data!.unmatched as string[]).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
 
-function HandoffLine({ row, timezone }: { row: HandoffRow; timezone: string }) {
+function SaleLine({ row, pickable, timezone }: { row: SaleRow; pickable: { id: string; name: string }[]; timezone: string }) {
   const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [credits, setCredits] = useState(row.credits.map((credit) => ({ staffId: credit.staffId, share: String(credit.share) })));
+  const [none, setNone] = useState(row.none);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const day = new Date(row.saleAt).toLocaleDateString("en-US", { timeZone: timezone, month: "short", day: "numeric" });
+  const label = row.none
+    ? "None"
+    : row.credits.length
+      ? row.credits.map((credit) => `${credit.name}${credit.share < 100 ? ` (${credit.share}%)` : ""}`).join(", ")
+      : "Not credited";
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    const result = await act({
+      action: "credits",
+      detailId: row.detailId,
+      none,
+      credits: none
+        ? []
+        : credits.filter((credit) => credit.staffId).map((credit) => ({ staffId: credit.staffId, share: Number(credit.share) })),
+    });
+    setBusy(false);
+    if (result.error) return setError(result.error);
+    setEditing(false);
+    router.refresh();
+  }
+
   return (
-    <label className="flex cursor-pointer flex-wrap items-center gap-3 px-6 py-3 text-sm">
-      <input
-        type="checkbox"
-        className="size-4"
-        checked={row.approved}
-        disabled={busy}
-        onChange={async (event) => {
-          setBusy(true);
-          setError(null);
-          const result = await act({ action: "handoff", detailId: row.detailId, approved: event.target.checked });
-          setBusy(false);
-          if (result.error) setError(result.error);
-          router.refresh();
-        }}
-      />
-      <span className="min-w-32 text-muted-foreground">
-        {new Date(row.saleAt).toLocaleDateString("en-US", { timeZone: timezone, month: "short", day: "numeric" })}
-      </span>
-      <span className="min-w-40 font-medium">{row.seller}</span>
-      <span className="flex-1">{row.description}</span>
-      <span className="tabular-nums">{money(row.preTaxCents)} pre-tax</span>
-      {row.hint ? <span className="w-full text-xs text-muted-foreground sm:w-auto">{row.hint}</span> : null}
-      {error ? <span className="text-xs text-destructive">{error}</span> : null}
-    </label>
+    <div className="space-y-2 px-6 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="min-w-14 text-muted-foreground">{day}</span>
+        <span className="flex-1">
+          {row.description} <span className="text-xs text-muted-foreground">· {CATEGORY_LABELS[row.category]}</span>
+          {row.rungUpBy ? <span className="block text-xs text-muted-foreground">Rung up by {row.rungUpBy}</span> : null}
+        </span>
+        <span className="tabular-nums">{money(row.preTaxCents)}</span>
+        <span className={`min-w-40 ${!row.none && row.credits.length === 0 ? "text-muted-foreground italic" : "font-medium"}`}>
+          {label}
+          {row.credits.some((credit) => credit.source === "import") ? (
+            <Badge variant="secondary" className="ml-1">
+              From Mindbody
+            </Badge>
+          ) : null}
+        </span>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(!editing)}>
+          {editing ? "Close" : "Change"}
+        </Button>
+      </div>
+      {editing ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">
+          <label className="flex items-center gap-1">
+            <input type="checkbox" checked={none} onChange={(e) => setNone(e.target.checked)} />
+            None
+          </label>
+          {!none
+            ? credits.map((credit, index) => (
+                <span key={index} className="flex items-center gap-1">
+                  <select
+                    aria-label="Person"
+                    className={`${selectClass} w-44`}
+                    value={credit.staffId}
+                    onChange={(e) => setCredits(credits.map((c, i) => (i === index ? { ...c, staffId: e.target.value } : c)))}
+                  >
+                    <option value="">Pick a person</option>
+                    {pickable.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    aria-label="Share"
+                    className="h-9 w-16"
+                    inputMode="decimal"
+                    value={credit.share}
+                    onChange={(e) => setCredits(credits.map((c, i) => (i === index ? { ...c, share: e.target.value } : c)))}
+                  />
+                  %
+                  <Button size="sm" variant="ghost" onClick={() => setCredits(credits.filter((_, i) => i !== index))}>
+                    ×
+                  </Button>
+                </span>
+              ))
+            : null}
+          {!none && credits.length < 4 ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                setCredits(
+                  credits.length === 1 && credits[0].share === "100"
+                    ? [
+                        { ...credits[0], share: "50" },
+                        { staffId: "", share: "50" },
+                      ]
+                    : [...credits, { staffId: "", share: credits.length ? "50" : "100" }],
+                )
+              }
+            >
+              {credits.length ? "Split with someone" : "Add a person"}
+            </Button>
+          ) : null}
+          <Button size="sm" disabled={busy} onClick={save}>
+            Save
+          </Button>
+          {error ? <span className="text-xs text-destructive">{error}</span> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

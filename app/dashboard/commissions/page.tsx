@@ -6,7 +6,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { planForPerson } from "@/lib/payroll/commission";
 import { loadPlans, loadSaleLines } from "@/lib/payroll/commission-job";
 import { resolveRange } from "@/lib/time-clock/timesheet";
-import { CommissionsEditor, type CommissionLineRow, type HandoffRow, type PersonRow, type ProductRow } from "./commissions-editor";
+import { CommissionsEditor, type CommissionLineRow, type SaleRow, type PersonRow, type ProductRow } from "./commissions-editor";
 
 type Props = { searchParams: Promise<{ from?: string; to?: string }> };
 
@@ -83,23 +83,28 @@ export default async function CommissionsPage({ searchParams }: Props) {
     flatCents: row.flat_cents == null ? null : Number(row.flat_cents),
     amountCents: Number(row.amount_cents),
   }));
-  // PT packages a trainer sold: candidates for a handoff commission.
-  const handoffs: HandoffRow[] = saleLines
-    .filter((line) => line.category === "pt_package" && line.sellerIsTrainer && line.totalCents > 0 && !line.returned)
+  // Commissionable sale lines and who is credited on each.
+  const sales: SaleRow[] = saleLines
+    .filter((line) => line.category !== "none" && line.totalCents > 0 && !line.returned)
+    .sort((a, b) => b.saleAt.localeCompare(a.saleAt))
     .map((line) => ({
       detailId: line.detailId,
       saleAt: line.saleAt,
       description: line.description,
-      seller: line.sellerName ?? "Unknown",
+      category: line.category,
+      rungUpBy: line.sellerName,
       preTaxCents: Math.max(0, line.totalCents - line.taxCents),
-      approved: line.handoffApproved,
-      hint:
-        line.clientTrainerStaffId && line.clientTrainerStaffId !== line.sellerStaffId
-          ? `Client's trainer: ${nameOf.get(line.clientTrainerStaffId) ?? "another trainer"}`
-          : line.clientTrainerStaffId
-            ? "Client's trainer is the seller"
-            : "",
+      credits: line.credits.map((credit) => ({
+        staffId: credit.staffId,
+        name: credit.name,
+        share: credit.sharePercent,
+        source: credit.source,
+      })),
+      none: line.noCommission,
     }));
+  const pickable = (people.data ?? [])
+    .filter((row) => !row.archived_at)
+    .map((row) => ({ id: row.id as string, name: (row.display_name as string | null) ?? "Unknown" }));
   const productRows: ProductRow[] = (products.data ?? []).map((row) => ({
     productId: Number(row.product_id),
     name: row.name as string,
@@ -120,7 +125,8 @@ export default async function CommissionsPage({ searchParams }: Props) {
         people={personRows}
         products={productRows}
         lines={lineRows}
-        handoffs={handoffs}
+        sales={sales}
+        pickable={pickable}
       />
     </DashboardShell>
   );

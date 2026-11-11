@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { dollarsToCents, fail, isUuid, requireClubAdminApi } from "@/lib/payroll/api";
 import { COMMISSION_CATEGORIES, commissionRuleProblem } from "@/lib/payroll/commission";
 import { computeCommissions } from "@/lib/payroll/commission-job";
+import { importCommissionReport, setLineCredits } from "@/lib/payroll/commission-credits";
 import { STAFF_ROLES } from "@/lib/permissions";
 
 // Commission settings and actions (Club Admin). One endpoint, by `action`:
@@ -15,7 +16,9 @@ import { STAFF_ROLES } from "@/lib/permissions";
 //   person     { staffId, planId (uuid | ""), enabled ("default" | "on" | "off") }
 //   handoff    { detailId, approved }
 //   recalc     { from, to }  (YYYY-MM-DD, studio dates)
-export const maxDuration = 120;
+//   credits    { detailId, credits: [{ staffId, share }], none }  who earns on a sale line
+//   import     { text }  Mindbody Commission report (detail) -> credits
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const auth = await requireClubAdminApi();
@@ -29,6 +32,24 @@ export async function POST(request: NextRequest) {
   const now = new Date().toISOString();
 
   switch (body.action) {
+    case "credits": {
+      const detailId = Number(body.detailId);
+      if (!Number.isInteger(detailId) || detailId <= 0) return fail("Pick a sale line.");
+      const list = Array.isArray(body.credits) ? (body.credits as { staffId?: unknown; share?: unknown }[]) : [];
+      const credits = list
+        .filter((credit) => isUuid(credit.staffId))
+        .map((credit) => ({ staffId: credit.staffId as string, sharePercent: Number(credit.share ?? 100) }));
+      const problem = await setLineCredits(org, detailId, credits, body.none === true, currentStaff.id);
+      return problem ? fail(problem) : ok();
+    }
+    case "import": {
+      const text = typeof body.text === "string" ? body.text : "";
+      if (!text.trim()) return fail("Choose the report file or paste the report.");
+      if (text.length > 5_000_000) return fail("That file is too large.");
+      const result = await importCommissionReport(org, text, currentStaff.id);
+      if (result.lines === 0) return fail("No commission lines found. Use Reports > Commission with View: All staff members - Detail.");
+      return NextResponse.json({ success: true, ...result });
+    }
     case "category": {
       const productId = Number(body.productId);
       const category = String(body.category ?? "");
