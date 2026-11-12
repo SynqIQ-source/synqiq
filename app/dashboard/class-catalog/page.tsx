@@ -10,6 +10,7 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 import { DAY_NAMES } from "@/lib/classes/catalog";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { CatalogEditDialog } from "./edit-dialog";
+import { ClassPhoto } from "./class-photo";
 import { CatalogCreateDialog } from "./create-dialog";
 import { WidgetTab } from "./widget-tab";
 import { CalendarTab, type SessionRow } from "./calendar-tab";
@@ -104,7 +105,7 @@ export default async function ClassCatalogPage() {
     supabase
       .from("class_types")
       .select(
-        "id, source, mindbody_class_description_id, name, description_text, level, category, subcategory, mindbody_program_id, active, edits",
+        "id, source, mindbody_class_description_id, name, description_text, level, category, subcategory, mindbody_program_id, active, image_url, edits",
       )
       .eq("organization_id", orgId)
       .order("name")
@@ -398,8 +399,9 @@ export default async function ClassCatalogPage() {
                       edited={type.edited}
                     />
                   </CardHeader>
-                  <CardContent className="px-4">
-                    <p className="text-sm whitespace-pre-line text-muted-foreground">
+                  <CardContent className="flex gap-3 px-4">
+                    <ClassPhoto id={type.id} name={type.name as string} imageUrl={(type.image_url as string | null) ?? null} />
+                    <p className="min-w-0 flex-1 text-sm whitespace-pre-line text-muted-foreground">
                       {(type.description_text as string | null) ?? "No description."}
                     </p>
                   </CardContent>

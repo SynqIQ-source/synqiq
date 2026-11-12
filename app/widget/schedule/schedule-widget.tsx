@@ -163,6 +163,10 @@ export function ScheduleWidget({
                   aria-expanded={open}
                   className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-neutral-50"
                 >
+                  {type?.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- class photo
+                    <img src={type.imageUrl} alt="" loading="lazy" className="size-12 shrink-0 rounded-md object-cover" />
+                  ) : null}
                   <span className="w-20 shrink-0 tabular-nums">
                     <span className="block font-semibold">{item.start}</span>
                     <span className="text-xs text-neutral-500">{item.end}</span>
@@ -190,6 +194,10 @@ export function ScheduleWidget({
                       {type?.level ? <span className="rounded-full border px-2 py-0.5">{type.level}</span> : null}
                       {item.capacity ? <span className="rounded-full border px-2 py-0.5">{item.capacity} spots</span> : null}
                     </div>
+                    {type?.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- class photo
+                      <img src={type.imageUrl} alt={item.name} loading="lazy" className="max-h-56 w-full rounded-lg object-cover" />
+                    ) : null}
                     <p className="whitespace-pre-line text-neutral-700">{type?.description ?? "No description yet."}</p>
                     {!item.cancelled && renderAction ? <div className="pt-1">{renderAction(item)}</div> : null}
                     {!item.cancelled && !renderAction && bookingHref ? (

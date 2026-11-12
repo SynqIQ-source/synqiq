@@ -32,6 +32,7 @@ export type PublicClassType = {
   category: string | null;
   program: string | null;
   lateCancelMinutes: number | null;
+  imageUrl: string | null;
 };
 
 export type PublicSchedule = {
@@ -71,7 +72,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
         .limit(5000),
       admin
         .from("class_types")
-        .select("id, name, description_text, level, category, mindbody_program_id, active, edits")
+        .select("id, name, description_text, level, category, mindbody_program_id, active, image_url, edits")
         .eq("organization_id", orgId),
       admin.from("departments").select("mindbody_program_id, name, cancel_window_minutes, edits").eq("organization_id", orgId),
       admin.from("rooms").select("mindbody_resource_id, name, edits").eq("organization_id", orgId),
@@ -118,6 +119,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       category: (merged.category as string | null) ?? null,
       program: program?.name ?? null,
       lateCancelMinutes: program?.lateCancel ?? null,
+      imageUrl: (row.image_url as string | null) ?? null,
     };
   }
   const roomName = new Map(
