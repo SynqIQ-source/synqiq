@@ -90,6 +90,7 @@ export default async function PosPage() {
   return (
     <DashboardShell
       title="POS"
+      fullWidth
       actions={
         <Button asChild variant="outline" size="sm">
           <Link href="/dashboard/pos/sales">Sales history &amp; end of day</Link>

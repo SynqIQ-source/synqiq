@@ -7,6 +7,7 @@ import { ServiceWorkerRegister } from "@/components/service-worker-register";
 import { BottomNav, type NavItem } from "@/components/bottom-nav";
 import { SidebarNav, type NavGroup } from "@/components/sidebar-nav";
 import { AccountMenu } from "@/components/account-menu";
+import { ShellFrame } from "@/components/shell-frame";
 import { isCrmEnabled } from "@/lib/crm/module";
 import type { CurrentStaff } from "@/lib/current-staff";
 import { canUseCrm, canViewOverview, isClubAdmin, isInstructorAccess, canCheckIn, canCheckout, isTrainerAccess } from "@/lib/permissions";
@@ -132,6 +133,8 @@ type DashboardShellProps = {
   // Optional controls rendered on the right of the page header (filters,
   // time-frame pickers, primary actions).
   actions?: React.ReactNode;
+  // Use the whole screen: the desktop sidebar starts hidden behind a Menu button (POS).
+  fullWidth?: boolean;
 };
 
 function Logo() {
@@ -144,7 +147,7 @@ function Logo() {
   );
 }
 
-export async function DashboardShell({ children, title, description, actions }: DashboardShellProps) {
+export async function DashboardShell({ children, title, description, actions, fullWidth }: DashboardShellProps) {
   // Self-resolved rather than threaded through as a prop, matching this
   // app's convention of each component resolving what it needs
   // independently; getCurrentStaff() is React-cache()d per request.
@@ -198,18 +201,21 @@ export async function DashboardShell({ children, title, description, actions }: 
     <div className="min-h-screen bg-background">
       <ServiceWorkerRegister />
 
-      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r bg-card md:flex">
-        <div className="flex h-16 items-center px-5">
-          <Logo />
-        </div>
-        <div className="flex-1 overflow-y-auto px-3 pb-6">
-          <SidebarNav groups={visibleGroups} />
-        </div>
-      </aside>
-
-      <div className="md:pl-60">
+      <ShellFrame
+        fullWidth={fullWidth}
+        sidebar={
+          <>
+            <div className="flex h-16 items-center px-5">
+              <Logo />
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 pb-6">
+              <SidebarNav groups={visibleGroups} />
+            </div>
+          </>
+        }
+      >
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div className={`mx-auto flex items-center justify-between gap-4 px-4 py-4 sm:px-6 ${fullWidth ? "max-w-none" : "max-w-6xl"}`}>
             <div className="min-w-0 flex-1">
               <div className="mb-3 md:hidden">
                 <Logo />
@@ -237,7 +243,7 @@ export async function DashboardShell({ children, title, description, actions }: 
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-4 pt-6 pb-24 sm:px-6 md:pb-10">
+        <main className={`mx-auto px-4 pt-6 pb-24 sm:px-6 md:pb-10 ${fullWidth ? "max-w-none" : "max-w-6xl"}`}>
           {currentStaff && currentStaff.mfa !== "ok" ? (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
               <span>
@@ -251,7 +257,7 @@ export async function DashboardShell({ children, title, description, actions }: 
           ) : null}
           {children}
         </main>
-      </div>
+      </ShellFrame>
 
       <BottomNav primaryItems={primaryMobileItems} moreItems={moreMobileItems} />
     </div>

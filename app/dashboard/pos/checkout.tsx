@@ -272,7 +272,7 @@ export function Checkout({
         <span className="font-medium">Practice mode.</span> Sales are saved so you can check the screen, tax and commission. No card is
         charged and nothing changes in Mindbody.
       </p>
-      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
@@ -299,14 +299,15 @@ export function Checkout({
           <div className="flex flex-wrap items-center gap-1 text-sm">
             {openId || q ? (
               <Button
-                size="sm"
-                variant="ghost"
+                size="lg"
+                variant="outline"
+                className="mr-2 h-12 px-5 text-base"
                 onClick={() => {
                   if (q) return setSearch("");
                   setOpenId(open?.parentId ?? null);
                 }}
               >
-                <ChevronLeft /> Back
+                <ChevronLeft className="size-5" /> Back
               </Button>
             ) : null}
             <button type="button" className={openId ? "text-primary underline" : "font-medium"} onClick={() => setOpenId(null)}>
@@ -329,7 +330,7 @@ export function Checkout({
             {q ? <span className="text-muted-foreground">· search results</span> : null}
           </div>
           {cards.length ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
               {cards.map((c) => {
                 const cover = itemsUnder(c.id).find((item) => item.imageUrl)?.imageUrl ?? null;
                 return (
@@ -357,7 +358,7 @@ export function Checkout({
             </div>
           ) : null}
           {shown.length ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
               {shown.map((item) => {
                 const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today) : null;
                 return (
@@ -503,10 +504,11 @@ export function Checkout({
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="size-7"
+                          aria-label="Remove"
+                          className="size-10 text-muted-foreground hover:text-destructive"
                           onClick={() => setLines(lines.filter((l) => l.key !== line.key))}
                         >
-                          <Trash2 className="size-3" />
+                          <Trash2 className="size-5" />
                         </Button>
                       </div>
                       {item.parts ? (
