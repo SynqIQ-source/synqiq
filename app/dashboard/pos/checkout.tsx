@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
+import { Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,12 +20,10 @@ export type CheckoutItem = {
   barcode: string | null;
   imageUrl: string | null;
   sessions: number | null;
-  groupId: string | null;
   parts: PricedPart[] | null; // membership package: what the first payment is made of
   autopayCount: number | null;
   autoRenews: boolean;
 };
-export type CheckoutShelf = { id: string; parentId: string | null; name: string };
 type Person = { id: string; name: string };
 type Member = { id: string; name: string; status: string; plans: string[]; frozen: boolean };
 type Credit = { staffId: string; share: number };
@@ -52,11 +50,8 @@ type Receipt = {
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const selectClass = "h-8 rounded-md border bg-background px-1 text-xs";
 
-const OTHER = "__other";
-
 export function Checkout({
   items,
-  shelves,
   categories,
   taxRate,
   mayDiscount,
@@ -65,7 +60,6 @@ export function Checkout({
   freezeNotice,
 }: {
   items: CheckoutItem[];
-  shelves: CheckoutShelf[];
   categories: CheckoutCategory[];
   taxRate: number;
   mayDiscount: boolean;
@@ -73,7 +67,7 @@ export function Checkout({
   me: Person;
   freezeNotice: string;
 }) {
-  const [shelfId, setShelfId] = useState<string | null>(null);
+  const [category, setCategory] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [member, setMember] = useState<Member | null>(null);
@@ -87,27 +81,8 @@ export function Checkout({
 
   const itemBy = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const categoryBy = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
-  const shelfBy = useMemo(() => new Map(shelves.map((shelf) => [shelf.id, shelf])), [shelves]);
   const q = search.trim().toLowerCase();
-  // Items whose shelf is gone or unset go on an "Other items" shelf.
-  const shelfOf = (item: CheckoutItem) => (item.groupId && shelfBy.has(item.groupId) ? item.groupId : OTHER);
-  const childShelves = (parentId: string | null) => (parentId === OTHER ? [] : shelves.filter((shelf) => shelf.parentId === parentId));
-  const itemsUnder = (id: string) =>
-    items.filter((item) => shelfOf(item) === id || (id !== OTHER && shelfBy.get(shelfOf(item))?.parentId === id));
-  const current = shelfId
-    ? (shelfBy.get(shelfId) ?? (shelfId === OTHER ? { id: OTHER, parentId: null, name: "Other items" } : null))
-    : null;
-  const shelfCards = q
-    ? []
-    : [
-        ...childShelves(shelfId),
-        ...(!shelfId && items.some((item) => shelfOf(item) === OTHER) ? [{ id: OTHER, parentId: null, name: "Other items" }] : []),
-      ].filter((shelf) => itemsUnder(shelf.id).length > 0);
-  const shown = q
-    ? items.filter((item) => item.name.toLowerCase().includes(q))
-    : shelfId
-      ? items.filter((item) => shelfOf(item) === shelfId)
-      : [];
+  const shown = items.filter((item) => (category === "all" || item.categoryId === category) && (!q || item.name.toLowerCase().includes(q)));
 
   const expanded = expandCartLines(
     lines.map((line) => {
@@ -274,68 +249,19 @@ export function Checkout({
                 }}
               />
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-1 text-sm">
-            {current || q ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setSearch("");
-                  setShelfId(q ? shelfId : (current?.parentId ?? null));
-                }}
-              >
-                <ChevronLeft /> Back
-              </Button>
-            ) : null}
-            <button type="button" className={current ? "text-primary underline" : "font-medium"} onClick={() => setShelfId(null)}>
-              All
-            </button>
-            {current?.parentId ? (
-              <>
-                <ChevronRight className="size-3 text-muted-foreground" />
-                <button type="button" className="text-primary underline" onClick={() => setShelfId(current.parentId)}>
-                  {shelfBy.get(current.parentId)?.name}
+            <div className="flex flex-wrap gap-1">
+              {[{ id: "all", name: "All" }, ...categories].map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setCategory(c.id)}
+                  className={`rounded-full border px-3 py-1 text-xs ${category === c.id ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
+                >
+                  {c.name}
                 </button>
-              </>
-            ) : null}
-            {current ? (
-              <>
-                <ChevronRight className="size-3 text-muted-foreground" />
-                <span className="font-medium">{current.name}</span>
-              </>
-            ) : null}
-            {q ? <span className="text-muted-foreground">· search results</span> : null}
-          </div>
-          {shelfCards.length ? (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-              {shelfCards.map((shelf) => {
-                const inside = itemsUnder(shelf.id);
-                const cover = inside.find((item) => item.imageUrl)?.imageUrl ?? null;
-                return (
-                  <button
-                    key={shelf.id}
-                    type="button"
-                    onClick={() => setShelfId(shelf.id)}
-                    className="overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm active:scale-[0.98]"
-                  >
-                    <div className="flex aspect-[16/9] items-center justify-center bg-muted">
-                      {cover ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={cover} alt="" className="size-full object-cover" />
-                      ) : (
-                        <span className="text-3xl font-semibold text-muted-foreground/60">{shelf.name.trim().charAt(0).toUpperCase()}</span>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between p-2">
-                      <p className="font-medium">{shelf.name}</p>
-                      <span className="text-xs text-muted-foreground">{inside.length}</span>
-                    </div>
-                  </button>
-                );
-              })}
+              ))}
             </div>
-          ) : null}
+          </div>
           {shown.length ? (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
               {shown.map((item) => {
@@ -370,9 +296,7 @@ export function Checkout({
               })}
             </div>
           ) : null}
-          {(q || current) && shown.length === 0 && shelfCards.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nothing matches.</p>
-          ) : null}
+          {shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing matches.</p> : null}
         </div>
 
         <div className="lg:sticky lg:top-4 lg:self-start">

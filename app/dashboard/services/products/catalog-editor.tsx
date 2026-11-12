@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ImageIcon, Plus, RefreshCw, ScanBarcode, Trash2 } from "lucide-react";
+import { ImageIcon, Plus, RefreshCw, ScanBarcode, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PromoCodes, type PromoRow } from "./promo-codes";
 
 export type CatalogCategory = { id: string; key: string; name: string; taxable: boolean; glAccount: string; active: boolean };
-export type CatalogGroup = { id: string; parentId: string | null; name: string; sort: number; active: boolean };
 export type PackagePartRow = { label: string; revenueCategoryId: string; amountCents: number; recurring: boolean };
 export type CatalogItem = {
   id: string;
@@ -29,23 +28,10 @@ export type CatalogItem = {
   mindbodyPriceCents: number | null;
   mindbodyGroup: string | null;
   mindbodyDiscontinued: boolean;
-  groupId: string;
   packageParts: PackagePartRow[] | null;
   autopayCount: number | null;
   autoRenews: boolean;
 };
-
-// Shelves in checkout order: each top shelf followed by the shelves inside it.
-export function orderedShelves(groups: CatalogGroup[]): (CatalogGroup & { label: string; depth: number })[] {
-  const tops = groups.filter((g) => !g.parentId).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
-  return tops.flatMap((top) => [
-    { ...top, label: top.name, depth: 0 },
-    ...groups
-      .filter((g) => g.parentId === top.id)
-      .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
-      .map((child) => ({ ...child, label: `${top.name} › ${child.name}`, depth: 1 })),
-  ]);
-}
 
 const KIND_LABELS = { product: "Retail", service: "Pack / service", membership: "Membership" } as const;
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
@@ -70,26 +56,23 @@ async function act(body: Record<string, unknown>) {
 export function CatalogEditor({
   items,
   categories,
-  groups,
   taxPercent,
   lastSync,
   promos,
 }: {
   items: CatalogItem[];
   categories: CatalogCategory[];
-  groups: CatalogGroup[];
   taxPercent: number;
   lastSync: string | null;
   promos: PromoRow[];
 }) {
-  const [tab, setTab] = useState<"items" | "shelves" | "categories" | "promos">("items");
+  const [tab, setTab] = useState<"items" | "categories" | "promos">("items");
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1 border-b">
         {(
           [
             ["items", "Items"],
-            ["shelves", "Checkout shelves"],
             ["categories", "Revenue categories & tax"],
             ["promos", "Promo codes"],
           ] as const
@@ -104,32 +87,18 @@ export function CatalogEditor({
           </button>
         ))}
       </div>
-      {tab === "items" ? <Items items={items} categories={categories} groups={groups} lastSync={lastSync} /> : null}
-      {tab === "shelves" ? <Shelves groups={groups} items={items} /> : null}
+      {tab === "items" ? <Items items={items} categories={categories} lastSync={lastSync} /> : null}
       {tab === "categories" ? <Categories categories={categories} items={items} taxPercent={taxPercent} /> : null}
       {tab === "promos" ? <PromoCodes promos={promos} categories={categories} /> : null}
     </div>
   );
 }
 
-function Items({
-  items,
-  categories,
-  groups,
-  lastSync,
-}: {
-  items: CatalogItem[];
-  categories: CatalogCategory[];
-  groups: CatalogGroup[];
-  lastSync: string | null;
-}) {
+function Items({ items, categories, lastSync }: { items: CatalogItem[]; categories: CatalogCategory[]; lastSync: string | null }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [kind, setKind] = useState<string>("all");
-  const [shelf, setShelf] = useState<string>("all");
-  const shelves = orderedShelves(groups);
-  const shelfLabel = new Map(shelves.map((g) => [g.id, g.label]));
   const [showInactive, setShowInactive] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -143,10 +112,9 @@ function Items({
     return items
       .filter((item) => (showInactive ? true : item.active))
       .filter((item) => (kind === "all" ? true : item.kind === kind))
-      .filter((item) => (shelf === "all" ? true : shelf === "none" ? !item.groupId : item.groupId === shelf))
       .filter((item) => (category === "all" ? true : category === "none" ? !item.categoryId : item.categoryId === category))
       .filter((item) => !q || item.name.toLowerCase().includes(q) || item.barcode === search.trim());
-  }, [items, search, category, kind, shelf, showInactive]);
+  }, [items, search, category, kind, showInactive]);
   const editing = items.find((item) => item.id === selected) ?? null;
 
   return (
@@ -186,15 +154,6 @@ function Items({
           <option value="product">Retail</option>
           <option value="service">Packs & services</option>
           <option value="membership">Memberships</option>
-        </select>
-        <select aria-label="Shelf" className={selectClass} value={shelf} onChange={(e) => setShelf(e.target.value)}>
-          <option value="all">All shelves</option>
-          <option value="none">Not on a shelf ({items.filter((item) => item.active && !item.groupId).length})</option>
-          {shelves.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.label}
-            </option>
-          ))}
         </select>
         <label className="flex items-center gap-1 text-sm">
           <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
@@ -245,7 +204,6 @@ function Items({
           key={selected}
           item={editing}
           categories={categories}
-          groups={groups}
           onClose={() => {
             setSelected(null);
             searchRef.current?.focus();
@@ -284,11 +242,6 @@ function Items({
                       No category
                     </Badge>
                   )}
-                  {item.groupId && shelfLabel.get(item.groupId) ? (
-                    <Badge variant="outline" className="text-[10px]">
-                      {shelfLabel.get(item.groupId)}
-                    </Badge>
-                  ) : null}
                   {item.packageParts ? (
                     <Badge variant="outline" className="text-[10px]">
                       Package
@@ -310,17 +263,7 @@ function Items({
   );
 }
 
-function ItemEditor({
-  item,
-  categories,
-  groups,
-  onClose,
-}: {
-  item: CatalogItem | null;
-  categories: CatalogCategory[];
-  groups: CatalogGroup[];
-  onClose: () => void;
-}) {
+function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; categories: CatalogCategory[]; onClose: () => void }) {
   const router = useRouter();
   const [name, setName] = useState(item?.name ?? "");
   const [price, setPrice] = useState(item ? (item.priceCents / 100).toFixed(2) : "");
@@ -330,7 +273,6 @@ function ItemEditor({
   const [active, setActive] = useState(item?.active ?? true);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? null);
-  const [groupId, setGroupId] = useState(item?.groupId ?? "");
   const [parts, setParts] = useState<PartDraft[] | null>(
     item?.packageParts?.map((part) => ({
       label: part.label,
@@ -360,7 +302,6 @@ function ItemEditor({
       taxable,
       barcode,
       active,
-      groupId: groupId || null,
       packageParts: parts
         ? parts.map((part) => ({
             label: part.label,
@@ -459,17 +400,6 @@ function ItemEditor({
               value={partsTotal != null ? (partsTotal / 100).toFixed(2) : price}
               onChange={(e) => setPrice(e.target.value)}
             />
-          </label>
-          <label className="text-sm">
-            Checkout shelf
-            <select className={`${selectClass} block w-full`} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-              <option value="">Not on a shelf</option>
-              {orderedShelves(groups).map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.label}
-                </option>
-              ))}
-            </select>
           </label>
           {!item ? (
             <label className="text-sm">
@@ -789,177 +719,5 @@ function PackageEditor({
         Sell as one amount instead
       </button>
     </div>
-  );
-}
-
-// Checkout shelves: what staff tap through on the checkout screen. Top
-// shelves show first; a top shelf can hold shelves (Drinks -> Energy drinks).
-function Shelves({ groups, items }: { groups: CatalogGroup[]; items: CatalogItem[] }) {
-  const router = useRouter();
-  const [name, setName] = useState("");
-  const [parentId, setParentId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const shelves = orderedShelves(groups);
-  const tops = shelves.filter((g) => g.depth === 0);
-  const count = (id: string) => items.filter((item) => item.active && item.groupId === id).length;
-
-  async function move(shelf: CatalogGroup, direction: -1 | 1) {
-    const siblings = shelves.filter((g) => g.parentId === shelf.parentId);
-    const index = siblings.findIndex((g) => g.id === shelf.id);
-    const other = siblings[index + direction];
-    if (!other) return;
-    const reordered: CatalogGroup[] = [...siblings];
-    reordered[index] = other;
-    reordered[index + direction] = shelf;
-    for (const [i, g] of reordered.entries()) {
-      if (g.sort !== i * 10) await act({ action: "group", id: g.id, name: g.name, parentId: g.parentId, sort: i * 10, active: g.active });
-    }
-    router.refresh();
-  }
-
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Add a shelf</CardTitle>
-          <CardDescription>
-            Shelves only arrange the checkout screen. Tax and revenue still come from each item&apos;s revenue category. Put items on a
-            shelf from the Items tab.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <Input className="h-9 w-52" placeholder="Shelf name" value={name} onChange={(e) => setName(e.target.value)} />
-          <select className={selectClass} value={parentId} onChange={(e) => setParentId(e.target.value)}>
-            <option value="">Top shelf</option>
-            {tops.map((g) => (
-              <option key={g.id} value={g.id}>
-                Inside {g.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            size="sm"
-            disabled={!name.trim()}
-            onClick={async () => {
-              const siblings = shelves.filter((g) => g.parentId === (parentId || null));
-              const result = await act({
-                action: "group",
-                name,
-                parentId: parentId || null,
-                sort: (siblings.length ? Math.max(...siblings.map((g) => g.sort)) : -10) + 10,
-              });
-              setError(result.error);
-              if (!result.error) setName("");
-              router.refresh();
-            }}
-          >
-            Add
-          </Button>
-          {error ? <span className="text-sm text-destructive">{error}</span> : null}
-        </CardContent>
-      </Card>
-      <Card className="py-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Shelf</TableHead>
-              <TableHead className="text-right">Items</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shelves.map((shelf) => (
-              <ShelfRow key={shelf.id} shelf={shelf} tops={tops} count={count(shelf.id)} onMove={(direction) => move(shelf, direction)} />
-            ))}
-            {shelves.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={3} className="text-muted-foreground">
-                  No shelves yet.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </Card>
-    </div>
-  );
-}
-
-function ShelfRow({
-  shelf,
-  tops,
-  count,
-  onMove,
-}: {
-  shelf: CatalogGroup & { depth: number };
-  tops: CatalogGroup[];
-  count: number;
-  onMove: (direction: -1 | 1) => void;
-}) {
-  const router = useRouter();
-  const [name, setName] = useState(shelf.name);
-  const [parentId, setParentId] = useState(shelf.parentId ?? "");
-  const [state, setState] = useState<string | null>(null);
-  const dirty = name !== shelf.name || parentId !== (shelf.parentId ?? "");
-  return (
-    <TableRow>
-      <TableCell>
-        <div className={`flex flex-wrap items-center gap-2 ${shelf.depth ? "pl-6" : ""}`}>
-          <Input className="h-8 w-48" value={name} onChange={(e) => setName(e.target.value)} />
-          <select className={selectClass} value={parentId} onChange={(e) => setParentId(e.target.value)}>
-            <option value="">Top shelf</option>
-            {tops
-              .filter((g) => g.id !== shelf.id)
-              .map((g) => (
-                <option key={g.id} value={g.id}>
-                  Inside {g.name}
-                </option>
-              ))}
-          </select>
-        </div>
-      </TableCell>
-      <TableCell className="text-right tabular-nums">{count}</TableCell>
-      <TableCell className="text-right whitespace-nowrap">
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Move up" onClick={() => onMove(-1)}>
-          <ArrowUp className="size-3" />
-        </Button>
-        <Button size="icon" variant="ghost" className="size-7" aria-label="Move down" onClick={() => onMove(1)}>
-          <ArrowDown className="size-3" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!dirty}
-          onClick={async () => {
-            const result = await act({
-              action: "group",
-              id: shelf.id,
-              name,
-              parentId: parentId || null,
-              sort: shelf.sort,
-              active: shelf.active,
-            });
-            setState(result.error ?? "Saved");
-            router.refresh();
-          }}
-        >
-          Save
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="size-7"
-          aria-label="Delete shelf"
-          onClick={async () => {
-            const result = await act({ action: "groupDelete", id: shelf.id });
-            setState(result.error ?? null);
-            router.refresh();
-          }}
-        >
-          <Trash2 className="size-3" />
-        </Button>
-        {state ? <span className="block text-xs text-muted-foreground">{state}</span> : null}
-      </TableCell>
-    </TableRow>
   );
 }

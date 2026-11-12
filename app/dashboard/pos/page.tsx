@@ -8,17 +8,16 @@ import { ensureRevenueCategories, isTaxable } from "@/lib/pos/catalog";
 import { COMMISSIONABLE_CATEGORY_KEYS } from "@/lib/pos/cart";
 import { FREEZE_NOTICE } from "@/lib/memberships/freeze-check";
 import { parsePackageParts } from "@/lib/pos/packages";
-import { Checkout, type CheckoutCategory, type CheckoutItem, type CheckoutShelf } from "./checkout";
+import { Checkout, type CheckoutCategory, type CheckoutItem } from "./checkout";
 
-// Checkout (POS), PRACTICE MODE: shelves first (Memberships, Drinks ->
-// Energy drinks ...), then picture cards; a cart
+// Checkout (POS), PRACTICE MODE: picture cards by revenue category, a cart
 // with member, discounts, promo code, tax and commission choices. Saving
 // records a practice sale; no money moves until payments are connected.
 export default async function PosPage() {
   const staff = await requireAccess(canCheckout);
   const admin = createSupabaseAdminClient();
   await ensureRevenueCategories(admin, staff.organizationId);
-  const [{ data: org }, { data: categories }, { data: items }, { data: people }, { data: groups }] = await Promise.all([
+  const [{ data: org }, { data: categories }, { data: items }, { data: people }] = await Promise.all([
     admin.from("organizations").select("sales_tax_rate").eq("id", staff.organizationId).maybeSingle(),
     admin
       .from("revenue_categories")
@@ -28,7 +27,7 @@ export default async function PosPage() {
     admin
       .from("pos_items")
       .select(
-        "id, kind, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, group_id, package_parts, autopay_count, auto_renews, sort",
+        "id, kind, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, package_parts, autopay_count, auto_renews, sort",
       )
       .eq("organization_id", staff.organizationId)
       .eq("active", true)
@@ -41,18 +40,7 @@ export default async function PosPage() {
       .eq("organization_id", staff.organizationId)
       .is("archived_at", null)
       .order("display_name"),
-    admin
-      .from("pos_groups")
-      .select("id, parent_id, name, sort")
-      .eq("organization_id", staff.organizationId)
-      .eq("active", true)
-      .order("sort"),
   ]);
-  const shelves: CheckoutShelf[] = (groups ?? []).map((row) => ({
-    id: row.id as string,
-    parentId: (row.parent_id as string | null) ?? null,
-    name: row.name as string,
-  }));
   const categoryBy = new Map((categories ?? []).map((row) => [row.id as string, row]));
   const categoryRows: CheckoutCategory[] = (categories ?? [])
     .filter((row) => row.active)
@@ -74,7 +62,6 @@ export default async function PosPage() {
       barcode: (row.barcode as string | null) ?? null,
       imageUrl: (row.image_url as string | null) ?? null,
       sessions: row.sessions == null ? null : Number(row.sessions),
-      groupId: (row.group_id as string | null) ?? null,
       parts:
         row.kind === "membership"
           ? (parsePackageParts(row.package_parts)?.map((part) => ({
@@ -98,7 +85,6 @@ export default async function PosPage() {
     >
       <Checkout
         items={itemRows}
-        shelves={shelves}
         categories={categoryRows}
         taxRate={Number(org?.sales_tax_rate ?? 0.0825)}
         mayDiscount={canDiscountAtCheckout(staff)}

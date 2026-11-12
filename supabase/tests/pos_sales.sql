@@ -27,7 +27,6 @@ begin
   insert into member_billing_schedules (organization_id, sale_id, mindbody_client_id, name, start_date, first_bill_date, recurring_subtotal_cents, recurring_total_cents)
     values (preserve, mine, 'zz1', 'zz mine', current_date, current_date + 30, 100, 100),
            (preserve, theirs, 'zz2', 'zz theirs', current_date, current_date + 30, 200, 200);
-  insert into pos_groups (organization_id, name) values (preserve, 'zz shelf');
   perform set_config('pos.sales_user', sales_user::text, true);
   perform set_config('pos.mine', mine::text, true);
   perform set_config('pos.preserve', preserve::text, true);
@@ -52,9 +51,6 @@ begin
   end if;
   if exists (select 1 from member_billing_schedules where name = 'zz theirs') then
     raise exception 'Sales can see the payment schedule from someone else''s sale';
-  end if;
-  if not exists (select 1 from pos_groups where name = 'zz shelf') then
-    raise exception 'Staff cannot see checkout shelves';
   end if;
   if exists (select 1 from promo_codes) then
     raise exception 'Sales can see promo codes';

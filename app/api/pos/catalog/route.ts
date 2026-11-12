@@ -8,10 +8,8 @@ export const maxDuration = 300;
 
 // Products & Inventory (Club Admin). By `action`:
 //   import    pull Mindbody's active catalog (read-only)
-//   item      { id?, name, price, revenueCategoryId, taxable: "category"|"yes"|"no", barcode, active, kind?, groupId?,
+//   item      { id?, name, price, revenueCategoryId, taxable: "category"|"yes"|"no", barcode, active, kind?,
 //               packageParts?: [{label, revenueCategoryId, amountCents, recurring}] | null, autopayCount?, autoRenews? }
-//   group     { id?, name, parentId?, sort?, active? }   checkout shelf
-//   groupDelete { id }                                   (its items go back to "not on a shelf")
 //   category  { id, name, taxable, glAccount, active }
 //   taxRate   { percent }  studio sales tax rate
 export async function POST(request: NextRequest) {
@@ -64,12 +62,6 @@ export async function POST(request: NextRequest) {
           .maybeSingle();
         if (clash) return fail(`That barcode is already on ${clash.name}.`);
       }
-      let groupId: string | null = null;
-      if (isUuid(body.groupId)) {
-        const { data: group } = await admin.from("pos_groups").select("id").eq("id", body.groupId).eq("organization_id", org).maybeSingle();
-        if (!group) return fail("Pick a shelf.");
-        groupId = group.id as string;
-      }
       // Membership packages: parts in their own revenue categories that add up to the price.
       const kindNow = isUuid(body.id)
         ? ((await admin.from("pos_items").select("kind").eq("id", body.id).eq("organization_id", org).maybeSingle()).data?.kind as
@@ -89,7 +81,6 @@ export async function POST(request: NextRequest) {
       if (autopayCount != null && (!Number.isInteger(autopayCount) || autopayCount < 0 || autopayCount > 120))
         return fail("Monthly payments must be a whole number up to 120, or blank for until cancelled.");
       const values = {
-        group_id: groupId,
         ...(kindNow === "membership"
           ? {
               package_parts: packageParts,
@@ -130,46 +121,6 @@ export async function POST(request: NextRequest) {
         .eq("id", body.id)
         .eq("organization_id", org);
       return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true });
-    }
-    case "group": {
-      const name = String(body.name ?? "").trim();
-      if (!name || name.length > 60) return fail("Give the shelf a name.");
-      let parentId: string | null = null;
-      if (isUuid(body.parentId)) {
-        const { data: parent } = await admin
-          .from("pos_groups")
-          .select("id, parent_id")
-          .eq("id", body.parentId)
-          .eq("organization_id", org)
-          .maybeSingle();
-        if (!parent) return fail("Pick the shelf it goes in.");
-        if (parent.parent_id) return fail("Shelves go two levels deep: pick a top shelf.");
-        if (parent.id === body.id) return fail("A shelf can't go inside itself.");
-        parentId = parent.id as string;
-      }
-      if (isUuid(body.id) && parentId) {
-        const { count } = await admin.from("pos_groups").select("id", { count: "exact", head: true }).eq("parent_id", body.id);
-        if (count) return fail("This shelf has shelves inside it, so it has to stay a top shelf.");
-      }
-      const sort = Number.isFinite(Number(body.sort)) ? Math.round(Number(body.sort)) : 0;
-      const values = { name, parent_id: parentId, sort, active: body.active !== false, updated_at: now };
-      if (isUuid(body.id)) {
-        const { error } = await admin.from("pos_groups").update(values).eq("id", body.id).eq("organization_id", org);
-        return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true });
-      }
-      const { data, error } = await admin
-        .from("pos_groups")
-        .insert({ organization_id: org, ...values })
-        .select("id")
-        .single();
-      return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true, id: data.id });
-    }
-    case "groupDelete": {
-      if (!isUuid(body.id)) return fail("Pick a shelf.");
-      const { count } = await admin.from("pos_groups").select("id", { count: "exact", head: true }).eq("parent_id", body.id);
-      if (count) return fail("Move or delete the shelves inside it first.");
-      const { error } = await admin.from("pos_groups").delete().eq("id", body.id).eq("organization_id", org);
-      return error ? fail("Couldn't delete. Try again.", 500) : NextResponse.json({ success: true });
     }
     case "taxRate": {
       const percent = Number(body.percent);
