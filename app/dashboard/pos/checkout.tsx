@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +24,10 @@ export type CheckoutItem = {
   autopayCount: number | null;
   autoRenews: boolean;
   openPrice: boolean; // amount entered at checkout (e.g. termination fee)
+  inventoryCategoryId: string | null;
 };
+export type PosCategory = { id: string; parentId: string | null; name: string; sort: number };
+const UNSORTED = "__unsorted";
 type Person = { id: string; name: string };
 type Member = { id: string; name: string; status: string; plans: string[]; frozen: boolean };
 type Credit = { staffId: string; share: number };
@@ -56,6 +59,7 @@ const selectClass = "h-8 rounded-md border bg-background px-1 text-xs";
 
 export function Checkout({
   items,
+  inventoryCategories,
   categories,
   taxRate,
   mayDiscount,
@@ -64,6 +68,7 @@ export function Checkout({
   freezeNotice,
 }: {
   items: CheckoutItem[];
+  inventoryCategories: PosCategory[];
   categories: CheckoutCategory[];
   taxRate: number;
   mayDiscount: boolean;
@@ -71,7 +76,7 @@ export function Checkout({
   me: Person;
   freezeNotice: string;
 }) {
-  const [category, setCategory] = useState<string>("all");
+  const [openId, setOpenId] = useState<string | null>(null); // inventory category being browsed
   const [search, setSearch] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [member, setMember] = useState<Member | null>(null);
@@ -86,7 +91,29 @@ export function Checkout({
   const itemBy = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const categoryBy = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
   const q = search.trim().toLowerCase();
-  const shown = items.filter((item) => (category === "all" || item.categoryId === category) && (!q || item.name.toLowerCase().includes(q)));
+  // Same layout as Products & Inventory: category cards -> sub-category
+  // cards -> items. Searching or scanning shows matches from everywhere.
+  const invBy = new Map(inventoryCategories.map((c) => [c.id, c]));
+  const placeOf = (item: CheckoutItem) =>
+    item.inventoryCategoryId && invBy.has(item.inventoryCategoryId) ? item.inventoryCategoryId : UNSORTED;
+  const itemsUnder = (id: string) =>
+    items.filter((item) => placeOf(item) === id || (id !== UNSORTED && invBy.get(placeOf(item))?.parentId === id));
+  const open = openId && openId !== UNSORTED ? (invBy.get(openId) ?? null) : null;
+  const cards = q
+    ? []
+    : [
+        ...inventoryCategories
+          .filter((c) => c.parentId === (openId === UNSORTED ? "none" : openId))
+          .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name)),
+        ...(!openId && items.some((item) => placeOf(item) === UNSORTED)
+          ? [{ id: UNSORTED, parentId: null, name: "Other items", sort: 0 }]
+          : []),
+      ].filter((c) => itemsUnder(c.id).length > 0);
+  const shown = q
+    ? items.filter((item) => item.name.toLowerCase().includes(q))
+    : openId
+      ? items.filter((item) => placeOf(item) === openId)
+      : [];
 
   const expanded = expandCartLines(
     lines.map((line) => {
@@ -266,19 +293,67 @@ export function Checkout({
                 }}
               />
             </div>
-            <div className="flex flex-wrap gap-1">
-              {[{ id: "all", name: "All" }, ...categories].map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setCategory(c.id)}
-                  className={`rounded-full border px-3 py-1 text-xs ${category === c.id ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
           </div>
+          <div className="flex flex-wrap items-center gap-1 text-sm">
+            {openId || q ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  if (q) return setSearch("");
+                  setOpenId(open?.parentId ?? null);
+                }}
+              >
+                <ChevronLeft /> Back
+              </Button>
+            ) : null}
+            <button type="button" className={openId ? "text-primary underline" : "font-medium"} onClick={() => setOpenId(null)}>
+              All categories
+            </button>
+            {open?.parentId ? (
+              <>
+                <ChevronRight className="size-3 text-muted-foreground" />
+                <button type="button" className="text-primary underline" onClick={() => setOpenId(open.parentId)}>
+                  {invBy.get(open.parentId)?.name}
+                </button>
+              </>
+            ) : null}
+            {openId ? (
+              <>
+                <ChevronRight className="size-3 text-muted-foreground" />
+                <span className="font-medium">{open?.name ?? "Other items"}</span>
+              </>
+            ) : null}
+            {q ? <span className="text-muted-foreground">· search results</span> : null}
+          </div>
+          {cards.length ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {cards.map((c) => {
+                const cover = itemsUnder(c.id).find((item) => item.imageUrl)?.imageUrl ?? null;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setOpenId(c.id)}
+                    className="overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm active:scale-[0.98]"
+                  >
+                    <div className="flex aspect-[16/9] items-center justify-center bg-muted">
+                      {cover ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={cover} alt="" className="size-full object-cover" />
+                      ) : (
+                        <span className="text-3xl font-semibold text-muted-foreground/60">{c.name.trim().charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between p-2">
+                      <p className="font-medium">{c.name}</p>
+                      <span className="text-xs text-muted-foreground tabular-nums">{itemsUnder(c.id).length}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           {shown.length ? (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
               {shown.map((item) => {
@@ -317,7 +392,9 @@ export function Checkout({
               })}
             </div>
           ) : null}
-          {shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing matches.</p> : null}
+          {(q || openId) && shown.length === 0 && cards.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing matches.</p>
+          ) : null}
         </div>
 
         <div className="lg:sticky lg:top-4 lg:self-start">

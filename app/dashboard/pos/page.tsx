@@ -8,16 +8,17 @@ import { ensureRevenueCategories, isTaxable } from "@/lib/pos/catalog";
 import { COMMISSIONABLE_CATEGORY_KEYS } from "@/lib/pos/cart";
 import { FREEZE_NOTICE } from "@/lib/memberships/freeze-check";
 import { parsePackageParts } from "@/lib/pos/packages";
-import { Checkout, type CheckoutCategory, type CheckoutItem } from "./checkout";
+import { Checkout, type CheckoutCategory, type CheckoutItem, type PosCategory } from "./checkout";
 
-// Checkout (POS), PRACTICE MODE: picture cards by revenue category, a cart
+// POS, PRACTICE MODE: the same cards as Products & Inventory (category ->
+// sub-category -> items), a cart
 // with member, discounts, promo code, tax and commission choices. Saving
 // records a practice sale; no money moves until payments are connected.
 export default async function PosPage() {
   const staff = await requireAccess(canCheckout);
   const admin = createSupabaseAdminClient();
   await ensureRevenueCategories(admin, staff.organizationId);
-  const [{ data: org }, { data: categories }, { data: items }, { data: people }] = await Promise.all([
+  const [{ data: org }, { data: categories }, { data: items }, { data: people }, { data: invCats }] = await Promise.all([
     admin.from("organizations").select("sales_tax_rate").eq("id", staff.organizationId).maybeSingle(),
     admin
       .from("revenue_categories")
@@ -27,7 +28,7 @@ export default async function PosPage() {
     admin
       .from("pos_items")
       .select(
-        "id, kind, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, package_parts, autopay_count, auto_renews, open_price, sort",
+        "id, kind, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, package_parts, autopay_count, auto_renews, open_price, inventory_category_id, sort",
       )
       .eq("organization_id", staff.organizationId)
       .eq("active", true)
@@ -41,7 +42,14 @@ export default async function PosPage() {
       .eq("organization_id", staff.organizationId)
       .is("archived_at", null)
       .order("display_name"),
+    admin.from("inventory_categories").select("id, parent_id, name, sort").eq("organization_id", staff.organizationId).order("sort"),
   ]);
+  const inventoryCategories: PosCategory[] = (invCats ?? []).map((row) => ({
+    id: row.id as string,
+    parentId: (row.parent_id as string | null) ?? null,
+    name: row.name as string,
+    sort: Number(row.sort ?? 0),
+  }));
   const categoryBy = new Map((categories ?? []).map((row) => [row.id as string, row]));
   const categoryRows: CheckoutCategory[] = (categories ?? [])
     .filter((row) => row.active)
@@ -73,11 +81,12 @@ export default async function PosPage() {
       autopayCount: row.autopay_count == null ? null : Number(row.autopay_count),
       autoRenews: Boolean(row.auto_renews),
       openPrice: Boolean(row.open_price),
+      inventoryCategoryId: (row.inventory_category_id as string | null) ?? null,
     };
   });
   return (
     <DashboardShell
-      title="Checkout"
+      title="POS"
       actions={
         <Button asChild variant="outline" size="sm">
           <Link href="/dashboard/pos/sales">Sales history &amp; end of day</Link>
@@ -87,6 +96,7 @@ export default async function PosPage() {
     >
       <Checkout
         items={itemRows}
+        inventoryCategories={inventoryCategories}
         categories={categoryRows}
         taxRate={Number(org?.sales_tax_rate ?? 0.0825)}
         mayDiscount={canDiscountAtCheckout(staff)}

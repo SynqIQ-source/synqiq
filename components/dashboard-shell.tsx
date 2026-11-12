@@ -52,7 +52,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     label: "Sales",
     items: [
       { href: "/dashboard/check-in", label: "Check-in", who: canCheckIn },
-      { href: "/dashboard/pos", label: "Checkout", who: canCheckout },
+      { href: "/dashboard/pos", label: "POS", who: canCheckout },
       { href: "/dashboard/sales", label: "Sales Dashboard", who: canUseCrm, crm: true },
       { href: "/dashboard/sales/history", label: "Sales History", who: canUseCrm, crm: true },
       { href: "/dashboard/guests", label: "Guests", who: canUseCrm, crm: true },
