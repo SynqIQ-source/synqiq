@@ -6,6 +6,7 @@ import { canCheckout, canDiscountAtCheckout } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { ensureRevenueCategories, isTaxable } from "@/lib/pos/catalog";
 import { COMMISSIONABLE_CATEGORY_KEYS } from "@/lib/pos/cart";
+import { commissionEarnerIds } from "@/lib/payroll/commission-job";
 import { FREEZE_NOTICE } from "@/lib/memberships/freeze-check";
 import { parsePackageParts } from "@/lib/pos/packages";
 import { Checkout, type CheckoutCategory, type CheckoutItem, type PosCategory } from "./checkout";
@@ -50,6 +51,8 @@ export default async function PosPage() {
     name: row.name as string,
     sort: Number(row.sort ?? 0),
   }));
+  // Only people who earn commission (Admin > Commissions) are in the commission picker.
+  const earners = await commissionEarnerIds(admin, staff.organizationId);
   const categoryBy = new Map((categories ?? []).map((row) => [row.id as string, row]));
   const categoryRows: CheckoutCategory[] = (categories ?? [])
     .filter((row) => row.active)
@@ -100,8 +103,11 @@ export default async function PosPage() {
         categories={categoryRows}
         taxRate={Number(org?.sales_tax_rate ?? 0.0825)}
         mayDiscount={canDiscountAtCheckout(staff)}
-        people={(people ?? []).map((row) => ({ id: row.id as string, name: (row.display_name as string | null) ?? "Unknown" }))}
+        people={(people ?? [])
+          .filter((row) => earners.has(row.id as string))
+          .map((row) => ({ id: row.id as string, name: (row.display_name as string | null) ?? "Unknown" }))}
         me={{ id: staff.id, name: staff.displayName ?? "Me" }}
+        meEarns={earners.has(staff.id)}
         freezeNotice={FREEZE_NOTICE}
       />
     </DashboardShell>

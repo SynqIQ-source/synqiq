@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { canDiscountAtCheckout } from "@/lib/permissions";
 import { computeCart, COMMISSIONABLE_CATEGORY_KEYS, promoProblem, type PromoInput } from "@/lib/pos/cart";
 import { isTaxable } from "@/lib/pos/catalog";
+import { commissionEarnerIds } from "@/lib/payroll/commission-job";
 import { expandCartLines, monthlySchedule, parsePackageParts, type PricedPart } from "@/lib/pos/packages";
 import type { CurrentStaff } from "@/lib/current-staff";
 
@@ -80,8 +81,8 @@ export async function savePracticeSale(
   const timezone = (orgRow?.timezone as string | null) ?? "America/Chicago";
   const mayDiscount = canDiscountAtCheckout(staff);
 
-  const { data: people } = await admin.from("staff").select("id").eq("organization_id", org).is("archived_at", null);
-  const staffIds = new Set((people ?? []).map((row) => row.id as string));
+  // Commission can only be credited to people who earn it (Admin > Commissions).
+  const staffIds = await commissionEarnerIds(admin, org);
 
   const taxableFor = (categoryId: string) => Boolean(categoryBy.get(categoryId)?.taxable);
   // Package parts priced with their own category's tax.
@@ -118,7 +119,7 @@ export async function savePracticeSale(
       if (!line.none && credits.length === 0) return { error: `Choose who earns commission on ${item.name}, or None.` };
       const total = credits.reduce((sum, credit) => sum + credit.share, 0);
       if (credits.some((credit) => !staffIds.has(credit.staffId) || !(credit.share > 0)) || total > 100.001)
-        return { error: `Check the commission on ${item.name}.` };
+        return { error: `Check the commission on ${item.name}: only people who earn commission can be credited.` };
     }
   }
 

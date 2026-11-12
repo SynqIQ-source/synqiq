@@ -413,3 +413,28 @@ export async function computeCommissions(organizationId: string, fromIso: string
   }
   return { saleLines: lines.length, earned: earn.length, removed: removeIds.length, clawbacks: clawbacks.length };
 }
+
+// Who can be credited with commission at the POS: people whose plan (their
+// own, or their role's / trainer default) is switched on -- set per person
+// on Admin > Commissions.
+export async function commissionEarnerIds(admin: Admin, organizationId: string): Promise<Set<string>> {
+  const [plans, { data: people }, { data: settings }] = await Promise.all([
+    loadPlans(admin, organizationId),
+    admin.from("staff").select("id, role, is_trainer").eq("organization_id", organizationId).is("archived_at", null),
+    admin.from("staff_pay_settings").select("staff_id, commission_plan_id, commission_enabled").eq("organization_id", organizationId),
+  ]);
+  const settingBy = new Map((settings ?? []).map((row) => [row.staff_id as string, row]));
+  const earners = new Set<string>();
+  for (const person of people ?? []) {
+    const setting = settingBy.get(person.id as string);
+    const effective = planForPerson(
+      { role: person.role as string, isTrainer: Boolean(person.is_trainer) },
+      setting
+        ? { planId: (setting.commission_plan_id as string | null) ?? null, enabled: (setting.commission_enabled as boolean | null) ?? null }
+        : null,
+      plans,
+    );
+    if (effective?.enabled) earners.add(person.id as string);
+  }
+  return earners;
+}

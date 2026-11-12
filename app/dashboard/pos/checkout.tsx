@@ -65,6 +65,7 @@ export function Checkout({
   mayDiscount,
   people,
   me,
+  meEarns,
   freezeNotice,
 }: {
   items: CheckoutItem[];
@@ -74,6 +75,7 @@ export function Checkout({
   mayDiscount: boolean;
   people: Person[];
   me: Person;
+  meEarns: boolean;
   freezeNotice: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null); // inventory category being browsed
@@ -573,7 +575,12 @@ export function Checkout({
                         ) : null}
                       </div>
                       {commissionable ? (
-                        <CommissionPicker line={line} people={people} me={me} onChange={(change) => update(line.key, change)} />
+                        <CommissionPicker
+                          line={line}
+                          people={people}
+                          me={meEarns ? me : null}
+                          onChange={(change) => update(line.key, change)}
+                        />
                       ) : null}
                     </div>
                   );
@@ -640,7 +647,7 @@ function CommissionPicker({
 }: {
   line: Line;
   people: Person[];
-  me: Person;
+  me: Person | null; // null when the person ringing up doesn't earn commission
   onChange: (change: Partial<Line>) => void;
 }) {
   const value = line.none ? "none" : (line.credits[0]?.staffId ?? "");
@@ -664,9 +671,9 @@ function CommissionPicker({
       >
         <option value="">Choose…</option>
         <option value="none">None</option>
-        <option value={me.id}>Me ({me.name})</option>
+        {me ? <option value={me.id}>Me ({me.name})</option> : null}
         {people
-          .filter((person) => person.id !== me.id)
+          .filter((person) => person.id !== me?.id)
           .map((person) => (
             <option key={person.id} value={person.id}>
               {person.name}
