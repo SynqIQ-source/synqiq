@@ -91,6 +91,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/settings", label: "Settings", who: isClubAdmin },
       { href: "/dashboard/settings/staff", label: "Staff & Roles", who: isClubAdmin },
       { href: "/dashboard/settings/billing", label: "Billing", who: isClubAdmin },
+      { href: "/dashboard/settings/payments", label: "Payments", who: isClubAdmin },
       { href: "/dashboard/settings/eligibility", label: "Class Eligibility", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/timesheets", label: "Timesheets", who: isClubAdmin },
       { href: "/dashboard/payroll", label: "Payroll", who: isClubAdmin },

@@ -21,7 +21,12 @@ type EnvKey =
   // Stripe billing (lib/billing/*): the secret API key ("sk_test_..." or
   // "sk_live_...") and the webhook signing secret ("whsec_...").
   | "STRIPE_SECRET_KEY"
-  | "STRIPE_WEBHOOK_SECRET";
+  | "STRIPE_WEBHOOK_SECRET"
+  // Member payments (lib/payments/*): signing secret for the Stripe Connect
+  // event destination (thin v2 events for studios' connected accounts),
+  // verified in app/api/stripe/connect-events. STRIPE_CONNECT_LIVE=true
+  // allows creating live connected accounts (test mode always works).
+  | "STRIPE_CONNECT_WEBHOOK_SECRET";
 
 export function getEnv(key: EnvKey): string {
   const value = process.env[key];
