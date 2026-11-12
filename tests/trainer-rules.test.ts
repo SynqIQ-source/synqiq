@@ -59,7 +59,7 @@ describe("checkBooking", () => {
 });
 
 describe("closeSession", () => {
-  it("completing pays, cancelling doesn't", () => {
+  it("completing, no-shows and late cancels pay; an on-time cancel doesn't", () => {
     const after = new Date(T("12:00"));
     expect(closeSession({ status: "booked", action: "complete", startsAt: T("11:00"), now: after })).toMatchObject({
       status: "completed",
@@ -69,7 +69,8 @@ describe("closeSession", () => {
       pays: true,
       noShow: true,
     });
-    expect(closeSession({ status: "booked", action: "late_cancel", startsAt: T("11:00"), now })).toMatchObject({ pays: false });
+    expect(closeSession({ status: "booked", action: "late_cancel", startsAt: T("11:00"), now })).toMatchObject({ pays: true });
+    expect(closeSession({ status: "booked", action: "cancel", startsAt: T("11:00"), now })).toMatchObject({ pays: false });
   });
   it("can't complete before it starts or twice", () => {
     expect(closeSession({ status: "booked", action: "complete", startsAt: T("11:00"), now }).ok).toBe(false);

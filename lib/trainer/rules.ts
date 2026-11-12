@@ -97,10 +97,10 @@ export function checkBooking(input: {
 
 export type CloseAction = "complete" | "no_show" | "cancel" | "late_cancel";
 
-// What closing a booked session does. Completed and charged no-shows earn
-// the trainer their session pay (a payroll event on the session's date); a
-// cancel or late cancel doesn't. Completing or marking a no-show can't happen
-// before the session starts.
+// What closing a booked session does. Completed sessions, no-shows and late
+// cancels all pay the trainer (the client is charged the session): a payroll
+// event on the session's date. An on-time cancel doesn't. Completing or
+// marking a no-show can't happen before the session starts.
 export function closeSession(input: {
   status: string;
   action: CloseAction;
@@ -116,7 +116,7 @@ export function closeSession(input: {
   }
   if (input.action === "complete") return { ok: true, status: "completed", pays: true, noShow: false };
   if (input.action === "no_show") return { ok: true, status: "no_show", pays: true, noShow: true };
-  if (input.action === "late_cancel") return { ok: true, status: "late_cancelled", pays: false, noShow: false };
+  if (input.action === "late_cancel") return { ok: true, status: "late_cancelled", pays: true, noShow: false };
   return { ok: true, status: "cancelled", pays: false, noShow: false };
 }
 

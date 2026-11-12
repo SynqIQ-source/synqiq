@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
             coverage_name: (session.coverage_name as string | null) ?? null,
             local_date: String(session.local_date),
           },
-          outcome.noShow,
+          outcome.status as "completed" | "no_show" | "late_cancelled",
           me.id,
         );
       } catch (error) {

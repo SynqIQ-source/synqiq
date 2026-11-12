@@ -211,7 +211,7 @@ export async function writeSessionPayEvent(
     coverage_name: string | null;
     local_date: string;
   },
-  noShow: boolean,
+  closedAs: "completed" | "no_show" | "late_cancelled",
   byStaffId: string,
 ) {
   const trainer = session.trainer_staff_id;
@@ -250,7 +250,7 @@ export async function writeSessionPayEvent(
     kind: "session",
     trainer_session_id: session.id,
     work_date: session.local_date,
-    description: `${session.session_type_name}${noShow ? " (no-show)" : ""}`,
+    description: `${session.session_type_name}${closedAs === "no_show" ? " (no-show)" : closedAs === "late_cancelled" ? " (late cancel)" : ""}`,
     client_name: session.client_name,
     value_cents: valueCents,
     value_estimated: value?.estimated ?? false,
@@ -258,7 +258,7 @@ export async function writeSessionPayEvent(
     pay_rate_id: rate?.id ?? null,
     pay_rate_name: rate?.name ?? null,
     amount_cents: rate ? appointmentPayCents(rate, valueCents ?? 0) : 0,
-    no_show: noShow,
+    no_show: closedAs === "no_show",
     status: "practice",
     created_by_staff_id: byStaffId,
   });
