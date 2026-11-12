@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { computeCart } from "@/lib/pos/cart";
-import { expandCartLines, monthlySchedule, packageProblem, scheduleTerms, splitCents, type PricedPart } from "@/lib/pos/packages";
+import {
+  expandCartLines,
+  monthlySchedule,
+  packageProblem,
+  scheduleTerms,
+  splitCents,
+  upcomingPaymentDates,
+  type PricedPart,
+} from "@/lib/pos/packages";
 
 const TAX = 0.0825;
 // The Preserve's 12 Month Commitment: $200 registration (untaxed) + $219 dues (taxed).
@@ -36,9 +44,15 @@ describe("membership packages", () => {
   });
 
   it("shares a package discount across its parts", () => {
-    const percent = computeCart(expandCartLines([{ key: "a", item: pkg, quantity: 1, manualDiscount: { kind: "percent", value: 50 } }]), TAX);
+    const percent = computeCart(
+      expandCartLines([{ key: "a", item: pkg, quantity: 1, manualDiscount: { kind: "percent", value: 50 } }]),
+      TAX,
+    );
     expect(percent.lines.map((line) => line.netCents)).toEqual([10000, 10950]);
-    const amount = computeCart(expandCartLines([{ key: "a", item: pkg, quantity: 1, manualDiscount: { kind: "amount", value: 4190 } }]), TAX);
+    const amount = computeCart(
+      expandCartLines([{ key: "a", item: pkg, quantity: 1, manualDiscount: { kind: "amount", value: 4190 } }]),
+      TAX,
+    );
     expect(amount.discountCents).toBe(4190);
     expect(amount.lines.map((line) => line.manualDiscountCents)).toEqual([2000, 2190]);
   });
@@ -69,5 +83,32 @@ describe("membership packages", () => {
     expect(scheduleTerms(11, true)).toBe("11 more monthly payments, then month to month");
     expect(scheduleTerms(null, false)).toBe("monthly until cancelled");
     expect(scheduleTerms(1, false)).toBe("1 more monthly payment");
+  });
+});
+
+describe("upcomingPaymentDates", () => {
+  it("lists the next payments from the first bill date", () => {
+    expect(upcomingPaymentDates("2026-12-12", 11, true, "2026-11-12")).toEqual([
+      { date: "2026-12-12", number: 1, renewal: false },
+      { date: "2027-01-12", number: 2, renewal: false },
+      { date: "2027-02-12", number: 3, renewal: false },
+    ]);
+  });
+  it("stops after the last payment when it doesn't renew", () => {
+    expect(upcomingPaymentDates("2026-12-12", 2, false, "2027-01-01", 5).map((d) => d.date)).toEqual(["2027-01-12"]);
+  });
+  it("marks month-to-month payments after the term", () => {
+    const dates = upcomingPaymentDates("2026-01-12", 11, true, "2026-11-20", 2);
+    expect(dates).toEqual([
+      { date: "2026-12-12", number: 12, renewal: true },
+      { date: "2027-01-12", number: 13, renewal: true },
+    ]);
+  });
+  it("keeps month ends", () => {
+    expect(upcomingPaymentDates("2027-01-31", null, false, "2027-01-01", 3).map((d) => d.date)).toEqual([
+      "2027-01-31",
+      "2027-02-28",
+      "2027-03-31",
+    ]);
   });
 });

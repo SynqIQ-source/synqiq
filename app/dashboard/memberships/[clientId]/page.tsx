@@ -21,6 +21,7 @@ import { RefreshFromMindbody } from "./refresh-button";
 import { FREEZE_NOTICE, isInForce } from "@/lib/memberships/freeze-check";
 import { PersonalCard } from "./personal-card";
 import { MemberSearch } from "../member-search";
+import { scheduleTerms, upcomingPaymentDates } from "@/lib/pos/packages";
 import {
   PurchasesList,
   ServicesCard,
@@ -268,6 +269,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     { data: sales },
     { data: contact },
     { data: personalRow },
+    { data: posSchedules },
   ] = await Promise.all([
     supabase.from("member_profile_sync").select("synced_at").eq("organization_id", orgId).eq("mindbody_client_id", clientId).maybeSingle(),
     supabase
@@ -317,6 +319,16 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       .eq("organization_id", orgId)
       .eq("mindbody_client_id", clientId)
       .maybeSingle(),
+    // Payment schedules from memberships sold at SynqIQ's POS.
+    supabase
+      .from("member_billing_schedules")
+      .select(
+        "id, sale_id, name, status, start_date, first_bill_date, recurring_lines, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, autopay_count, auto_renews, created_at",
+      )
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
   const saleIds = (sales ?? []).map((sale) => sale.mindbody_sale_id);
   const mindbodyStaffIds = [
@@ -628,6 +640,69 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                 <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
                   Mindbody still charges until the switch; these edits don&apos;t change charges yet.
                 </div>
+                {posSchedules?.length ? (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Payment schedules from SynqIQ sales</CardTitle>
+                      <CardDescription>
+                        Monthly payments set up when a membership was sold at SynqIQ&apos;s POS. Practice schedules are never charged.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {posSchedules.map((schedule) => {
+                        const autopayCount = schedule.autopay_count == null ? null : Number(schedule.autopay_count);
+                        const live = schedule.status === "practice" || schedule.status === "active";
+                        const next = live
+                          ? upcomingPaymentDates(schedule.first_bill_date as string, autopayCount, Boolean(schedule.auto_renews), today)
+                          : [];
+                        const lines =
+                          (schedule.recurring_lines as { label: string; revenueCategory?: string | null; amountCents: number }[]) ?? [];
+                        return (
+                          <div
+                            key={schedule.id as string}
+                            className={`space-y-2 rounded-md border px-4 py-3 text-sm ${live ? "" : "opacity-60"}`}
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-medium">
+                                {schedule.name as string}{" "}
+                                <Badge variant={schedule.status === "active" ? "default" : "secondary"}>
+                                  {schedule.status === "practice"
+                                    ? "Practice"
+                                    : String(schedule.status).replace(/^./, (c) => c.toUpperCase())}
+                                </Badge>
+                              </p>
+                              <Link href={`/dashboard/pos/sales/${schedule.sale_id as string}`} className="text-xs text-primary underline">
+                                Sold {day(schedule.start_date as string)}
+                              </Link>
+                            </div>
+                            <p className="text-muted-foreground">
+                              {lines.map((line) => `${line.label} ${money(line.amountCents)}`).join(" + ")} +{" "}
+                              {money(Number(schedule.recurring_tax_cents))} tax ={" "}
+                              <span className="font-medium text-foreground">{money(Number(schedule.recurring_total_cents))}</span> a month
+                              from {day(schedule.first_bill_date as string)}, {scheduleTerms(autopayCount, Boolean(schedule.auto_renews))}.
+                            </p>
+                            {next.length ? (
+                              <div className="flex flex-wrap gap-2">
+                                {next.map((payment, i) => (
+                                  <span
+                                    key={payment.date}
+                                    className={`rounded-md px-2 py-1 text-xs ${i === 0 ? "bg-primary/10 font-medium" : "bg-muted"}`}
+                                  >
+                                    {i === 0 ? "Next: " : ""}
+                                    {day(payment.date)} · {money(Number(schedule.recurring_total_cents))}
+                                    {payment.renewal ? " · month to month" : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : live ? (
+                              <p className="text-xs text-muted-foreground">All payments made.</p>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                ) : null}
                 <Card className="py-0">
                   <CardHeader className="pt-6">
                     <CardTitle>Upcoming charges</CardTitle>

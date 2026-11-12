@@ -5,6 +5,8 @@ import { isClubAdmin, ROLE_LABELS, type StaffRole } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { planForPerson } from "@/lib/payroll/commission";
 import { loadPlans, loadSaleLines } from "@/lib/payroll/commission-job";
+import { loadPosCommissions } from "@/lib/payroll/pos-commission";
+import { PosCommissionCompare } from "./pos-compare";
 import { resolveRange } from "@/lib/time-clock/timesheet";
 import { CommissionsEditor, type CommissionLineRow, type SaleRow, type PersonRow, type ProductRow } from "./commissions-editor";
 
@@ -23,7 +25,7 @@ export default async function CommissionsPage({ searchParams }: Props) {
   const fromIso = DateTime.fromISO(from, { zone }).startOf("day").toUTC().toISO()!;
   const toIso = DateTime.fromISO(to, { zone }).plus({ days: 1 }).startOf("day").toUTC().toISO()!;
 
-  const [plans, people, settings, products, lines, saleLines] = await Promise.all([
+  const [plans, people, settings, products, lines, saleLines, pos] = await Promise.all([
     loadPlans(admin, org),
     admin
       .from("staff")
@@ -43,6 +45,7 @@ export default async function CommissionsPage({ searchParams }: Props) {
       .order("earned_at", { ascending: false })
       .limit(2000),
     loadSaleLines(admin, org, fromIso, toIso),
+    loadPosCommissions(admin, org, fromIso, toIso),
   ]);
 
   const nameOf = new Map((people.data ?? []).map((row) => [row.id as string, (row.display_name as string | null) ?? "Unknown"]));
@@ -131,6 +134,19 @@ export default async function CommissionsPage({ searchParams }: Props) {
         lines={lineRows}
         sales={sales}
         pickable={pickable}
+      />
+      <PosCommissionCompare
+        timezone={zone}
+        saleCount={pos.saleCount}
+        results={pos.results.map((row) => ({ ...row, staffName: nameOf.get(row.staffId) ?? "Unknown" }))}
+        mindbodyByStaff={Object.fromEntries(
+          [
+            ...(lines.data ?? []).reduce((sums, row) => {
+              const id = row.staff_id as string;
+              return sums.set(id, (sums.get(id) ?? 0) + Number(row.amount_cents));
+            }, new Map<string, number>()),
+          ].map(([id, cents]) => [nameOf.get(id) ?? "Unknown", cents]),
+        )}
       />
     </DashboardShell>
   );

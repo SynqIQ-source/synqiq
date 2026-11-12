@@ -146,3 +146,25 @@ export function scheduleTerms(autopayCount: number | null, autoRenews: boolean):
   const count = `${autopayCount} more monthly payment${autopayCount === 1 ? "" : "s"}`;
   return autoRenews ? `${count}, then month to month` : count;
 }
+
+// The next `limit` payment dates on or after `today`: monthly from the first
+// bill date, stopping after `autopayCount` payments unless it renews (or is
+// open-ended). Months are counted from the first bill date, so a Jan 31
+// start bills Feb 28, then Mar 31.
+export function upcomingPaymentDates(
+  firstBillDate: string,
+  autopayCount: number | null,
+  autoRenews: boolean,
+  today: string,
+  limit = 3,
+): { date: string; number: number; renewal: boolean }[] {
+  const first = DateTime.fromISO(firstBillDate);
+  const out: { date: string; number: number; renewal: boolean }[] = [];
+  for (let k = 0; out.length < limit && k < 600; k += 1) {
+    const ends = autopayCount != null && !autoRenews;
+    if (ends && k >= autopayCount) break;
+    const date = first.plus({ months: k }).toISODate()!;
+    if (date >= today) out.push({ date, number: k + 1, renewal: autopayCount != null && k >= autopayCount });
+  }
+  return out;
+}
