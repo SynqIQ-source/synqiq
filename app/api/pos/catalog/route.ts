@@ -9,7 +9,8 @@ export const maxDuration = 300;
 // Products & Inventory (Club Admin). By `action`:
 //   import    pull Mindbody's active catalog (read-only)
 //   item      { id?, name, price, revenueCategoryId, taxable: "category"|"yes"|"no", barcode, active, kind?,
-//               inventoryCategoryId?, packageParts?: [{label, revenueCategoryId, amountCents, recurring}] | null, autopayCount?, autoRenews? }
+//               inventoryCategoryId?, openPrice?, packageParts?: [{label, revenueCategoryId, amountCents, recurring}] | null, autopayCount?, autoRenews? }
+//   itemDelete { id }  (Club Admin; soft delete)
 //   inventoryCategory { id?, name, parentId?, sort }  (organizing only)
 //   inventoryCategoryDelete { id }                     (its items become uncategorized)
 //   category  { id, name, taxable, glAccount, active }
@@ -59,6 +60,7 @@ export async function POST(request: NextRequest) {
           .eq("organization_id", org)
           .eq("barcode", barcode)
           .eq("active", true)
+          .is("deleted_at", null)
           .neq("id", isUuid(body.id) ? body.id : "00000000-0000-0000-0000-000000000000")
           .limit(1)
           .maybeSingle();
@@ -108,6 +110,7 @@ export async function POST(request: NextRequest) {
         taxable: body.taxable === "yes" ? true : body.taxable === "no" ? false : null,
         barcode,
         active: body.active !== false,
+        open_price: body.openPrice === true,
         updated_at: now,
         updated_by_staff_id: currentStaff.id,
       };
@@ -122,6 +125,17 @@ export async function POST(request: NextRequest) {
         .select("id")
         .single();
       return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true, id: data.id });
+    }
+    case "itemDelete": {
+      // Soft delete: gone from inventory and checkout, kept out of the next
+      // Mindbody pull, and past sales still point at it.
+      if (!isUuid(body.id)) return fail("Pick an item.");
+      const { error } = await admin
+        .from("pos_items")
+        .update({ deleted_at: now, active: false, barcode: null, updated_at: now, updated_by_staff_id: currentStaff.id })
+        .eq("id", body.id)
+        .eq("organization_id", org);
+      return error ? fail("Couldn't delete. Try again.", 500) : NextResponse.json({ success: true });
     }
     case "category": {
       if (!isUuid(body.id)) return fail("Pick a category.");

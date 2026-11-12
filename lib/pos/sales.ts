@@ -12,6 +12,7 @@ export type SaleLineRequest = {
   itemId: string;
   quantity: number;
   discount?: { kind: "percent" | "amount"; value: number } | null; // amount in cents
+  priceCents?: number | null; // open-price items only (e.g. termination fee)
   credits?: { staffId: string; share: number }[];
   none?: boolean;
 };
@@ -63,7 +64,9 @@ export async function savePracticeSale(
     admin.from("organizations").select("sales_tax_rate, timezone").eq("id", org).maybeSingle(),
     admin
       .from("pos_items")
-      .select("id, name, kind, price_cents, revenue_category_id, taxable, active, package_parts, autopay_count, auto_renews")
+      .select(
+        "id, name, kind, price_cents, revenue_category_id, taxable, active, package_parts, autopay_count, auto_renews, open_price, deleted_at",
+      )
       .eq("organization_id", org)
       .in(
         "id",
@@ -98,7 +101,11 @@ export async function savePracticeSale(
 
   for (const line of input.lines) {
     const item = itemBy.get(line.itemId);
-    if (!item || !item.active) return { error: "An item in the cart isn't for sale anymore." };
+    if (!item || !item.active || item.deleted_at) return { error: "An item in the cart isn't for sale anymore." };
+    if (item.open_price) {
+      const amount = Number(line.priceCents);
+      if (!Number.isInteger(amount) || amount < 0 || amount > 10_000_000) return { error: `Enter the amount for ${item.name}.` };
+    }
     if (!item.revenue_category_id) return { error: `${item.name} needs a revenue category before it can be sold.` };
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 999) return { error: "Check the quantities." };
     if (line.discount && line.discount.value > 0 && !mayDiscount) return { error: "Only Sales staff and Club Admins can give a discount." };
@@ -128,7 +135,7 @@ export async function savePracticeSale(
         quantity: line.quantity,
         manualDiscount: line.discount && line.discount.value > 0 ? line.discount : null,
         item: {
-          priceCents: Number(item.price_cents),
+          priceCents: item.open_price ? Number(line.priceCents) : Number(item.price_cents),
           taxable: isTaxable(
             { taxable: (item.taxable as boolean | null) ?? null },
             categoryBy.get(item.revenue_category_id as string) as { taxable: boolean } | undefined,

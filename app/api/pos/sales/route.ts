@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
     const clean = lines.map((line) => ({
       itemId: String(line.itemId ?? ""),
       quantity: Number(line.quantity ?? 1),
+      priceCents: line.priceCents == null ? null : Math.round(Number(line.priceCents)),
       discount:
         line.discount && (line.discount.kind === "percent" || line.discount.kind === "amount") && Number(line.discount.value) > 0
           ? { kind: line.discount.kind, value: Number(line.discount.value) }

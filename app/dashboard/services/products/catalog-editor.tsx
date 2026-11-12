@@ -33,6 +33,7 @@ export type CatalogItem = {
   packageParts: PackagePartRow[] | null;
   autopayCount: number | null;
   autoRenews: boolean;
+  openPrice: boolean;
 };
 
 const KIND_LABELS = { product: "Retail", service: "Pack / service", membership: "Membership" } as const;
@@ -383,6 +384,8 @@ function ItemEditor({
   const [taxable, setTaxable] = useState<CatalogItem["taxable"]>(item?.taxable ?? "category");
   const [barcode, setBarcode] = useState(item?.barcode ?? "");
   const [active, setActive] = useState(item?.active ?? true);
+  const [openPrice, setOpenPrice] = useState(item?.openPrice ?? false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? null);
   const [inventoryCategoryId, setInventoryCategoryId] = useState(item ? item.inventoryCategoryId : defaultInventoryCategoryId);
@@ -416,6 +419,7 @@ function ItemEditor({
       barcode,
       active,
       inventoryCategoryId: inventoryCategoryId || null,
+      openPrice,
       packageParts: parts
         ? parts.map((part) => ({
             label: part.label,
@@ -579,6 +583,12 @@ function ItemEditor({
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Show at checkout
           </label>
+          {!parts ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={openPrice} onChange={(e) => setOpenPrice(e.target.checked)} />
+              Amount entered at checkout (e.g. termination fee)
+            </label>
+          ) : null}
           {(item?.kind ?? kind) === "membership" ? (
             <PackageEditor
               parts={parts}
@@ -602,6 +612,35 @@ function ItemEditor({
             <Button size="sm" variant="ghost" onClick={onClose}>
               Close
             </Button>
+            {item ? (
+              confirmDelete ? (
+                <span className="ml-auto flex items-center gap-2 text-sm">
+                  Delete {item.name}?
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      const result = await act({ action: "itemDelete", id: item.id });
+                      setBusy(false);
+                      if (result.error) return setError(result.error);
+                      router.refresh();
+                      onClose();
+                    }}
+                  >
+                    Yes, delete
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                    Keep it
+                  </Button>
+                </span>
+              ) : (
+                <Button size="sm" variant="ghost" className="ml-auto text-destructive" onClick={() => setConfirmDelete(true)}>
+                  <Trash2 /> Delete item
+                </Button>
+              )
+            ) : null}
             {error ? <span className="text-sm text-destructive">{error}</span> : null}
           </div>
         </div>

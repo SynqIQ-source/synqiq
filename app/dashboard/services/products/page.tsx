@@ -24,9 +24,10 @@ export default async function ProductsPage() {
     admin
       .from("pos_items")
       .select(
-        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at, inventory_category_id, package_parts, autopay_count, auto_renews",
+        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at, inventory_category_id, package_parts, autopay_count, auto_renews, open_price",
       )
       .eq("organization_id", staff.organizationId)
+      .is("deleted_at", null)
       .order("name")
       .limit(3000),
     admin
@@ -71,6 +72,7 @@ export default async function ProductsPage() {
     packageParts: parsePackageParts(row.package_parts),
     autopayCount: row.autopay_count == null ? null : Number(row.autopay_count),
     autoRenews: Boolean(row.auto_renews),
+    openPrice: Boolean(row.open_price),
   }));
   const lastSync =
     (items ?? [])

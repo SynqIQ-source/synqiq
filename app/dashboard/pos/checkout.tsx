@@ -23,6 +23,7 @@ export type CheckoutItem = {
   parts: PricedPart[] | null; // membership package: what the first payment is made of
   autopayCount: number | null;
   autoRenews: boolean;
+  openPrice: boolean; // amount entered at checkout (e.g. termination fee)
 };
 type Person = { id: string; name: string };
 type Member = { id: string; name: string; status: string; plans: string[]; frozen: boolean };
@@ -34,6 +35,9 @@ type Line = {
   discount: { kind: "percent" | "amount"; value: string } | null;
   credits: Credit[];
   none: boolean;
+  price?: string; // open-price items: dollars typed at checkout
+  months?: string; // termination fee helper: months left on the contract
+  dues?: string; // ...and the monthly dues
 };
 type Receipt = {
   saleNumber: number;
@@ -91,7 +95,7 @@ export function Checkout({
       return {
         key: line.key,
         quantity: line.quantity,
-        item,
+        item: item.openPrice ? { ...item, priceCents: Math.round(Number(line.price || 0) * 100) } : item,
         manualDiscount:
           line.discount && value > 0
             ? { kind: line.discount.kind, value: line.discount.kind === "amount" ? Math.round(value * 100) : value }
@@ -118,6 +122,7 @@ export function Checkout({
       : Boolean(categoryBy.get(item.categoryId)?.commissionable);
   const sellsMembership = lines.some((line) => categoryKeysOf(itemBy.get(line.itemId)!).includes("membership_dues"));
   const packageNeedsMember = !member && lines.some((line) => itemBy.get(line.itemId)?.parts);
+  const missingAmount = lines.some((line) => itemBy.get(line.itemId)?.openPrice && !(Number(line.price) >= 0 && line.price?.trim()));
   const today = new Date().toLocaleDateString("en-CA");
 
   function add(item: CheckoutItem) {
@@ -126,7 +131,18 @@ export function Checkout({
       const existing = current.find((line) => line.itemId === item.id);
       if (existing && item.parts) return current; // packages: one at a time
       if (existing) return current.map((line) => (line === existing ? { ...line, quantity: line.quantity + 1 } : line));
-      return [...current, { key: `${item.id}-${Date.now()}`, itemId: item.id, quantity: 1, discount: null, credits: [], none: false }];
+      return [
+        ...current,
+        {
+          key: `${item.id}-${Date.now()}`,
+          itemId: item.id,
+          quantity: 1,
+          discount: null,
+          credits: [],
+          none: false,
+          ...(item.openPrice ? { price: "", months: "", dues: "219.00" } : {}),
+        },
+      ];
     });
   }
   const update = (key: string, change: Partial<Line>) =>
@@ -165,6 +181,7 @@ export function Checkout({
         lines: lines.map((line) => ({
           itemId: line.itemId,
           quantity: line.quantity,
+          priceCents: itemBy.get(line.itemId)?.openPrice ? Math.round(Number(line.price || 0) * 100) : null,
           discount:
             line.discount && Number(line.discount.value) > 0
               ? {
@@ -284,7 +301,11 @@ export function Checkout({
                     <div className="p-2">
                       <p className="line-clamp-2 text-xs leading-tight font-medium">{item.name}</p>
                       <p className="text-sm tabular-nums">
-                        {money(item.priceCents)}
+                        {item.openPrice ? (
+                          <span className="text-xs text-muted-foreground">Amount at checkout</span>
+                        ) : (
+                          money(item.priceCents)
+                        )}
                         {item.parts ? <span className="text-xs text-muted-foreground"> today</span> : null}
                       </p>
                       {schedule ? (
@@ -325,13 +346,62 @@ export function Checkout({
                       <div className="flex items-start gap-2">
                         <div className="flex-1">
                           <p className="text-sm leading-tight font-medium">{item.name}</p>
-                          {item.parts ? null : (
+                          {item.parts || item.openPrice ? null : (
                             <p className="text-xs text-muted-foreground">
                               {money(item.priceCents)} each{item.taxable ? " · taxed" : ""}
                             </p>
                           )}
+                          {item.openPrice ? (
+                            <div className="mt-1 space-y-1 text-xs">
+                              <label className="flex items-center gap-1">
+                                Amount $
+                                <Input
+                                  aria-label="Amount"
+                                  className="h-7 w-24 text-xs"
+                                  inputMode="decimal"
+                                  value={line.price ?? ""}
+                                  onChange={(e) => update(line.key, { price: e.target.value })}
+                                />
+                              </label>
+                              <span className="flex flex-wrap items-center gap-1 text-muted-foreground">
+                                Half the dues left:
+                                <Input
+                                  aria-label="Months left"
+                                  className="h-7 w-12 text-xs"
+                                  inputMode="numeric"
+                                  placeholder="mo"
+                                  value={line.months ?? ""}
+                                  onChange={(e) => update(line.key, { months: e.target.value.replace(/[^0-9]/g, "") })}
+                                />
+                                months × $
+                                <Input
+                                  aria-label="Monthly dues"
+                                  className="h-7 w-20 text-xs"
+                                  inputMode="decimal"
+                                  value={line.dues ?? ""}
+                                  onChange={(e) => update(line.key, { dues: e.target.value })}
+                                />
+                                ÷ 2
+                                <button
+                                  type="button"
+                                  className="text-primary underline"
+                                  disabled={!Number(line.months) || !Number(line.dues)}
+                                  onClick={() =>
+                                    update(line.key, {
+                                      price: (Math.round((Number(line.months) * Math.round(Number(line.dues) * 100)) / 2) / 100).toFixed(2),
+                                    })
+                                  }
+                                >
+                                  Use{" "}
+                                  {Number(line.months) && Number(line.dues)
+                                    ? money(Math.round((Number(line.months) * Math.round(Number(line.dues) * 100)) / 2))
+                                    : ""}
+                                </button>
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
-                        <div className={`flex items-center gap-1 ${item.parts ? "hidden" : ""}`}>
+                        <div className={`flex items-center gap-1 ${item.parts || item.openPrice ? "hidden" : ""}`}>
                           <Button
                             size="icon"
                             variant="outline"
@@ -458,11 +528,12 @@ export function Checkout({
                   <Row label={`Tax (${(taxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%)`} value={money(cart.taxCents)} />
                   <Row label="Total" value={money(cart.totalCents)} strong />
                 </div>
+                {missingAmount ? <p className="text-xs text-amber-700 dark:text-amber-400">Enter the amount for the fee.</p> : null}
                 {packageNeedsMember ? (
                   <p className="text-xs text-amber-700 dark:text-amber-400">Pick the member for the membership.</p>
                 ) : null}
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
-                <Button className="w-full" disabled={saving || lines.length === 0 || packageNeedsMember} onClick={save}>
+                <Button className="w-full" disabled={saving || lines.length === 0 || packageNeedsMember || missingAmount} onClick={save}>
                   {saving ? "Saving…" : "Save practice sale"}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">Card payment connects here once Stripe is set up.</p>
