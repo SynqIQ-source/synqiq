@@ -9,7 +9,9 @@ export const maxDuration = 300;
 // Products & Inventory (Club Admin). By `action`:
 //   import    pull Mindbody's active catalog (read-only)
 //   item      { id?, name, price, revenueCategoryId, taxable: "category"|"yes"|"no", barcode, active, kind?,
-//               packageParts?: [{label, revenueCategoryId, amountCents, recurring}] | null, autopayCount?, autoRenews? }
+//               inventoryCategoryId?, packageParts?: [{label, revenueCategoryId, amountCents, recurring}] | null, autopayCount?, autoRenews? }
+//   inventoryCategory { id?, name, parentId?, sort }  (organizing only)
+//   inventoryCategoryDelete { id }                     (its items become uncategorized)
 //   category  { id, name, taxable, glAccount, active }
 //   taxRate   { percent }  studio sales tax rate
 export async function POST(request: NextRequest) {
@@ -62,6 +64,17 @@ export async function POST(request: NextRequest) {
           .maybeSingle();
         if (clash) return fail(`That barcode is already on ${clash.name}.`);
       }
+      let inventoryCategoryId: string | null = null;
+      if (isUuid(body.inventoryCategoryId)) {
+        const { data: found } = await admin
+          .from("inventory_categories")
+          .select("id")
+          .eq("id", body.inventoryCategoryId)
+          .eq("organization_id", org)
+          .maybeSingle();
+        if (!found) return fail("Pick an inventory category.");
+        inventoryCategoryId = found.id as string;
+      }
       // Membership packages: parts in their own revenue categories that add up to the price.
       const kindNow = isUuid(body.id)
         ? ((await admin.from("pos_items").select("kind").eq("id", body.id).eq("organization_id", org).maybeSingle()).data?.kind as
@@ -81,6 +94,7 @@ export async function POST(request: NextRequest) {
       if (autopayCount != null && (!Number.isInteger(autopayCount) || autopayCount < 0 || autopayCount > 120))
         return fail("Monthly payments must be a whole number up to 120, or blank for until cancelled.");
       const values = {
+        inventory_category_id: inventoryCategoryId,
         ...(kindNow === "membership"
           ? {
               package_parts: packageParts,
@@ -121,6 +135,44 @@ export async function POST(request: NextRequest) {
         .eq("id", body.id)
         .eq("organization_id", org);
       return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true });
+    }
+    case "inventoryCategory": {
+      const name = String(body.name ?? "").trim();
+      if (!name || name.length > 60) return fail("Give the category a name.");
+      let parentId: string | null = null;
+      if (isUuid(body.parentId)) {
+        const { data: parent } = await admin
+          .from("inventory_categories")
+          .select("id, parent_id")
+          .eq("id", body.parentId)
+          .eq("organization_id", org)
+          .maybeSingle();
+        if (!parent || parent.id === body.id) return fail("Pick the category it goes in.");
+        if (parent.parent_id) return fail("Sub-categories can't have their own sub-categories.");
+        parentId = parent.id as string;
+      }
+      if (isUuid(body.id) && parentId) {
+        const { count } = await admin.from("inventory_categories").select("id", { count: "exact", head: true }).eq("parent_id", body.id);
+        if (count) return fail("This category has sub-categories, so it can't become a sub-category.");
+      }
+      const values = { name, parent_id: parentId, sort: Math.round(Number(body.sort) || 0), updated_at: now };
+      if (isUuid(body.id)) {
+        const { error } = await admin.from("inventory_categories").update(values).eq("id", body.id).eq("organization_id", org);
+        return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true });
+      }
+      const { data, error } = await admin
+        .from("inventory_categories")
+        .insert({ organization_id: org, ...values })
+        .select("id")
+        .single();
+      return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true, id: data.id });
+    }
+    case "inventoryCategoryDelete": {
+      if (!isUuid(body.id)) return fail("Pick a category.");
+      const { count } = await admin.from("inventory_categories").select("id", { count: "exact", head: true }).eq("parent_id", body.id);
+      if (count) return fail("Delete or move its sub-categories first.");
+      const { error } = await admin.from("inventory_categories").delete().eq("id", body.id).eq("organization_id", org);
+      return error ? fail("Couldn't delete. Try again.", 500) : NextResponse.json({ success: true });
     }
     case "taxRate": {
       const percent = Number(body.percent);

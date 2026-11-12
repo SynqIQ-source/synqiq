@@ -24,6 +24,7 @@ begin
   insert into pos_sale_lines (organization_id, sale_id, name, kind, quantity, unit_price_cents, taxable, total_cents, line_number)
     values (preserve, mine, 'zz', 'product', 1, 100, false, 100, 1), (preserve, theirs, 'zz', 'product', 1, 200, false, 200, 1);
   insert into promo_codes (organization_id, code, kind, percent) values (preserve, 'ZZTEST', 'percent', 10);
+  insert into inventory_categories (organization_id, name) values (preserve, 'zz inventory');
   insert into member_billing_schedules (organization_id, sale_id, mindbody_client_id, name, start_date, first_bill_date, recurring_subtotal_cents, recurring_total_cents)
     values (preserve, mine, 'zz1', 'zz mine', current_date, current_date + 30, 100, 100),
            (preserve, theirs, 'zz2', 'zz theirs', current_date, current_date + 30, 200, 200);
@@ -51,6 +52,9 @@ begin
   end if;
   if exists (select 1 from member_billing_schedules where name = 'zz theirs') then
     raise exception 'Sales can see the payment schedule from someone else''s sale';
+  end if;
+  if not exists (select 1 from inventory_categories where name = 'zz inventory') then
+    raise exception 'Staff cannot see inventory categories';
   end if;
   if exists (select 1 from promo_codes) then
     raise exception 'Sales can see promo codes';

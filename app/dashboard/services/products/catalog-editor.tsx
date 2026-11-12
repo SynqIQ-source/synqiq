@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ImageIcon, Plus, RefreshCw, ScanBarcode, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, ImageIcon, Pencil, Plus, RefreshCw, ScanBarcode, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PromoCodes, type PromoRow } from "./promo-codes";
 
 export type CatalogCategory = { id: string; key: string; name: string; taxable: boolean; glAccount: string; active: boolean };
+export type InventoryCategory = { id: string; parentId: string | null; name: string; sort: number };
 export type PackagePartRow = { label: string; revenueCategoryId: string; amountCents: number; recurring: boolean };
 export type CatalogItem = {
   id: string;
@@ -28,6 +29,7 @@ export type CatalogItem = {
   mindbodyPriceCents: number | null;
   mindbodyGroup: string | null;
   mindbodyDiscontinued: boolean;
+  inventoryCategoryId: string;
   packageParts: PackagePartRow[] | null;
   autopayCount: number | null;
   autoRenews: boolean;
@@ -56,12 +58,14 @@ async function act(body: Record<string, unknown>) {
 export function CatalogEditor({
   items,
   categories,
+  inventoryCategories,
   taxPercent,
   lastSync,
   promos,
 }: {
   items: CatalogItem[];
   categories: CatalogCategory[];
+  inventoryCategories: InventoryCategory[];
   taxPercent: number;
   lastSync: string | null;
   promos: PromoRow[];
@@ -87,14 +91,28 @@ export function CatalogEditor({
           </button>
         ))}
       </div>
-      {tab === "items" ? <Items items={items} categories={categories} lastSync={lastSync} /> : null}
+      {tab === "items" ? (
+        <Items items={items} categories={categories} inventoryCategories={inventoryCategories} lastSync={lastSync} />
+      ) : null}
       {tab === "categories" ? <Categories categories={categories} items={items} taxPercent={taxPercent} /> : null}
       {tab === "promos" ? <PromoCodes promos={promos} categories={categories} /> : null}
     </div>
   );
 }
 
-function Items({ items, categories, lastSync }: { items: CatalogItem[]; categories: CatalogCategory[]; lastSync: string | null }) {
+const UNSORTED = "__unsorted";
+
+function Items({
+  items,
+  categories,
+  inventoryCategories,
+  lastSync,
+}: {
+  items: CatalogItem[];
+  categories: CatalogCategory[];
+  inventoryCategories: InventoryCategory[];
+  lastSync: string | null;
+}) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
@@ -103,6 +121,8 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
   const [selected, setSelected] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null); // inventory category being browsed
+  const [managing, setManaging] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const categoryName = new Map(categories.map((c) => [c.id, c]));
   const uncategorized = items.filter((item) => item.active && !item.categoryId).length;
@@ -116,6 +136,24 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
       .filter((item) => !q || item.name.toLowerCase().includes(q) || item.barcode === search.trim());
   }, [items, search, category, kind, showInactive]);
   const editing = items.find((item) => item.id === selected) ?? null;
+
+  // Browsing: category cards -> sub-category cards -> items. Any search or
+  // filter shows a flat list instead.
+  const browsing = !search.trim() && category === "all" && kind === "all";
+  const invBy = new Map(inventoryCategories.map((c) => [c.id, c]));
+  const placeOf = (item: CatalogItem) =>
+    item.inventoryCategoryId && invBy.has(item.inventoryCategoryId) ? item.inventoryCategoryId : UNSORTED;
+  const visible = items.filter((item) => showInactive || item.active);
+  const countUnder = (id: string) =>
+    visible.filter((item) => placeOf(item) === id || (id !== UNSORTED && invBy.get(placeOf(item))?.parentId === id)).length;
+  const coverUnder = (id: string) =>
+    visible.find((item) => item.imageUrl && (placeOf(item) === id || invBy.get(placeOf(item))?.parentId === id))?.imageUrl ?? null;
+  const open = openId === UNSORTED ? null : openId ? (invBy.get(openId) ?? null) : null;
+  const level = inventoryCategories.filter((c) => c.parentId === (openId === UNSORTED ? "none" : (openId ?? null)));
+  const levelSorted = [...level].sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  const cards = browsing && !managing ? levelSorted : [];
+  const unsortedCount = countUnder(UNSORTED);
+  const itemsHere = browsing ? (openId ? visible.filter((item) => placeOf(item) === openId) : []) : shown;
 
   return (
     <div className="space-y-4">
@@ -204,6 +242,8 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
           key={selected}
           item={editing}
           categories={categories}
+          inventoryCategories={inventoryCategories}
+          defaultInventoryCategoryId={openId && openId !== UNSORTED ? openId : ""}
           onClose={() => {
             setSelected(null);
             searchRef.current?.focus();
@@ -211,8 +251,66 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
         />
       ) : null}
 
+      {browsing ? (
+        <div className="flex flex-wrap items-center gap-1 text-sm">
+          <button type="button" className={openId ? "text-primary underline" : "font-medium"} onClick={() => setOpenId(null)}>
+            All categories
+          </button>
+          {open?.parentId ? (
+            <>
+              <ChevronRight className="size-3 text-muted-foreground" />
+              <button type="button" className="text-primary underline" onClick={() => setOpenId(open.parentId)}>
+                {invBy.get(open.parentId)?.name}
+              </button>
+            </>
+          ) : null}
+          {openId ? (
+            <>
+              <ChevronRight className="size-3 text-muted-foreground" />
+              <span className="font-medium">{open?.name ?? "Not in a category"}</span>
+            </>
+          ) : null}
+          {openId !== UNSORTED && !open?.parentId && !managing ? (
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setManaging(true)}>
+              <Pencil /> {open ? "Edit sub-categories" : "Edit categories"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {browsing && managing ? <CategoryManager level={level} parent={open} onDone={() => setManaging(false)} /> : null}
+      {cards.length || (browsing && !openId && !managing && unsortedCount) ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {[...cards, ...(!openId && unsortedCount ? [{ id: UNSORTED, parentId: null, name: "Not in a category", sort: 0 }] : [])].map(
+            (c) => {
+              const cover = c.id === UNSORTED ? null : coverUnder(c.id);
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setOpenId(c.id)}
+                  className="overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm"
+                >
+                  <div className="flex aspect-[16/9] items-center justify-center bg-muted">
+                    {cover ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={cover} alt="" className="size-full object-cover" />
+                    ) : (
+                      <span className="text-3xl font-semibold text-muted-foreground/60">{c.name.trim().charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between p-2">
+                    <p className="font-medium">{c.name}</p>
+                    <span className="text-xs text-muted-foreground tabular-nums">{countUnder(c.id)}</span>
+                  </div>
+                </button>
+              );
+            },
+          )}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        {shown.map((item) => {
+        {itemsHere.map((item) => {
           const cat = categoryName.get(item.categoryId);
           return (
             <button
@@ -258,12 +356,26 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
           );
         })}
       </div>
-      {shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing matches.</p> : null}
+      {(!browsing || openId) && itemsHere.length === 0 && cards.length === 0 && !managing ? (
+        <p className="text-sm text-muted-foreground">{browsing ? "Nothing here yet." : "Nothing matches."}</p>
+      ) : null}
     </div>
   );
 }
 
-function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; categories: CatalogCategory[]; onClose: () => void }) {
+function ItemEditor({
+  item,
+  categories,
+  inventoryCategories,
+  defaultInventoryCategoryId,
+  onClose,
+}: {
+  item: CatalogItem | null;
+  categories: CatalogCategory[];
+  inventoryCategories: InventoryCategory[];
+  defaultInventoryCategoryId: string;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const [name, setName] = useState(item?.name ?? "");
   const [price, setPrice] = useState(item ? (item.priceCents / 100).toFixed(2) : "");
@@ -273,6 +385,7 @@ function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; c
   const [active, setActive] = useState(item?.active ?? true);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? null);
+  const [inventoryCategoryId, setInventoryCategoryId] = useState(item ? item.inventoryCategoryId : defaultInventoryCategoryId);
   const [parts, setParts] = useState<PartDraft[] | null>(
     item?.packageParts?.map((part) => ({
       label: part.label,
@@ -302,6 +415,7 @@ function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; c
       taxable,
       barcode,
       active,
+      inventoryCategoryId: inventoryCategoryId || null,
       packageParts: parts
         ? parts.map((part) => ({
             label: part.label,
@@ -416,7 +530,22 @@ function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; c
             </label>
           ) : null}
           <label className="text-sm">
-            Revenue category
+            Inventory category
+            <select
+              className={`${selectClass} block w-full`}
+              value={inventoryCategoryId}
+              onChange={(e) => setInventoryCategoryId(e.target.value)}
+            >
+              <option value="">Not in a category</option>
+              {orderedInventoryCategories(inventoryCategories).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            Revenue category (tax &amp; accounting)
             <select className={`${selectClass} block w-full`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
               <option value="">Pick one…</option>
               {categories
@@ -718,6 +847,142 @@ function PackageEditor({
       <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setParts(null)}>
         Sell as one amount instead
       </button>
+    </div>
+  );
+}
+
+// Inventory categories in order: each category followed by its sub-categories.
+export function orderedInventoryCategories(list: InventoryCategory[]): (InventoryCategory & { label: string; depth: number })[] {
+  const byOrder = (a: InventoryCategory, b: InventoryCategory) => a.sort - b.sort || a.name.localeCompare(b.name);
+  return list
+    .filter((c) => !c.parentId)
+    .sort(byOrder)
+    .flatMap((top) => [
+      { ...top, label: top.name, depth: 0 },
+      ...list
+        .filter((c) => c.parentId === top.id)
+        .sort(byOrder)
+        .map((sub) => ({ ...sub, label: `${top.name} › ${sub.name}`, depth: 1 })),
+    ]);
+}
+
+// Add, rename, reorder and delete the categories at one level (the top
+// level, or the sub-categories inside one category).
+function CategoryManager({ level, parent, onDone }: { level: InventoryCategory[]; parent: InventoryCategory | null; onDone: () => void }) {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const sorted = [...level].sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+
+  async function run(body: Record<string, unknown>) {
+    setBusy(true);
+    const result = await act(body);
+    setBusy(false);
+    setError(result.error);
+    router.refresh();
+    return !result.error;
+  }
+  async function move(index: number, direction: -1 | 1) {
+    const other = sorted[index + direction];
+    if (!other) return;
+    const reordered = [...sorted];
+    reordered[index] = other;
+    reordered[index + direction] = sorted[index];
+    setBusy(true);
+    for (const [i, c] of reordered.entries()) {
+      if (c.sort !== i * 10) await act({ action: "inventoryCategory", id: c.id, name: c.name, parentId: c.parentId, sort: i * 10 });
+    }
+    setBusy(false);
+    router.refresh();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{parent ? `Sub-categories in ${parent.name}` : "Categories"}</CardTitle>
+        <CardDescription>
+          For organizing only. Tax and accounting come from each item&apos;s revenue category, set when you edit the item.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {sorted.map((c, index) => (
+          <ManagedCategory
+            key={c.id}
+            category={c}
+            busy={busy}
+            first={index === 0}
+            last={index === sorted.length - 1}
+            onMove={(direction) => move(index, direction)}
+            onSave={(newName) => run({ action: "inventoryCategory", id: c.id, name: newName, parentId: c.parentId, sort: c.sort })}
+            onDelete={() => run({ action: "inventoryCategoryDelete", id: c.id })}
+          />
+        ))}
+        <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+          <Input
+            className="h-8 w-52"
+            placeholder={parent ? "New sub-category" : "New category"}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Button
+            size="sm"
+            disabled={busy || !name.trim()}
+            onClick={async () => {
+              const ok = await run({
+                action: "inventoryCategory",
+                name,
+                parentId: parent?.id ?? null,
+                sort: (sorted.length ? Math.max(...sorted.map((c) => c.sort)) : -10) + 10,
+              });
+              if (ok) setName("");
+            }}
+          >
+            <Plus /> Add
+          </Button>
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={onDone}>
+            Done
+          </Button>
+        </div>
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ManagedCategory({
+  category,
+  busy,
+  first,
+  last,
+  onMove,
+  onSave,
+  onDelete,
+}: {
+  category: InventoryCategory;
+  busy: boolean;
+  first: boolean;
+  last: boolean;
+  onMove: (direction: -1 | 1) => void;
+  onSave: (name: string) => void;
+  onDelete: () => void;
+}) {
+  const [name, setName] = useState(category.name);
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <Input className="h-8 w-52" value={name} onChange={(e) => setName(e.target.value)} />
+      <Button size="sm" variant="ghost" disabled={busy || !name.trim() || name === category.name} onClick={() => onSave(name)}>
+        Save
+      </Button>
+      <Button size="icon" variant="ghost" className="size-7" aria-label="Move up" disabled={busy || first} onClick={() => onMove(-1)}>
+        <ArrowUp className="size-3" />
+      </Button>
+      <Button size="icon" variant="ghost" className="size-7" aria-label="Move down" disabled={busy || last} onClick={() => onMove(1)}>
+        <ArrowDown className="size-3" />
+      </Button>
+      <Button size="icon" variant="ghost" className="size-7" aria-label="Delete" disabled={busy} onClick={onDelete}>
+        <Trash2 className="size-3" />
+      </Button>
     </div>
   );
 }
