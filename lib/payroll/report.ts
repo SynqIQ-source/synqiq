@@ -308,6 +308,36 @@ async function loadSessionValues(admin: Admin, organizationId: string, appointme
       ),
     )
   ).flatMap((result) => result.data ?? []);
+  const valued = await valueSessions(
+    admin,
+    organizationId,
+    visits.map((visit) => ({
+      key: String(visit.appointment_id),
+      clientId: visit.mindbody_client_id as string,
+      serviceName: (visit.service_name as string | null) ?? null,
+      day: String(visit.start_local).slice(0, 10),
+    })),
+  );
+  for (const [key, value] of valued) values.set(Number(key), value);
+  return values;
+}
+
+// Session values for any sessions: the pack (by name) each client used on
+// a day -> that pack's pre-tax price / sessions in it. Used for Mindbody's
+// appointments and for sessions completed on SynqIQ's trainer calendar.
+export async function valueSessions(
+  admin: Admin,
+  organizationId: string,
+  inputs: { key: string; clientId: string; serviceName: string | null; day: string }[],
+) {
+  const values = new Map<string, { valueCents: number | null; estimated: boolean; service: string | null; client: string }>();
+  if (inputs.length === 0) return values;
+  const visits = inputs.map((input) => ({
+    key: input.key,
+    mindbody_client_id: input.clientId,
+    service_name: input.serviceName,
+    start_local: input.day,
+  }));
   const clientIds = [...new Set(visits.map((visit) => visit.mindbody_client_id as string))];
   const [services, sales, clients] = await Promise.all([
     Promise.all(
@@ -448,7 +478,7 @@ async function loadSessionValues(admin: Admin, organizationId: string, appointme
         estimated = true;
       }
     }
-    values.set(Number(visit.appointment_id), {
+    values.set(visit.key, {
       valueCents,
       estimated,
       service: (visit.service_name as string | null) ?? null,

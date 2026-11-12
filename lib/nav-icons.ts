@@ -85,6 +85,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/comp-audit": ShieldAlert,
   "/dashboard/check-in": DoorOpen,
   "/dashboard/pos": ShoppingCart,
+  "/dashboard/trainer-calendar": CalendarClock,
   "/dashboard/memberships": IdCard,
   "/dashboard/shadow-billing": Scale,
   "/dashboard/class-catalog": LayoutGrid,

@@ -24,10 +24,7 @@ export class MindbodyClient {
   private readonly password?: string;
 
   constructor(options: MindbodyClientOptions = {}) {
-    this.baseUrl =
-      options.baseUrl ??
-      getOptionalEnv("MINDBODY_API_BASE_URL") ??
-      "https://api.mindbodyonline.com/public/v6";
+    this.baseUrl = options.baseUrl ?? getOptionalEnv("MINDBODY_API_BASE_URL") ?? "https://api.mindbodyonline.com/public/v6";
     this.apiKey = options.apiKey ?? getEnv("MINDBODY_API_KEY");
     this.siteId = options.siteId ?? getEnv("MINDBODY_SITE_ID");
     this.username = options.username ?? getOptionalEnv("MINDBODY_USERNAME");
@@ -150,10 +147,7 @@ export class MindbodyClient {
     return this.request("/site/sessiontypes", { method: "GET", accessToken, searchParams: { Limit: 200 } });
   }
 
-  async getClassDescriptions(
-    accessToken?: string,
-    pagination?: { offset?: number; limit?: number },
-  ) {
+  async getClassDescriptions(accessToken?: string, pagination?: { offset?: number; limit?: number }) {
     return this.request("/class/classdescriptions", {
       method: "GET",
       accessToken,
@@ -181,6 +175,25 @@ export class MindbodyClient {
         EndDate: filters?.endDate,
         Offset: filters?.offset,
         Limit: filters?.limit,
+      },
+    });
+  }
+
+  // Appointment availability per staff member (read only).
+  async getScheduleItems(
+    accessToken: string,
+    filters: { staffIds: number[]; startDate: string; endDate: string; offset?: number; limit?: number },
+  ) {
+    return this.request("/appointment/scheduleitems", {
+      method: "GET",
+      accessToken,
+      searchParams: {
+        StaffIds: filters.staffIds,
+        StartDate: filters.startDate,
+        EndDate: filters.endDate,
+        IgnorePrepFinishTimes: true,
+        Offset: filters.offset,
+        Limit: filters.limit,
       },
     });
   }
@@ -315,11 +328,7 @@ export class MindbodyClient {
     });
   }
 
-  async substituteClassTeacher(
-    occurrenceId: MindbodyOccurrenceId,
-    staffId: number,
-    accessToken?: string,
-  ) {
+  async substituteClassTeacher(occurrenceId: MindbodyOccurrenceId, staffId: number, accessToken?: string) {
     return this.request("/class/substituteclassteacher", {
       method: "POST",
       accessToken,
@@ -375,9 +384,7 @@ export class MindbodyClient {
       } catch {
         // Not JSON -- fall back to the raw body text.
       }
-      throw new Error(
-        `Mindbody request failed: ${response.status} ${response.statusText}${detail ? ` -- ${detail}` : ""}`,
-      );
+      throw new Error(`Mindbody request failed: ${response.status} ${response.statusText}${detail ? ` -- ${detail}` : ""}`);
     }
 
     return response.json();

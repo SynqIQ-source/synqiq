@@ -54,6 +54,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     items: [
       { href: "/dashboard/check-in", label: "Check-in", who: canCheckIn },
       { href: "/dashboard/pos", label: "POS", who: canCheckout },
+      { href: "/dashboard/trainer-calendar", label: "Trainer Calendar", who: canCheckIn, modules: ["trainer"] },
       { href: "/dashboard/sales", label: "Sales Dashboard", who: canUseCrm, crm: true },
       { href: "/dashboard/sales/history", label: "Sales History", who: canUseCrm, crm: true },
       { href: "/dashboard/guests", label: "Guests", who: canUseCrm, crm: true },

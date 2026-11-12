@@ -12,6 +12,7 @@ import { isClubAdmin } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildPayroll } from "@/lib/payroll/report";
 import { hoursLabel } from "@/lib/time-clock/hours";
+import { SynqiqSessions } from "./synqiq-sessions";
 
 type Props = { searchParams: Promise<{ from?: string; to?: string }> };
 
@@ -50,7 +51,21 @@ export default async function PayrollPage({ searchParams }: Props) {
   const from = params.from && /^\d{4}-\d{2}-\d{2}$/.test(params.from) ? params.from : preset.last.from;
   const to =
     params.to && /^\d{4}-\d{2}-\d{2}$/.test(params.to) && params.to >= from ? params.to : from === preset.last.from ? preset.last.to : from;
-  const payroll = await buildPayroll(staff.organizationId, from, to, admin);
+  const [payroll, { data: eventRows }, { data: staffNames }] = await Promise.all([
+    buildPayroll(staff.organizationId, from, to, admin),
+    admin
+      .from("payroll_events")
+      .select("id, staff_id, work_date, description, client_name, value_cents, value_source, pay_rate_name, amount_cents, no_show")
+      .eq("organization_id", staff.organizationId)
+      .eq("kind", "session")
+      .is("voided_at", null)
+      .gte("work_date", from)
+      .lte("work_date", to)
+      .order("work_date")
+      .limit(2000),
+    admin.from("staff").select("id, display_name").eq("organization_id", staff.organizationId),
+  ]);
+  const staffName = new Map((staffNames ?? []).map((row) => [row.id as string, (row.display_name as string | null) ?? "Unknown"]));
   const local = (iso: string) => DateTime.fromISO(iso).setZone(zone);
   const sum = (list: { amountCents: number }[]) => list.reduce((total, item) => total + item.amountCents, 0);
   const grand = payroll.people.reduce((total, person) => total + person.totalCents, 0);
@@ -241,6 +256,23 @@ export default async function PayrollPage({ searchParams }: Props) {
             </details>
           ))}
       </div>
+      <SynqiqSessions
+        events={(eventRows ?? []).map((row) => ({
+          id: row.id as string,
+          staffName: staffName.get(row.staff_id as string) ?? "Unknown",
+          workDate: String(row.work_date),
+          description: row.description as string,
+          clientName: (row.client_name as string | null) ?? null,
+          valueCents: row.value_cents == null ? null : Number(row.value_cents),
+          valueSource: (row.value_source as string | null) ?? null,
+          rateName: (row.pay_rate_name as string | null) ?? null,
+          amountCents: Number(row.amount_cents),
+          noShow: Boolean(row.no_show),
+        }))}
+        mindbodyByStaff={Object.fromEntries(
+          payroll.people.filter((person) => person.sessions.length).map((person) => [person.name, sum(person.sessions)]),
+        )}
+      />
     </DashboardShell>
   );
 }
