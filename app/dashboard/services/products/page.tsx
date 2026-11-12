@@ -3,7 +3,8 @@ import { requireAccess } from "@/lib/require-access";
 import { isClubAdmin } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { ensureRevenueCategories } from "@/lib/pos/catalog";
-import { CatalogEditor, type CatalogCategory, type CatalogItem } from "./catalog-editor";
+import { CatalogEditor, type CatalogCategory, type CatalogGroup, type CatalogItem } from "./catalog-editor";
+import { parsePackageParts } from "@/lib/pos/packages";
 
 // Services & Pricing -> Products & Inventory: everything the checkout sells
 // (retail products, packs and services, memberships), each in a revenue
@@ -13,7 +14,7 @@ export default async function ProductsPage() {
   const staff = await requireAccess(isClubAdmin);
   const admin = createSupabaseAdminClient();
   await ensureRevenueCategories(admin, staff.organizationId);
-  const [{ data: org }, { data: categories }, { data: items }, { data: promos }] = await Promise.all([
+  const [{ data: org }, { data: categories }, { data: items }, { data: promos }, { data: groups }] = await Promise.all([
     admin.from("organizations").select("sales_tax_rate").eq("id", staff.organizationId).maybeSingle(),
     admin
       .from("revenue_categories")
@@ -23,7 +24,7 @@ export default async function ProductsPage() {
     admin
       .from("pos_items")
       .select(
-        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at",
+        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at, group_id, package_parts, autopay_count, auto_renews",
       )
       .eq("organization_id", staff.organizationId)
       .order("name")
@@ -34,7 +35,15 @@ export default async function ProductsPage() {
       .eq("organization_id", staff.organizationId)
       .eq("active", true)
       .order("created_at", { ascending: false }),
+    admin.from("pos_groups").select("id, parent_id, name, sort, active").eq("organization_id", staff.organizationId).order("sort"),
   ]);
+  const groupRows: CatalogGroup[] = (groups ?? []).map((row) => ({
+    id: row.id as string,
+    parentId: (row.parent_id as string | null) ?? null,
+    name: row.name as string,
+    sort: Number(row.sort ?? 0),
+    active: Boolean(row.active),
+  }));
   const categoryRows: CatalogCategory[] = (categories ?? []).map((row) => ({
     id: row.id as string,
     key: row.key as string,
@@ -59,6 +68,10 @@ export default async function ProductsPage() {
     mindbodyPriceCents: row.mindbody_price_cents == null ? null : Number(row.mindbody_price_cents),
     mindbodyGroup: (row.mindbody_group as string | null) ?? null,
     mindbodyDiscontinued: Boolean(row.mindbody_discontinued),
+    groupId: (row.group_id as string | null) ?? "",
+    packageParts: parsePackageParts(row.package_parts),
+    autopayCount: row.autopay_count == null ? null : Number(row.autopay_count),
+    autoRenews: Boolean(row.auto_renews),
   }));
   const lastSync =
     (items ?? [])
@@ -74,6 +87,7 @@ export default async function ProductsPage() {
       <CatalogEditor
         items={itemRows}
         categories={categoryRows}
+        groups={groupRows}
         taxPercent={Math.round(Number(org?.sales_tax_rate ?? 0.0825) * 1_000_000) / 10_000}
         lastSync={lastSync}
         promos={(promos ?? []).map((row) => ({

@@ -3,6 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { canDiscountAtCheckout } from "@/lib/permissions";
 import { computeCart, COMMISSIONABLE_CATEGORY_KEYS, promoProblem, type PromoInput } from "@/lib/pos/cart";
 import { isTaxable } from "@/lib/pos/catalog";
+import { expandCartLines, monthlySchedule, parsePackageParts, type PricedPart } from "@/lib/pos/packages";
 import type { CurrentStaff } from "@/lib/current-staff";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
@@ -62,7 +63,7 @@ export async function savePracticeSale(
     admin.from("organizations").select("sales_tax_rate, timezone").eq("id", org).maybeSingle(),
     admin
       .from("pos_items")
-      .select("id, name, kind, price_cents, revenue_category_id, taxable, active")
+      .select("id, name, kind, price_cents, revenue_category_id, taxable, active, package_parts, autopay_count, auto_renews")
       .eq("organization_id", org)
       .in(
         "id",
@@ -79,14 +80,33 @@ export async function savePracticeSale(
   const { data: people } = await admin.from("staff").select("id").eq("organization_id", org).is("archived_at", null);
   const staffIds = new Set((people ?? []).map((row) => row.id as string));
 
+  const taxableFor = (categoryId: string) => Boolean(categoryBy.get(categoryId)?.taxable);
+  // Package parts priced with their own category's tax.
+  const partsBy = new Map<string, PricedPart[] | null>();
+  for (const item of items ?? []) {
+    const parts = item.kind === "membership" ? parsePackageParts(item.package_parts) : null;
+    partsBy.set(item.id as string, parts?.length ? parts.map((part) => ({ ...part, taxable: taxableFor(part.revenueCategoryId) })) : null);
+  }
+  const isCommissionable = (itemId: string) => {
+    const item = itemBy.get(itemId)!;
+    const parts = partsBy.get(itemId);
+    const keys = parts
+      ? parts.map((part) => categoryBy.get(part.revenueCategoryId)?.key)
+      : [categoryBy.get(item.revenue_category_id as string)?.key];
+    return keys.some((key) => COMMISSIONABLE_CATEGORY_KEYS.includes(key as string));
+  };
+
   for (const line of input.lines) {
     const item = itemBy.get(line.itemId);
     if (!item || !item.active) return { error: "An item in the cart isn't for sale anymore." };
     if (!item.revenue_category_id) return { error: `${item.name} needs a revenue category before it can be sold.` };
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 999) return { error: "Check the quantities." };
     if (line.discount && line.discount.value > 0 && !mayDiscount) return { error: "Only Sales staff and Club Admins can give a discount." };
-    const category = categoryBy.get(item.revenue_category_id as string);
-    if (COMMISSIONABLE_CATEGORY_KEYS.includes(category?.key as string)) {
+    if (partsBy.get(item.id as string)) {
+      if (line.quantity !== 1) return { error: `Sell one ${item.name} at a time.` };
+      if (!input.clientId) return { error: `Pick the member for ${item.name}.` };
+    }
+    if (isCommissionable(item.id as string)) {
       const credits = line.credits ?? [];
       if (!line.none && credits.length === 0) return { error: `Choose who earns commission on ${item.name}, or None.` };
       const total = credits.reduce((sum, credit) => sum + credit.share, 0);
@@ -100,24 +120,26 @@ export async function savePracticeSale(
     : { promo: null, error: null };
   if (promoError) return { error: promoError };
 
-  const cart = computeCart(
+  const expanded = expandCartLines(
     input.lines.map((line, index) => {
       const item = itemBy.get(line.itemId)!;
       return {
         key: String(index),
-        unitPriceCents: Number(item.price_cents),
         quantity: line.quantity,
-        taxable: isTaxable(
-          { taxable: (item.taxable as boolean | null) ?? null },
-          categoryBy.get(item.revenue_category_id as string) as { taxable: boolean } | undefined,
-        ),
-        categoryId: item.revenue_category_id as string,
         manualDiscount: line.discount && line.discount.value > 0 ? line.discount : null,
+        item: {
+          priceCents: Number(item.price_cents),
+          taxable: isTaxable(
+            { taxable: (item.taxable as boolean | null) ?? null },
+            categoryBy.get(item.revenue_category_id as string) as { taxable: boolean } | undefined,
+          ),
+          categoryId: item.revenue_category_id as string,
+          parts: partsBy.get(item.id as string) ?? null,
+        },
       };
     }),
-    taxRate,
-    promo,
   );
+  const cart = computeCart(expanded, taxRate, promo);
 
   const { data: sale, error } = await admin
     .from("pos_sales")
@@ -143,17 +165,19 @@ export async function savePracticeSale(
 
   const { error: lineError } = await admin.from("pos_sale_lines").insert(
     cart.lines.map((line, index) => {
-      const request = input.lines[index];
+      const source = expanded[index];
+      const request = input.lines[Number(source.parentKey)];
       const item = itemBy.get(request.itemId)!;
-      const category = categoryBy.get(item.revenue_category_id as string);
+      const categoryId = (source.part?.revenueCategoryId ?? item.revenue_category_id) as string;
+      const category = categoryBy.get(categoryId);
       const commissionable = COMMISSIONABLE_CATEGORY_KEYS.includes(category?.key as string);
       return {
         organization_id: org,
         sale_id: sale.id,
         pos_item_id: item.id,
-        name: item.name,
+        name: source.part ? `${item.name} · ${source.part.label}` : item.name,
         kind: item.kind,
-        revenue_category_id: item.revenue_category_id,
+        revenue_category_id: categoryId,
         revenue_category: category?.name ?? null,
         quantity: line.quantity,
         unit_price_cents: line.unitPriceCents,
@@ -163,6 +187,9 @@ export async function savePracticeSale(
         total_cents: line.totalCents,
         commission_credits: commissionable && !request.none ? (request.credits ?? []) : [],
         no_commission: commissionable ? Boolean(request.none) : false,
+        package_item_id: source.part ? item.id : null,
+        package_name: source.part ? item.name : null,
+        recurring: source.part?.recurring ?? false,
         line_number: index + 1,
       };
     }),
@@ -170,6 +197,40 @@ export async function savePracticeSale(
   if (lineError) {
     await admin.from("pos_sales").delete().eq("id", sale.id);
     return { error: "Couldn't save the sale. Try again." };
+  }
+  // Membership packages: the monthly payments that follow (dues only).
+  const saleDate = DateTime.now().setZone(timezone).toISODate()!;
+  const schedules = input.lines.flatMap((request) => {
+    const item = itemBy.get(request.itemId)!;
+    const parts = partsBy.get(item.id as string);
+    const schedule = parts ? monthlySchedule(parts, taxRate, saleDate) : null;
+    if (!schedule || !input.clientId) return [];
+    return [
+      {
+        organization_id: org,
+        sale_id: sale.id,
+        pos_item_id: item.id,
+        mindbody_client_id: input.clientId,
+        client_name: input.clientName?.slice(0, 200) ?? null,
+        name: item.name as string,
+        status: "practice",
+        start_date: saleDate,
+        first_bill_date: schedule.firstBillDate,
+        recurring_lines: schedule.lines.map((line) => ({ ...line, revenueCategory: categoryBy.get(line.revenueCategoryId)?.name ?? null })),
+        recurring_subtotal_cents: schedule.subtotalCents,
+        recurring_tax_cents: schedule.taxCents,
+        recurring_total_cents: schedule.totalCents,
+        autopay_count: item.autopay_count == null ? null : Number(item.autopay_count),
+        auto_renews: Boolean(item.auto_renews),
+      },
+    ];
+  });
+  if (schedules.length) {
+    const { error: scheduleError } = await admin.from("member_billing_schedules").insert(schedules);
+    if (scheduleError) {
+      await admin.from("pos_sales").delete().eq("id", sale.id);
+      return { error: "Couldn't save the sale. Try again." };
+    }
   }
   if (promo) {
     const { data: current } = await admin.from("promo_codes").select("uses").eq("id", promo.id).maybeSingle();

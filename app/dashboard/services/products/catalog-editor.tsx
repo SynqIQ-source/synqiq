@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ImageIcon, RefreshCw, ScanBarcode } from "lucide-react";
+import { ArrowDown, ArrowUp, ImageIcon, Plus, RefreshCw, ScanBarcode, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PromoCodes, type PromoRow } from "./promo-codes";
 
 export type CatalogCategory = { id: string; key: string; name: string; taxable: boolean; glAccount: string; active: boolean };
+export type CatalogGroup = { id: string; parentId: string | null; name: string; sort: number; active: boolean };
+export type PackagePartRow = { label: string; revenueCategoryId: string; amountCents: number; recurring: boolean };
 export type CatalogItem = {
   id: string;
   kind: "product" | "service" | "membership";
@@ -27,7 +29,23 @@ export type CatalogItem = {
   mindbodyPriceCents: number | null;
   mindbodyGroup: string | null;
   mindbodyDiscontinued: boolean;
+  groupId: string;
+  packageParts: PackagePartRow[] | null;
+  autopayCount: number | null;
+  autoRenews: boolean;
 };
+
+// Shelves in checkout order: each top shelf followed by the shelves inside it.
+export function orderedShelves(groups: CatalogGroup[]): (CatalogGroup & { label: string; depth: number })[] {
+  const tops = groups.filter((g) => !g.parentId).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  return tops.flatMap((top) => [
+    { ...top, label: top.name, depth: 0 },
+    ...groups
+      .filter((g) => g.parentId === top.id)
+      .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
+      .map((child) => ({ ...child, label: `${top.name} › ${child.name}`, depth: 1 })),
+  ]);
+}
 
 const KIND_LABELS = { product: "Retail", service: "Pack / service", membership: "Membership" } as const;
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
@@ -52,23 +70,26 @@ async function act(body: Record<string, unknown>) {
 export function CatalogEditor({
   items,
   categories,
+  groups,
   taxPercent,
   lastSync,
   promos,
 }: {
   items: CatalogItem[];
   categories: CatalogCategory[];
+  groups: CatalogGroup[];
   taxPercent: number;
   lastSync: string | null;
   promos: PromoRow[];
 }) {
-  const [tab, setTab] = useState<"items" | "categories" | "promos">("items");
+  const [tab, setTab] = useState<"items" | "shelves" | "categories" | "promos">("items");
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1 border-b">
         {(
           [
             ["items", "Items"],
+            ["shelves", "Checkout shelves"],
             ["categories", "Revenue categories & tax"],
             ["promos", "Promo codes"],
           ] as const
@@ -83,18 +104,32 @@ export function CatalogEditor({
           </button>
         ))}
       </div>
-      {tab === "items" ? <Items items={items} categories={categories} lastSync={lastSync} /> : null}
+      {tab === "items" ? <Items items={items} categories={categories} groups={groups} lastSync={lastSync} /> : null}
+      {tab === "shelves" ? <Shelves groups={groups} items={items} /> : null}
       {tab === "categories" ? <Categories categories={categories} items={items} taxPercent={taxPercent} /> : null}
       {tab === "promos" ? <PromoCodes promos={promos} categories={categories} /> : null}
     </div>
   );
 }
 
-function Items({ items, categories, lastSync }: { items: CatalogItem[]; categories: CatalogCategory[]; lastSync: string | null }) {
+function Items({
+  items,
+  categories,
+  groups,
+  lastSync,
+}: {
+  items: CatalogItem[];
+  categories: CatalogCategory[];
+  groups: CatalogGroup[];
+  lastSync: string | null;
+}) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [kind, setKind] = useState<string>("all");
+  const [shelf, setShelf] = useState<string>("all");
+  const shelves = orderedShelves(groups);
+  const shelfLabel = new Map(shelves.map((g) => [g.id, g.label]));
   const [showInactive, setShowInactive] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -108,9 +143,10 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
     return items
       .filter((item) => (showInactive ? true : item.active))
       .filter((item) => (kind === "all" ? true : item.kind === kind))
+      .filter((item) => (shelf === "all" ? true : shelf === "none" ? !item.groupId : item.groupId === shelf))
       .filter((item) => (category === "all" ? true : category === "none" ? !item.categoryId : item.categoryId === category))
       .filter((item) => !q || item.name.toLowerCase().includes(q) || item.barcode === search.trim());
-  }, [items, search, category, kind, showInactive]);
+  }, [items, search, category, kind, shelf, showInactive]);
   const editing = items.find((item) => item.id === selected) ?? null;
 
   return (
@@ -150,6 +186,15 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
           <option value="product">Retail</option>
           <option value="service">Packs & services</option>
           <option value="membership">Memberships</option>
+        </select>
+        <select aria-label="Shelf" className={selectClass} value={shelf} onChange={(e) => setShelf(e.target.value)}>
+          <option value="all">All shelves</option>
+          <option value="none">Not on a shelf ({items.filter((item) => item.active && !item.groupId).length})</option>
+          {shelves.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.label}
+            </option>
+          ))}
         </select>
         <label className="flex items-center gap-1 text-sm">
           <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
@@ -200,6 +245,7 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
           key={selected}
           item={editing}
           categories={categories}
+          groups={groups}
           onClose={() => {
             setSelected(null);
             searchRef.current?.focus();
@@ -238,6 +284,16 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
                       No category
                     </Badge>
                   )}
+                  {item.groupId && shelfLabel.get(item.groupId) ? (
+                    <Badge variant="outline" className="text-[10px]">
+                      {shelfLabel.get(item.groupId)}
+                    </Badge>
+                  ) : null}
+                  {item.packageParts ? (
+                    <Badge variant="outline" className="text-[10px]">
+                      Package
+                    </Badge>
+                  ) : null}
                   {!item.active ? (
                     <Badge variant="outline" className="text-[10px]">
                       Hidden
@@ -254,7 +310,17 @@ function Items({ items, categories, lastSync }: { items: CatalogItem[]; categori
   );
 }
 
-function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; categories: CatalogCategory[]; onClose: () => void }) {
+function ItemEditor({
+  item,
+  categories,
+  groups,
+  onClose,
+}: {
+  item: CatalogItem | null;
+  categories: CatalogCategory[];
+  groups: CatalogGroup[];
+  onClose: () => void;
+}) {
   const router = useRouter();
   const [name, setName] = useState(item?.name ?? "");
   const [price, setPrice] = useState(item ? (item.priceCents / 100).toFixed(2) : "");
@@ -264,6 +330,18 @@ function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; c
   const [active, setActive] = useState(item?.active ?? true);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? null);
+  const [groupId, setGroupId] = useState(item?.groupId ?? "");
+  const [parts, setParts] = useState<PartDraft[] | null>(
+    item?.packageParts?.map((part) => ({
+      label: part.label,
+      revenueCategoryId: part.revenueCategoryId,
+      amount: (part.amountCents / 100).toFixed(2),
+      recurring: part.recurring,
+    })) ?? null,
+  );
+  const [autopayCount, setAutopayCount] = useState(item?.autopayCount == null ? "" : String(item.autopayCount));
+  const [autoRenews, setAutoRenews] = useState(item?.autoRenews ?? false);
+  const partsTotal = parts ? parts.reduce((sum, part) => sum + Math.round(Number(part.amount || 0) * 100), 0) : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const category = categories.find((c) => c.id === categoryId);
@@ -277,11 +355,22 @@ function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; c
       id: item?.id,
       kind,
       name,
-      price,
+      price: partsTotal != null ? (partsTotal / 100).toFixed(2) : price,
       revenueCategoryId: categoryId || null,
       taxable,
       barcode,
       active,
+      groupId: groupId || null,
+      packageParts: parts
+        ? parts.map((part) => ({
+            label: part.label,
+            revenueCategoryId: part.revenueCategoryId,
+            amountCents: Math.round(Number(part.amount || 0) * 100),
+            recurring: part.recurring,
+          }))
+        : null,
+      autopayCount: autopayCount.trim() === "" ? null : Number(autopayCount),
+      autoRenews,
     });
     setBusy(false);
     if (result.error) return setError(result.error);
@@ -363,8 +452,24 @@ function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; c
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="text-sm">
-            Price
-            <Input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
+            Price{parts ? " (first payment)" : ""}
+            <Input
+              inputMode="decimal"
+              disabled={Boolean(parts)}
+              value={partsTotal != null ? (partsTotal / 100).toFixed(2) : price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
+          </label>
+          <label className="text-sm">
+            Checkout shelf
+            <select className={`${selectClass} block w-full`} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+              <option value="">Not on a shelf</option>
+              {orderedShelves(groups).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
           </label>
           {!item ? (
             <label className="text-sm">
@@ -415,6 +520,19 @@ function ItemEditor({ item, categories, onClose }: { item: CatalogItem | null; c
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Show at checkout
           </label>
+          {(item?.kind ?? kind) === "membership" ? (
+            <PackageEditor
+              parts={parts}
+              setParts={setParts}
+              categories={categories}
+              defaultCategoryId={categoryId}
+              startTotalCents={Math.round(Number(price || 0) * 100)}
+              autopayCount={autopayCount}
+              setAutopayCount={setAutopayCount}
+              autoRenews={autoRenews}
+              setAutoRenews={setAutoRenews}
+            />
+          ) : null}
           <p className="text-xs text-muted-foreground sm:col-span-2">
             {taxed ? "Taxed at checkout." : "Not taxed."} Changes here stay in SynqIQ; Mindbody is never changed.
           </p>
@@ -527,6 +645,318 @@ function CategoryRow({ category, count }: { category: CatalogCategory; count: nu
           }}
         >
           Save
+        </Button>
+        {state ? <span className="block text-xs text-muted-foreground">{state}</span> : null}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+type PartDraft = { label: string; revenueCategoryId: string; amount: string; recurring: boolean };
+
+// A membership package's price breakdown: what the first payment is made of
+// (each part in its own revenue category) and which parts repeat monthly.
+function PackageEditor({
+  parts,
+  setParts,
+  categories,
+  defaultCategoryId,
+  startTotalCents,
+  autopayCount,
+  setAutopayCount,
+  autoRenews,
+  setAutoRenews,
+}: {
+  parts: PartDraft[] | null;
+  setParts: (parts: PartDraft[] | null) => void;
+  categories: CatalogCategory[];
+  defaultCategoryId: string;
+  startTotalCents: number;
+  autopayCount: string;
+  setAutopayCount: (value: string) => void;
+  autoRenews: boolean;
+  setAutoRenews: (value: boolean) => void;
+}) {
+  const registration = categories.find((c) => c.key === "registration_fee");
+  const dues = categories.find((c) => c.key === "membership_dues");
+  if (!parts) {
+    return (
+      <div className="rounded-md border border-dashed p-3 text-sm sm:col-span-2">
+        <p className="text-muted-foreground">
+          Sold as one amount. Make it a package to split the first payment (e.g. registration fee + first month&apos;s dues) and set the
+          monthly payments.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2"
+          onClick={() =>
+            setParts([
+              { label: "Registration fee", revenueCategoryId: registration?.id ?? defaultCategoryId, amount: "0.00", recurring: false },
+              {
+                label: "Monthly dues",
+                revenueCategoryId: dues?.id ?? defaultCategoryId,
+                amount: (startTotalCents / 100).toFixed(2),
+                recurring: true,
+              },
+            ])
+          }
+        >
+          Make it a package
+        </Button>
+      </div>
+    );
+  }
+  const update = (index: number, change: Partial<PartDraft>) =>
+    setParts(parts.map((part, i) => (i === index ? { ...part, ...change } : part)));
+  const monthly = parts.filter((part) => part.recurring).reduce((sum, part) => sum + Math.round(Number(part.amount || 0) * 100), 0);
+  return (
+    <div className="space-y-2 rounded-md border p-3 text-sm sm:col-span-2">
+      <p className="font-medium">Package price breakdown</p>
+      <p className="text-xs text-muted-foreground">
+        Each part posts to its own revenue category. Parts marked &quot;Monthly&quot; are charged again every month; the rest only at the
+        sale.
+      </p>
+      {parts.map((part, index) => (
+        <div key={index} className="flex flex-wrap items-center gap-2">
+          <Input className="h-8 w-40" value={part.label} onChange={(e) => update(index, { label: e.target.value })} />
+          <select
+            aria-label="Revenue category"
+            className={selectClass}
+            value={part.revenueCategoryId}
+            onChange={(e) => update(index, { revenueCategoryId: e.target.value })}
+          >
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+                {c.taxable ? " (taxed)" : ""}
+              </option>
+            ))}
+          </select>
+          <span className="flex items-center gap-1">
+            $
+            <Input
+              className="h-8 w-24"
+              inputMode="decimal"
+              value={part.amount}
+              onChange={(e) => update(index, { amount: e.target.value })}
+            />
+          </span>
+          <label className="flex items-center gap-1 text-xs">
+            <input type="checkbox" checked={part.recurring} onChange={(e) => update(index, { recurring: e.target.checked })} />
+            Monthly
+          </label>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            aria-label="Remove part"
+            onClick={() => setParts(parts.length === 1 ? null : parts.filter((_, i) => i !== index))}
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => setParts([...parts, { label: "", revenueCategoryId: defaultCategoryId, amount: "0.00", recurring: false }])}
+      >
+        <Plus /> Add a part
+      </Button>
+      <div className="flex flex-wrap items-center gap-3 border-t pt-2">
+        <label className="flex items-center gap-1">
+          Monthly payments after the first
+          <Input
+            className="h-8 w-16"
+            inputMode="numeric"
+            placeholder="∞"
+            value={autopayCount}
+            onChange={(e) => setAutopayCount(e.target.value.replace(/[^0-9]/g, ""))}
+          />
+        </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={autoRenews} onChange={(e) => setAutoRenews(e.target.checked)} />
+          Then continues month to month
+        </label>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Each month: ${(monthly / 100).toFixed(2)} before tax
+        {autopayCount ? `, ${autopayCount} times${autoRenews ? ", then month to month" : ""}` : ", until cancelled"}. Leave the count blank
+        for month to month.
+      </p>
+      <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setParts(null)}>
+        Sell as one amount instead
+      </button>
+    </div>
+  );
+}
+
+// Checkout shelves: what staff tap through on the checkout screen. Top
+// shelves show first; a top shelf can hold shelves (Drinks -> Energy drinks).
+function Shelves({ groups, items }: { groups: CatalogGroup[]; items: CatalogItem[] }) {
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [parentId, setParentId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const shelves = orderedShelves(groups);
+  const tops = shelves.filter((g) => g.depth === 0);
+  const count = (id: string) => items.filter((item) => item.active && item.groupId === id).length;
+
+  async function move(shelf: CatalogGroup, direction: -1 | 1) {
+    const siblings = shelves.filter((g) => g.parentId === shelf.parentId);
+    const index = siblings.findIndex((g) => g.id === shelf.id);
+    const other = siblings[index + direction];
+    if (!other) return;
+    const reordered: CatalogGroup[] = [...siblings];
+    reordered[index] = other;
+    reordered[index + direction] = shelf;
+    for (const [i, g] of reordered.entries()) {
+      if (g.sort !== i * 10) await act({ action: "group", id: g.id, name: g.name, parentId: g.parentId, sort: i * 10, active: g.active });
+    }
+    router.refresh();
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Add a shelf</CardTitle>
+          <CardDescription>
+            Shelves only arrange the checkout screen. Tax and revenue still come from each item&apos;s revenue category. Put items on a
+            shelf from the Items tab.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-2">
+          <Input className="h-9 w-52" placeholder="Shelf name" value={name} onChange={(e) => setName(e.target.value)} />
+          <select className={selectClass} value={parentId} onChange={(e) => setParentId(e.target.value)}>
+            <option value="">Top shelf</option>
+            {tops.map((g) => (
+              <option key={g.id} value={g.id}>
+                Inside {g.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            disabled={!name.trim()}
+            onClick={async () => {
+              const siblings = shelves.filter((g) => g.parentId === (parentId || null));
+              const result = await act({
+                action: "group",
+                name,
+                parentId: parentId || null,
+                sort: (siblings.length ? Math.max(...siblings.map((g) => g.sort)) : -10) + 10,
+              });
+              setError(result.error);
+              if (!result.error) setName("");
+              router.refresh();
+            }}
+          >
+            Add
+          </Button>
+          {error ? <span className="text-sm text-destructive">{error}</span> : null}
+        </CardContent>
+      </Card>
+      <Card className="py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Shelf</TableHead>
+              <TableHead className="text-right">Items</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {shelves.map((shelf) => (
+              <ShelfRow key={shelf.id} shelf={shelf} tops={tops} count={count(shelf.id)} onMove={(direction) => move(shelf, direction)} />
+            ))}
+            {shelves.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-muted-foreground">
+                  No shelves yet.
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </Table>
+      </Card>
+    </div>
+  );
+}
+
+function ShelfRow({
+  shelf,
+  tops,
+  count,
+  onMove,
+}: {
+  shelf: CatalogGroup & { depth: number };
+  tops: CatalogGroup[];
+  count: number;
+  onMove: (direction: -1 | 1) => void;
+}) {
+  const router = useRouter();
+  const [name, setName] = useState(shelf.name);
+  const [parentId, setParentId] = useState(shelf.parentId ?? "");
+  const [state, setState] = useState<string | null>(null);
+  const dirty = name !== shelf.name || parentId !== (shelf.parentId ?? "");
+  return (
+    <TableRow>
+      <TableCell>
+        <div className={`flex flex-wrap items-center gap-2 ${shelf.depth ? "pl-6" : ""}`}>
+          <Input className="h-8 w-48" value={name} onChange={(e) => setName(e.target.value)} />
+          <select className={selectClass} value={parentId} onChange={(e) => setParentId(e.target.value)}>
+            <option value="">Top shelf</option>
+            {tops
+              .filter((g) => g.id !== shelf.id)
+              .map((g) => (
+                <option key={g.id} value={g.id}>
+                  Inside {g.name}
+                </option>
+              ))}
+          </select>
+        </div>
+      </TableCell>
+      <TableCell className="text-right tabular-nums">{count}</TableCell>
+      <TableCell className="text-right whitespace-nowrap">
+        <Button size="icon" variant="ghost" className="size-7" aria-label="Move up" onClick={() => onMove(-1)}>
+          <ArrowUp className="size-3" />
+        </Button>
+        <Button size="icon" variant="ghost" className="size-7" aria-label="Move down" onClick={() => onMove(1)}>
+          <ArrowDown className="size-3" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={!dirty}
+          onClick={async () => {
+            const result = await act({
+              action: "group",
+              id: shelf.id,
+              name,
+              parentId: parentId || null,
+              sort: shelf.sort,
+              active: shelf.active,
+            });
+            setState(result.error ?? "Saved");
+            router.refresh();
+          }}
+        >
+          Save
+        </Button>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-7"
+          aria-label="Delete shelf"
+          onClick={async () => {
+            const result = await act({ action: "groupDelete", id: shelf.id });
+            setState(result.error ?? null);
+            router.refresh();
+          }}
+        >
+          <Trash2 className="size-3" />
         </Button>
         {state ? <span className="block text-xs text-muted-foreground">{state}</span> : null}
       </TableCell>

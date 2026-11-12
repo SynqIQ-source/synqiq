@@ -70,6 +70,12 @@ export async function POST(request: NextRequest) {
       .update({ status: "voided", voided_at: new Date().toISOString(), voided_by_staff_id: currentStaff.id, void_reason: reason })
       .eq("id", saleId);
     if (error) return NextResponse.json({ success: false, error: "Couldn't void. Try again." }, { status: 500 });
+    // A voided sale's membership payment schedule is voided with it.
+    await admin
+      .from("member_billing_schedules")
+      .update({ status: "voided", voided_at: new Date().toISOString() })
+      .eq("sale_id", saleId)
+      .eq("organization_id", currentStaff.organizationId);
     return NextResponse.json({ success: true });
   }
   return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400 });

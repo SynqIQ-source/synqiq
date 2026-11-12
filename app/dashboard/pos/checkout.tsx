@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { computeCart, type PromoInput } from "@/lib/pos/cart";
+import { expandCartLines, monthlySchedule, scheduleTerms, type PricedPart } from "@/lib/pos/packages";
 
 export type CheckoutCategory = { id: string; key: string; name: string; commissionable: boolean };
 export type CheckoutItem = {
@@ -19,7 +20,12 @@ export type CheckoutItem = {
   barcode: string | null;
   imageUrl: string | null;
   sessions: number | null;
+  groupId: string | null;
+  parts: PricedPart[] | null; // membership package: what the first payment is made of
+  autopayCount: number | null;
+  autoRenews: boolean;
 };
+export type CheckoutShelf = { id: string; parentId: string | null; name: string };
 type Person = { id: string; name: string };
 type Member = { id: string; name: string; status: string; plans: string[]; frozen: boolean };
 type Credit = { staffId: string; share: number };
@@ -34,7 +40,8 @@ type Line = {
 type Receipt = {
   saleNumber: number;
   member: string;
-  lines: { name: string; quantity: number; totalCents: number; discountCents: number }[];
+  lines: { name: string; quantity: number; totalCents: number; discountCents: number; sub?: boolean }[];
+  schedules: string[];
   subtotalCents: number;
   discountCents: number;
   taxCents: number;
@@ -45,8 +52,11 @@ type Receipt = {
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const selectClass = "h-8 rounded-md border bg-background px-1 text-xs";
 
+const OTHER = "__other";
+
 export function Checkout({
   items,
+  shelves,
   categories,
   taxRate,
   mayDiscount,
@@ -55,6 +65,7 @@ export function Checkout({
   freezeNotice,
 }: {
   items: CheckoutItem[];
+  shelves: CheckoutShelf[];
   categories: CheckoutCategory[];
   taxRate: number;
   mayDiscount: boolean;
@@ -62,7 +73,7 @@ export function Checkout({
   me: Person;
   freezeNotice: string;
 }) {
-  const [category, setCategory] = useState<string>("all");
+  const [shelfId, setShelfId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
   const [member, setMember] = useState<Member | null>(null);
@@ -76,37 +87,69 @@ export function Checkout({
 
   const itemBy = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const categoryBy = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
-  const shown = items.filter(
-    (item) =>
-      (category === "all" || item.categoryId === category) &&
-      (!search.trim() || item.name.toLowerCase().includes(search.trim().toLowerCase())),
-  );
+  const shelfBy = useMemo(() => new Map(shelves.map((shelf) => [shelf.id, shelf])), [shelves]);
+  const q = search.trim().toLowerCase();
+  // Items whose shelf is gone or unset go on an "Other items" shelf.
+  const shelfOf = (item: CheckoutItem) => (item.groupId && shelfBy.has(item.groupId) ? item.groupId : OTHER);
+  const childShelves = (parentId: string | null) => (parentId === OTHER ? [] : shelves.filter((shelf) => shelf.parentId === parentId));
+  const itemsUnder = (id: string) =>
+    items.filter((item) => shelfOf(item) === id || (id !== OTHER && shelfBy.get(shelfOf(item))?.parentId === id));
+  const current = shelfId
+    ? (shelfBy.get(shelfId) ?? (shelfId === OTHER ? { id: OTHER, parentId: null, name: "Other items" } : null))
+    : null;
+  const shelfCards = q
+    ? []
+    : [
+        ...childShelves(shelfId),
+        ...(!shelfId && items.some((item) => shelfOf(item) === OTHER) ? [{ id: OTHER, parentId: null, name: "Other items" }] : []),
+      ].filter((shelf) => itemsUnder(shelf.id).length > 0);
+  const shown = q
+    ? items.filter((item) => item.name.toLowerCase().includes(q))
+    : shelfId
+      ? items.filter((item) => shelfOf(item) === shelfId)
+      : [];
 
-  const cart = computeCart(
+  const expanded = expandCartLines(
     lines.map((line) => {
       const item = itemBy.get(line.itemId)!;
       const value = Number(line.discount?.value ?? 0);
       return {
         key: line.key,
-        unitPriceCents: item.priceCents,
         quantity: line.quantity,
-        taxable: item.taxable,
-        categoryId: item.categoryId,
+        item,
         manualDiscount:
           line.discount && value > 0
             ? { kind: line.discount.kind, value: line.discount.kind === "amount" ? Math.round(value * 100) : value }
             : null,
       };
     }),
-    taxRate,
-    promo,
   );
-  const sellsMembership = lines.some((line) => categoryBy.get(itemBy.get(line.itemId)?.categoryId ?? "")?.key === "membership_dues");
+  const cart = computeCart(expanded, taxRate, promo);
+  // Per cart line (a package adds up its parts).
+  const lineTotals = (key: string) => {
+    const parts = cart.lines.filter((_, index) => expanded[index].parentKey === key);
+    return {
+      netCents: parts.reduce((sum, line) => sum + line.netCents, 0),
+      promoDiscountCents: parts.reduce((sum, line) => sum + line.promoDiscountCents, 0),
+      discountCents: parts.reduce((sum, line) => sum + line.manualDiscountCents + line.promoDiscountCents, 0),
+      parts: parts.map((line, i) => ({ line, part: expanded[cart.lines.indexOf(line)].part, i })),
+    };
+  };
+  const categoryKeysOf = (item: CheckoutItem) =>
+    item.parts ? item.parts.map((part) => categoryBy.get(part.revenueCategoryId)?.key) : [categoryBy.get(item.categoryId)?.key];
+  const isCommissionable = (item: CheckoutItem) =>
+    item.parts
+      ? item.parts.some((part) => categoryBy.get(part.revenueCategoryId)?.commissionable)
+      : Boolean(categoryBy.get(item.categoryId)?.commissionable);
+  const sellsMembership = lines.some((line) => categoryKeysOf(itemBy.get(line.itemId)!).includes("membership_dues"));
+  const packageNeedsMember = !member && lines.some((line) => itemBy.get(line.itemId)?.parts);
+  const today = new Date().toLocaleDateString("en-CA");
 
   function add(item: CheckoutItem) {
     setReceipt(null);
     setLines((current) => {
       const existing = current.find((line) => line.itemId === item.id);
+      if (existing && item.parts) return current; // packages: one at a time
       if (existing) return current.map((line) => (line === existing ? { ...line, quantity: line.quantity + 1 } : line));
       return [...current, { key: `${item.id}-${Date.now()}`, itemId: item.id, quantity: 1, discount: null, credits: [], none: false }];
     });
@@ -165,12 +208,31 @@ export function Checkout({
     setReceipt({
       saleNumber: result.saleNumber ?? 0,
       member: member?.name ?? "Walk-in",
-      lines: cart.lines.map((line) => ({
-        name: itemBy.get(lines.find((l) => l.key === line.key)!.itemId)!.name,
-        quantity: line.quantity,
-        totalCents: line.netCents,
-        discountCents: line.manualDiscountCents + line.promoDiscountCents,
-      })),
+      lines: lines.flatMap((line) => {
+        const item = itemBy.get(line.itemId)!;
+        const totals = lineTotals(line.key);
+        return [
+          { name: item.name, quantity: line.quantity, totalCents: totals.netCents, discountCents: totals.discountCents },
+          ...(item.parts
+            ? totals.parts.map(({ line: part, part: info }) => ({
+                name: info?.label ?? "",
+                quantity: 1,
+                totalCents: part.netCents,
+                discountCents: 0,
+                sub: true,
+              }))
+            : []),
+        ];
+      }),
+      schedules: lines.flatMap((line) => {
+        const item = itemBy.get(line.itemId)!;
+        const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today) : null;
+        return schedule
+          ? [
+              `${item.name}: ${money(schedule.totalCents)}/month incl. tax from ${schedule.firstBillDate}, ${scheduleTerms(item.autopayCount, item.autoRenews)}`,
+            ]
+          : [];
+      }),
       subtotalCents: cart.subtotalCents,
       discountCents: cart.discountCents,
       taxCents: cart.taxCents,
@@ -212,43 +274,105 @@ export function Checkout({
                 }}
               />
             </div>
-            <div className="flex flex-wrap gap-1">
-              {[{ id: "all", name: "All" }, ...categories].map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setCategory(c.id)}
-                  className={`rounded-full border px-3 py-1 text-xs ${category === c.id ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-            {shown.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => add(item)}
-                className="overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm active:scale-[0.98]"
+          <div className="flex flex-wrap items-center gap-1 text-sm">
+            {current || q ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setSearch("");
+                  setShelfId(q ? shelfId : (current?.parentId ?? null));
+                }}
               >
-                <div className="flex aspect-[4/3] items-center justify-center bg-muted">
-                  {item.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.imageUrl} alt="" className="size-full object-cover" />
-                  ) : (
-                    <span className="text-2xl font-semibold text-muted-foreground/60">{item.name.trim().charAt(0).toUpperCase()}</span>
-                  )}
-                </div>
-                <div className="p-2">
-                  <p className="line-clamp-2 text-xs leading-tight font-medium">{item.name}</p>
-                  <p className="text-sm tabular-nums">{money(item.priceCents)}</p>
-                </div>
-              </button>
-            ))}
+                <ChevronLeft /> Back
+              </Button>
+            ) : null}
+            <button type="button" className={current ? "text-primary underline" : "font-medium"} onClick={() => setShelfId(null)}>
+              All
+            </button>
+            {current?.parentId ? (
+              <>
+                <ChevronRight className="size-3 text-muted-foreground" />
+                <button type="button" className="text-primary underline" onClick={() => setShelfId(current.parentId)}>
+                  {shelfBy.get(current.parentId)?.name}
+                </button>
+              </>
+            ) : null}
+            {current ? (
+              <>
+                <ChevronRight className="size-3 text-muted-foreground" />
+                <span className="font-medium">{current.name}</span>
+              </>
+            ) : null}
+            {q ? <span className="text-muted-foreground">· search results</span> : null}
           </div>
-          {shown.length === 0 ? <p className="text-sm text-muted-foreground">Nothing matches.</p> : null}
+          {shelfCards.length ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+              {shelfCards.map((shelf) => {
+                const inside = itemsUnder(shelf.id);
+                const cover = inside.find((item) => item.imageUrl)?.imageUrl ?? null;
+                return (
+                  <button
+                    key={shelf.id}
+                    type="button"
+                    onClick={() => setShelfId(shelf.id)}
+                    className="overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm active:scale-[0.98]"
+                  >
+                    <div className="flex aspect-[16/9] items-center justify-center bg-muted">
+                      {cover ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={cover} alt="" className="size-full object-cover" />
+                      ) : (
+                        <span className="text-3xl font-semibold text-muted-foreground/60">{shelf.name.trim().charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between p-2">
+                      <p className="font-medium">{shelf.name}</p>
+                      <span className="text-xs text-muted-foreground">{inside.length}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {shown.length ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+              {shown.map((item) => {
+                const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today) : null;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => add(item)}
+                    className="overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm active:scale-[0.98]"
+                  >
+                    <div className="flex aspect-[4/3] items-center justify-center bg-muted">
+                      {item.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.imageUrl} alt="" className="size-full object-cover" />
+                      ) : (
+                        <span className="text-2xl font-semibold text-muted-foreground/60">{item.name.trim().charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="p-2">
+                      <p className="line-clamp-2 text-xs leading-tight font-medium">{item.name}</p>
+                      <p className="text-sm tabular-nums">
+                        {money(item.priceCents)}
+                        {item.parts ? <span className="text-xs text-muted-foreground"> today</span> : null}
+                      </p>
+                      {schedule ? (
+                        <p className="text-xs text-muted-foreground tabular-nums">then {money(schedule.subtotalCents)}/mo + tax</p>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {(q || current) && shown.length === 0 && shelfCards.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing matches.</p>
+          ) : null}
         </div>
 
         <div className="lg:sticky lg:top-4 lg:self-start">
@@ -269,18 +393,21 @@ export function Checkout({
                 {lines.length === 0 ? <p className="text-sm text-muted-foreground">Tap an item or scan a barcode to add it.</p> : null}
                 {lines.map((line) => {
                   const item = itemBy.get(line.itemId)!;
-                  const computed = cart.lines.find((l) => l.key === line.key)!;
-                  const commissionable = categoryBy.get(item.categoryId)?.commissionable;
+                  const computed = lineTotals(line.key);
+                  const commissionable = isCommissionable(item);
+                  const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today) : null;
                   return (
                     <div key={line.key} className="space-y-1 border-b pb-2 last:border-b-0">
                       <div className="flex items-start gap-2">
                         <div className="flex-1">
                           <p className="text-sm leading-tight font-medium">{item.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {money(item.priceCents)} each{item.taxable ? " · taxed" : ""}
-                          </p>
+                          {item.parts ? null : (
+                            <p className="text-xs text-muted-foreground">
+                              {money(item.priceCents)} each{item.taxable ? " · taxed" : ""}
+                            </p>
+                          )}
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className={`flex items-center gap-1 ${item.parts ? "hidden" : ""}`}>
                           <Button
                             size="icon"
                             variant="outline"
@@ -309,6 +436,29 @@ export function Checkout({
                           <Trash2 className="size-3" />
                         </Button>
                       </div>
+                      {item.parts ? (
+                        <div className="space-y-0.5 rounded-md bg-muted/50 px-2 py-1 text-xs">
+                          {computed.parts.map(({ line: part, part: info, i }) => (
+                            <div key={i} className="flex justify-between">
+                              <span>
+                                {info?.label}
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  · {categoryBy.get(info?.revenueCategoryId ?? "")?.name}
+                                  {part.taxable ? " · taxed" : ""}
+                                </span>
+                              </span>
+                              <span className="tabular-nums">{money(part.netCents)}</span>
+                            </div>
+                          ))}
+                          {schedule ? (
+                            <p className="border-t pt-0.5 text-muted-foreground">
+                              Then {money(schedule.subtotalCents)} + tax = <span className="font-medium">{money(schedule.totalCents)}</span>{" "}
+                              a month from {schedule.firstBillDate}, {scheduleTerms(item.autopayCount, item.autoRenews)}.
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <div className="flex flex-wrap items-center gap-1">
                         {mayDiscount ? (
                           line.discount ? (
@@ -384,8 +534,11 @@ export function Checkout({
                   <Row label={`Tax (${(taxRate * 100).toFixed(2).replace(/\.?0+$/, "")}%)`} value={money(cart.taxCents)} />
                   <Row label="Total" value={money(cart.totalCents)} strong />
                 </div>
+                {packageNeedsMember ? (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">Pick the member for the membership.</p>
+                ) : null}
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
-                <Button className="w-full" disabled={saving || lines.length === 0} onClick={save}>
+                <Button className="w-full" disabled={saving || lines.length === 0 || packageNeedsMember} onClick={save}>
                   {saving ? "Saving…" : "Save practice sale"}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">Card payment connects here once Stripe is set up.</p>
@@ -563,9 +716,9 @@ function ReceiptCard({ receipt, onNew }: { receipt: Receipt; onNew: () => void }
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         {receipt.lines.map((line, index) => (
-          <div key={index} className="flex justify-between">
+          <div key={index} className={`flex justify-between ${line.sub ? "pl-4 text-xs text-muted-foreground" : ""}`}>
             <span>
-              {line.quantity} × {line.name}
+              {line.sub ? line.name : `${line.quantity} × ${line.name}`}
               {line.discountCents ? (
                 <span className="block text-xs text-muted-foreground">−{money(line.discountCents)} discount</span>
               ) : null}
@@ -581,6 +734,11 @@ function ReceiptCard({ receipt, onNew }: { receipt: Receipt; onNew: () => void }
           <Row label="Tax" value={money(receipt.taxCents)} />
           <Row label="Total" value={money(receipt.totalCents)} strong />
         </div>
+        {receipt.schedules.map((text) => (
+          <p key={text} className="text-xs text-muted-foreground">
+            {text}
+          </p>
+        ))}
         <div className="flex gap-2 pt-2">
           <Button className="flex-1" onClick={onNew}>
             New sale

@@ -9,6 +9,7 @@ import { requireAccess } from "@/lib/require-access";
 import { canCheckout } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { canVoidSale } from "@/lib/pos/sales";
+import { scheduleTerms } from "@/lib/pos/packages";
 import { PrintButton, VoidSale } from "./receipt-actions";
 
 const money = (cents: number) => `${cents < 0 ? "-" : ""}$${(Math.abs(cents) / 100).toFixed(2)}`;
@@ -27,9 +28,15 @@ export default async function PosSalePage({ params }: { params: Promise<{ id: st
   if (!sale) notFound();
   const seesAll = staff.role === "admin" || staff.role === "sales_lead";
   if (!seesAll && sale.staff_id !== staff.id) notFound();
-  const [{ data: lines }, { data: people }] = await Promise.all([
+  const [{ data: lines }, { data: people }, { data: schedules }] = await Promise.all([
     admin.from("pos_sale_lines").select("*").eq("sale_id", id).order("line_number"),
     admin.from("staff").select("id, display_name").eq("organization_id", staff.organizationId),
+    admin
+      .from("member_billing_schedules")
+      .select(
+        "id, name, status, first_bill_date, recurring_lines, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, autopay_count, auto_renews",
+      )
+      .eq("sale_id", id),
   ]);
   const nameOf = new Map((people ?? []).map((row) => [row.id as string, (row.display_name as string | null) ?? "Unknown"]));
   const zone = (org?.timezone as string | null) ?? "America/Chicago";
@@ -86,7 +93,13 @@ export default async function PosSalePage({ params }: { params: Promise<{ id: st
                 <div key={line.id as string}>
                   <div className="flex justify-between">
                     <span>
-                      {line.quantity} × {line.name}
+                      {line.package_name ? line.name : `${line.quantity} × ${line.name}`}
+                      {line.revenue_category ? (
+                        <span className="block text-xs text-muted-foreground print:hidden">
+                          {line.revenue_category as string}
+                          {line.recurring ? " · repeats monthly" : ""}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="tabular-nums">{money(Number(line.total_cents) - Number(line.tax_cents))}</span>
                   </div>
@@ -128,6 +141,31 @@ export default async function PosSalePage({ params }: { params: Promise<{ id: st
                 <span className="tabular-nums">{money(Number(sale.total_cents))}</span>
               </div>
             </div>
+            {(schedules ?? []).map((schedule) => (
+              <div key={schedule.id as string} className="space-y-1 rounded-md border px-3 py-2 text-xs">
+                <p className="font-medium">
+                  Monthly payments · {schedule.name as string}
+                  {schedule.status === "voided" ? " (voided)" : schedule.status === "practice" ? " (practice, never charged)" : ""}
+                </p>
+                {((schedule.recurring_lines as { label: string; revenueCategory: string | null; amountCents: number }[]) ?? []).map(
+                  (part, index) => (
+                    <div key={index} className="flex justify-between text-muted-foreground">
+                      <span>
+                        {part.label}
+                        {part.revenueCategory ? ` · ${part.revenueCategory}` : ""}
+                      </span>
+                      <span className="tabular-nums">{money(part.amountCents)}</span>
+                    </div>
+                  ),
+                )}
+                <p>
+                  {money(Number(schedule.recurring_subtotal_cents))} + {money(Number(schedule.recurring_tax_cents))} tax ={" "}
+                  <span className="font-medium">{money(Number(schedule.recurring_total_cents))}</span> a month from{" "}
+                  {DateTime.fromISO(schedule.first_bill_date as string).toFormat("LLL d, yyyy")},{" "}
+                  {scheduleTerms(schedule.autopay_count == null ? null : Number(schedule.autopay_count), Boolean(schedule.auto_renews))}.
+                </p>
+              </div>
+            ))}
           </CardContent>
         </Card>
         {mayVoid ? <VoidSale saleId={id} /> : null}
