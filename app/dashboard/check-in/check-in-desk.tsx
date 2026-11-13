@@ -16,8 +16,9 @@ const TONE = {
   none: "border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/30",
 } as const;
 
-// Front desk: scan a key card (checks good-standing members straight in) or
-// look someone up by name, see what covers the visit, check them in.
+// Front desk: scan a key card or pick someone by name. A covered member in
+// good standing is checked straight in (with Undo for a wrong pick); anyone
+// needing attention opens their card so the desk can decide.
 const SEARCH_LABEL = "Scan a card or search";
 
 export function CheckInDesk() {
@@ -26,7 +27,8 @@ export function CheckInDesk() {
   const [status, setStatus] = useState<CheckInStatus | null>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
-  const [flash, setFlash] = useState<{ ok: boolean; text: string; photo?: string | null } | null>(null);
+  const [flash, setFlash] = useState<{ ok: boolean; text: string; photo?: string | null; checkInId?: string } | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   // Keep the search box ready for the next scan whenever nobody is open.
   useEffect(() => {
@@ -34,7 +36,7 @@ export function CheckInDesk() {
   }, [status, flash]);
   useEffect(() => {
     if (!flash?.ok) return;
-    const timer = setTimeout(() => setFlash(null), 6000);
+    const timer = setTimeout(() => setFlash(null), flash.checkInId ? 10000 : 6000);
     return () => clearTimeout(timer);
   }, [flash]);
 
@@ -65,9 +67,54 @@ export function CheckInDesk() {
     return (await response.json().catch(() => ({}))) as {
       success?: boolean;
       error?: string;
+      id?: string;
       coverage?: string | null;
       needsStaff?: boolean;
     };
+  }
+
+  // Covered and in good standing (and not already in today): check in now.
+  // Otherwise open their card.
+  async function autoCheckIn(found: CheckInStatus, method: "scan" | "front_desk") {
+    const ready =
+      found.decision.standing === "good" && found.decision.covered && !found.decision.warnings.includes("Already checked in today.");
+    if (!ready) {
+      setStatus(found);
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await post(found, method);
+      if (result.success) {
+        setFlash({
+          ok: true,
+          text: `Welcome, ${found.client.name.split(" ")[0]}! Checked in${result.coverage ? ` (${result.coverage})` : ""}.`,
+          photo: found.client.photoUrl,
+          checkInId: result.id,
+        });
+        router.refresh();
+      } else setStatus(found);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function undo(id: string, name: string) {
+    setUndoing(true);
+    try {
+      const response = await fetch(`/api/check-in/${id}/void`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Undone at the desk (wrong person picked)" }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      setFlash(
+        result.success ? { ok: true, text: `Undone: ${name} is not checked in.` } : { ok: false, text: result.error ?? "Couldn't undo." },
+      );
+      router.refresh();
+    } finally {
+      setUndoing(false);
+    }
   }
 
   // Enter without picking from the list: a key-card scan (or a typed card
@@ -79,31 +126,12 @@ export function CheckInDesk() {
       return;
     }
     const found = await lookup(`/api/check-in/scan?code=${encodeURIComponent(code)}`);
-    if (!found) return;
-    const ready = found.decision.standing === "good" && !found.decision.warnings.includes("Already checked in today.");
-    if (!ready) {
-      setStatus(found);
-      return;
-    }
-    setSaving(true);
-    try {
-      const result = await post(found, "scan");
-      if (result.success) {
-        setFlash({
-          ok: true,
-          text: `Welcome, ${found.client.name.split(" ")[0]}! Checked in (${result.coverage}).`,
-          photo: found.client.photoUrl,
-        });
-        router.refresh();
-      } else setStatus(found);
-    } finally {
-      setSaving(false);
-    }
+    if (found) await autoCheckIn(found, "scan");
   }
 
   async function choose(suggestion: MemberSuggestion) {
     const found = await lookup(`/api/check-in/status/${encodeURIComponent(suggestion.id)}`);
-    if (found) setStatus(found);
+    if (found) await autoCheckIn(found, "front_desk");
   }
 
   async function checkIn() {
@@ -165,7 +193,18 @@ export function CheckInDesk() {
           ) : (
             <CircleAlert className="size-6 text-red-600" />
           )}
-          {flash.text}
+          <span className="flex-1">{flash.text}</span>
+          {flash.checkInId ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={undoing}
+              onClick={() => undo(flash.checkInId as string, flash.text.replace(/^Welcome, |!.*$/g, ""))}
+            >
+              {undoing ? "Undoing…" : "Undo"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
