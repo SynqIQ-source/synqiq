@@ -4,14 +4,16 @@ import { canCheckIn } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadSessionContext } from "@/lib/booking/context";
 import { decideCancel, placeFor } from "@/lib/booking/rules";
+import { chooseSpot } from "@/lib/rooms/layout";
 
 type RouteParams = { params: Promise<{ id: string }> };
-type Action = "cancel" | "check_in" | "no_show" | "move_in";
+type Action = "cancel" | "check_in" | "no_show" | "move_in" | "move_spot";
 
 // Change a booking: cancel (on time or late; the program's window decides
 // by default and staff can override either way, with a reason that's
 // saved), check in, mark no-show, or move someone in from the waitlist
-// (over capacity too, when staff choose).
+// (over capacity too, when staff choose), or move someone to another spot
+// in a pick-a-spot room.
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
   const currentStaff = await getCurrentStaff();
@@ -25,9 +27,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     kind?: unknown;
     waiveLateCancel?: unknown;
     overCapacity?: unknown;
+    spotId?: unknown;
   } | null;
+  const spotRequested = typeof body?.spotId === "string" && body.spotId ? body.spotId.slice(0, 40) : null;
   const action = body?.action as Action;
-  if (!["cancel", "check_in", "no_show", "move_in"].includes(action)) {
+  if (!["cancel", "check_in", "no_show", "move_in", "move_spot"].includes(action)) {
     return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400 });
   }
   const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : "";
@@ -79,12 +83,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (status !== "booked") return NextResponse.json({ success: false, error: "Only booked people can be no-shows." }, { status: 400 });
     if (!started) return NextResponse.json({ success: false, error: "The class hasn't started yet." }, { status: 400 });
     update = { status: "no_show" };
+  } else if (action === "move_spot") {
+    if (!context.layout) return NextResponse.json({ success: false, error: "This room has no spots." }, { status: 400 });
+    if (status !== "booked" && status !== "checked_in")
+      return NextResponse.json({ success: false, error: "Only booked people have a spot." }, { status: 400 });
+    if (!spotRequested) return NextResponse.json({ success: false, error: "Pick a spot." }, { status: 400 });
+    const chosen = chooseSpot(context.layout, context.takenSpots, spotRequested);
+    if (!chosen.spot) return NextResponse.json({ success: false, error: chosen.error ?? "That spot is taken." }, { status: 400 });
+    update = { spot_id: chosen.spot.id, spot_label: `${context.layout.spotNoun} ${chosen.spot.label}` };
   } else {
     if (status !== "waitlisted") return NextResponse.json({ success: false, error: "They're not on the waitlist." }, { status: 400 });
     const overCapacity = body?.overCapacity === true;
     if (!overCapacity && placeFor(context.session, context.taken) !== "booked")
       return NextResponse.json({ success: false, error: "The class is still full." }, { status: 400 });
     update = { status: "booked", waitlisted_at: null };
+    // Pick-a-spot rooms: give them the spot asked for or the next free one
+    // (none free and staff chose over capacity: booked without a spot).
+    if (context.layout) {
+      const chosen = chooseSpot(context.layout, context.takenSpots, spotRequested);
+      if (chosen.error) return NextResponse.json({ success: false, error: chosen.error }, { status: 400 });
+      if (!chosen.spot && !overCapacity)
+        return NextResponse.json({ success: false, error: `Every ${context.layout.spotNoun.toLowerCase()} is taken.` }, { status: 400 });
+      if (chosen.spot) update = { ...update, spot_id: chosen.spot.id, spot_label: `${context.layout.spotNoun} ${chosen.spot.label}` };
+    }
   }
 
   const { error } = await admin
@@ -93,6 +114,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     .eq("id", id)
     .eq("status", status); // nobody changed it in the meantime
   if (error) {
+    if (error.code === "23505")
+      return NextResponse.json({ success: false, error: "That spot was just taken. Pick another." }, { status: 409 });
     console.error("[bookings] update failed:", error.message);
     return NextResponse.json({ success: false, error: "Couldn't save. Try again." }, { status: 500 });
   }

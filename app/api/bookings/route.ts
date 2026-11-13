@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadSessionContext } from "@/lib/booking/context";
 import { bookingCoverage, bookingWindow, placeFor } from "@/lib/booking/rules";
 import { loadCheckInStatus } from "@/lib/checkin/status";
+import { chooseSpot } from "@/lib/rooms/layout";
 
 const MEMBERSHIP_PROGRAM = "Memberships & Passes";
 
@@ -18,7 +19,13 @@ export async function POST(request: NextRequest) {
   if (!currentStaff || !canCheckIn(currentStaff)) {
     return NextResponse.json({ success: false, error: "Not allowed." }, { status: 403 });
   }
-  const body = (await request.json().catch(() => null)) as { sessionId?: unknown; mindbodyClientId?: unknown; note?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as {
+    sessionId?: unknown;
+    mindbodyClientId?: unknown;
+    note?: unknown;
+    spotId?: unknown;
+  } | null;
+  const spotRequested = typeof body?.spotId === "string" && body.spotId ? body.spotId.slice(0, 40) : null;
   const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";
   const clientId = typeof body?.mindbodyClientId === "string" ? body.mindbodyClientId : "";
   const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
@@ -59,9 +66,20 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const status = placeFor(context.session, context.taken);
+  let status = placeFor(context.session, context.taken);
+  // Pick-a-spot rooms: the spot chosen, else the next free one; no free
+  // spot means the waitlist.
+  let spot: { id: string; label: string } | null = null;
+  if (context.layout && status === "booked") {
+    const chosen = chooseSpot(context.layout, context.takenSpots, spotRequested);
+    if (chosen.error) return NextResponse.json({ success: false, error: chosen.error }, { status: 400 });
+    if (chosen.spot) spot = { id: chosen.spot.id, label: chosen.spot.label };
+    else status = "waitlisted";
+  }
   const now = new Date().toISOString();
   const row = {
+    spot_id: spot?.id ?? null,
+    spot_label: spot ? `${context.layout!.spotNoun} ${spot.label}` : null,
     organization_id: orgId,
     class_session_id: sessionId,
     mindbody_client_id: clientId,
@@ -86,8 +104,10 @@ export async function POST(request: NextRequest) {
     .from("class_bookings")
     .upsert(row, { onConflict: "class_session_id,mindbody_client_id" });
   if (error) {
+    if (error.code === "23505")
+      return NextResponse.json({ success: false, error: "That spot was just taken. Pick another." }, { status: 409 });
     console.error("[bookings] save failed:", error.message);
     return NextResponse.json({ success: false, error: "Couldn't book. Try again." }, { status: 500 });
   }
-  return NextResponse.json({ success: true, status, coverage: coverage.name, standing: person.decision.standing });
+  return NextResponse.json({ success: true, status, coverage: coverage.name, standing: person.decision.standing, spot: row.spot_label });
 }

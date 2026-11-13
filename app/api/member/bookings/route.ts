@@ -4,6 +4,7 @@ import { findStudio, getCurrentMember, sameOrigin } from "@/lib/member/session";
 import { loadSessionContext } from "@/lib/booking/context";
 import { bookingCoverage, bookingWindow, placeFor } from "@/lib/booking/rules";
 import { loadCheckInStatus } from "@/lib/checkin/status";
+import { chooseSpot } from "@/lib/rooms/layout";
 
 const MEMBERSHIP_PROGRAM = "Memberships & Passes";
 
@@ -13,7 +14,8 @@ const MEMBERSHIP_PROGRAM = "Memberships & Passes";
 // SynqIQ only; Mindbody isn't changed.
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ success: false, error: "Not allowed." }, { status: 403 });
-  const body = (await request.json().catch(() => null)) as { studio?: unknown; sessionId?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { studio?: unknown; sessionId?: unknown; spotId?: unknown } | null;
+  const spotRequested = typeof body?.spotId === "string" && body.spotId ? body.spotId.slice(0, 40) : null;
   const sessionId = typeof body?.sessionId === "string" ? body.sessionId : "";
   if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return NextResponse.json({ success: false, error: "Pick a class." }, { status: 400 });
   const studio = await findStudio(Number(body?.studio));
@@ -56,7 +58,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const status = placeFor(context.session, context.taken);
+  let status = placeFor(context.session, context.taken);
+  let spot: { id: string; label: string } | null = null;
+  if (context.layout && status === "booked") {
+    const chosen = chooseSpot(context.layout, context.takenSpots, spotRequested);
+    if (chosen.error) return NextResponse.json({ success: false, error: chosen.error, spotTaken: true }, { status: 409 });
+    if (chosen.spot) spot = { id: chosen.spot.id, label: chosen.spot.label };
+    else status = "waitlisted";
+  }
+  const spotLabel = spot ? `${context.layout!.spotNoun} ${spot.label}` : null;
   const now = new Date().toISOString();
   const { error } = await createSupabaseAdminClient()
     .from("class_bookings")
@@ -67,6 +77,8 @@ export async function POST(request: NextRequest) {
         mindbody_client_id: member.mindbodyClientId,
         client_name: person.client.name,
         status,
+        spot_id: spot?.id ?? null,
+        spot_label: spotLabel,
         waitlisted_at: status === "waitlisted" ? now : null,
         coverage_kind: coverage.kind,
         coverage_name: coverage.name,
@@ -87,8 +99,10 @@ export async function POST(request: NextRequest) {
       { onConflict: "class_session_id,mindbody_client_id" },
     );
   if (error) {
+    if (error.code === "23505")
+      return NextResponse.json({ success: false, error: "That spot was just taken. Pick another.", spotTaken: true }, { status: 409 });
     console.error("[member-bookings] save failed:", error.message);
     return NextResponse.json({ success: false, error: "Couldn't book. Try again." }, { status: 500 });
   }
-  return NextResponse.json({ success: true, status });
+  return NextResponse.json({ success: true, status, spot: spotLabel });
 }

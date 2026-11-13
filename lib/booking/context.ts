@@ -2,6 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import type { ProgramRules, SessionInfo } from "@/lib/booking/rules";
 import { toInstant } from "@/lib/classes/calendar";
+import { parseLayout, type RoomLayout } from "@/lib/rooms/layout";
 
 // Everything about one class on SynqIQ's calendar that booking needs: the
 // class (with single-date edits), its program's rules (with SynqIQ edits),
@@ -24,6 +25,8 @@ export type BookingRow = {
   cancelled_at: string | null;
   cancel_reason: string | null;
   checked_in_at: string | null;
+  spot_id: string | null;
+  spot_label: string | null;
 };
 
 export type SessionContext = {
@@ -43,6 +46,8 @@ export type SessionContext = {
   bookings: BookingRow[];
   taken: number; // spots in use (Mindbody + SynqIQ booked/checked in)
   timezone: string;
+  layout: RoomLayout | null; // the room's pick-a-spot layout, if it has one
+  takenSpots: Set<string>; // spot ids held by booked / checked-in people
 };
 
 const ACTIVE = new Set(["booked", "checked_in"]);
@@ -112,12 +117,16 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
   const { data: bookings } = await admin
     .from("class_bookings")
     .select(
-      "id, mindbody_client_id, client_name, status, waitlisted_at, coverage_kind, coverage_name, note, late_cancel_fee_cents, booked_at, booked_by_staff_id, booked_by_member_account_id, cancelled_at, cancel_reason, checked_in_at",
+      "id, mindbody_client_id, client_name, status, waitlisted_at, coverage_kind, coverage_name, note, late_cancel_fee_cents, booked_at, booked_by_staff_id, booked_by_member_account_id, cancelled_at, cancel_reason, checked_in_at, spot_id, spot_label",
     )
     .eq("class_session_id", sessionId)
     .order("booked_at")
     .returns<BookingRow[]>();
   const synqiqTaken = (bookings ?? []).filter((booking) => ACTIVE.has(booking.status)).length;
+  const layout = await loadRoomLayout(organizationId, (merged.mindbody_resource_id as number | null) ?? null);
+  const takenSpots = new Set(
+    (bookings ?? []).filter((booking) => ACTIVE.has(booking.status) && booking.spot_id).map((booking) => booking.spot_id as string),
+  );
 
   return {
     session: {
@@ -140,5 +149,27 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
     bookings: bookings ?? [],
     taken: (mindbodyBooked ?? 0) + synqiqTaken,
     timezone,
+    layout,
+    takenSpots,
   };
+}
+
+// The pick-a-spot layout of a room (by Mindbody resource id), if it has one.
+export async function loadRoomLayout(organizationId: string, mindbodyResourceId: number | null): Promise<RoomLayout | null> {
+  if (mindbodyResourceId == null) return null;
+  const admin = createSupabaseAdminClient();
+  const { data: room } = await admin
+    .from("rooms")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("mindbody_resource_id", mindbodyResourceId)
+    .maybeSingle();
+  if (!room) return null;
+  const { data: row } = await admin
+    .from("room_layouts")
+    .select("columns, rows, items, spot_noun, active")
+    .eq("room_id", room.id)
+    .eq("active", true)
+    .maybeSingle();
+  return parseLayout(row);
 }

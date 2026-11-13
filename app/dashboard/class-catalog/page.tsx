@@ -11,6 +11,8 @@ import { DAY_NAMES } from "@/lib/classes/catalog";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { CatalogEditDialog } from "./edit-dialog";
 import { ClassPhoto } from "./class-photo";
+import { RoomLayoutEditor } from "./room-layout-editor";
+import { parseLayout } from "@/lib/rooms/layout";
 import { CatalogCreateDialog } from "./create-dialog";
 import { WidgetTab } from "./widget-tab";
 import { CalendarTab, type SessionRow } from "./calendar-tab";
@@ -148,6 +150,11 @@ export default async function ClassCatalogPage() {
   const classTypes = (classTypeRows ?? []).map((row) => effective("class_type", row));
   const programs = (programRows ?? []).map((row) => effective("program", row));
   const rooms = (roomRows ?? []).map((row) => effective("room", row));
+  const { data: layoutRows } = await supabase
+    .from("room_layouts")
+    .select("room_id, columns, rows, items, spot_noun")
+    .eq("organization_id", staff.organizationId);
+  const layoutBy = new Map((layoutRows ?? []).map((row) => [row.room_id as string, parseLayout(row)]));
   const sessionTypes = (sessionRows ?? []).map((row) => effective("session_type", row));
   // A schedule is running if it had a class in the last 30 days and hasn't
   // been taken off the schedule in SynqIQ.
@@ -516,6 +523,7 @@ export default async function ClassCatalogPage() {
                       <TableCell className="text-right tabular-nums">{roomUse.get(room.mindbody_resource_id) ?? 0}</TableCell>
                       <TableCell className="text-right">
                         <span className="inline-flex items-center gap-1">
+                          <RoomLayoutEditor roomId={room.id} roomName={room.name as string} initial={layoutBy.get(room.id) ?? null} />
                           <Edited show={room.edited.length > 0} />
                           <CatalogEditDialog
                             entity="room"

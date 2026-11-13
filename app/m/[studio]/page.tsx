@@ -28,13 +28,17 @@ export default async function MemberBookingPage({ params, searchParams }: Props)
     for (let index = 0; index < ids.length; index += 300) {
       const { data } = await admin
         .from("class_bookings")
-        .select("id, class_session_id, status")
+        .select("id, class_session_id, status, spot_label")
         .eq("organization_id", studio.id)
         .eq("mindbody_client_id", member.mindbodyClientId)
         .in("status", ["booked", "waitlisted", "checked_in"])
         .in("class_session_id", ids.slice(index, index + 300));
       for (const row of data ?? [])
-        bookings[row.class_session_id as string] = { id: row.id as string, status: row.status as MyBooking["status"] };
+        bookings[row.class_session_id as string] = {
+          id: row.id as string,
+          status: row.status as MyBooking["status"],
+          spotLabel: (row.spot_label as string | null) ?? null,
+        };
     }
   }
 

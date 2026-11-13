@@ -22,6 +22,7 @@ export type PublicClass = {
   spotsLeft: number | null;
   cancelled: boolean;
   isPool: boolean;
+  pickSpot: string | null; // the room has a pick-a-spot layout: "Bike", "Reformer"...
 };
 
 export type PublicClassType = {
@@ -75,7 +76,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
         .select("id, name, description_text, level, category, mindbody_program_id, active, image_url, edits")
         .eq("organization_id", orgId),
       admin.from("departments").select("mindbody_program_id, name, cancel_window_minutes, edits").eq("organization_id", orgId),
-      admin.from("rooms").select("mindbody_resource_id, name, edits").eq("organization_id", orgId),
+      admin.from("rooms").select("id, mindbody_resource_id, name, edits").eq("organization_id", orgId),
       admin.from("staff").select("mindbody_staff_id, display_name").eq("organization_id", orgId).not("mindbody_staff_id", "is", null),
       admin
         .from("class_occurrences")
@@ -128,6 +129,17 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       effective("room", row as Record<string, unknown> & { edits: Edits }).name as string,
     ]),
   );
+  const { data: layoutRows } = await admin
+    .from("room_layouts")
+    .select("room_id, spot_noun")
+    .eq("organization_id", orgId)
+    .eq("active", true);
+  const nounByRoom = new Map((layoutRows ?? []).map((row) => [row.room_id as string, row.spot_noun as string]));
+  const spotNoun = new Map(
+    (rooms ?? [])
+      .filter((row) => nounByRoom.has(row.id as string))
+      .map((row) => [Number(row.mindbody_resource_id), nounByRoom.get(row.id as string) as string]),
+  );
   const teacherName = new Map((teachers ?? []).map((row) => [Number(row.mindbody_staff_id), row.display_name as string]));
   const mindbodyBooked = new Map(
     (occurrences ?? []).map((row) => [
@@ -163,6 +175,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       spotsLeft: capacity === null ? null : Math.max(0, capacity - taken),
       cancelled: merged.active === false,
       isPool: /pool lane/i.test(row.class_name as string),
+      pickSpot: roomId != null ? (spotNoun.get(roomId) ?? null) : null,
     });
   }
   classes.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.name.localeCompare(b.name));

@@ -1,15 +1,26 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { PublicClass, PublicSchedule } from "@/lib/widget/schedule";
 import { ScheduleWidget } from "@/app/widget/schedule/schedule-widget";
+import { RoomMap } from "@/components/room-map";
+import type { RoomLayout } from "@/lib/rooms/layout";
 
 // Member booking pages (first-party on synqiq.co): sign in, set a password
 // from the emailed link, book / cancel. Plain styling in the studio's color.
 
-type Result = { success?: boolean; error?: string; message?: string; status?: string; feeCents?: number | null; signIn?: boolean };
+type Result = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  status?: string;
+  feeCents?: number | null;
+  signIn?: boolean;
+  spot?: string | null;
+  spotTaken?: boolean;
+};
 
 async function post(url: string, body: Record<string, unknown>): Promise<Result> {
   try {
@@ -190,7 +201,7 @@ export function SignOutButton() {
   );
 }
 
-export type MyBooking = { id: string; status: "booked" | "waitlisted" | "checked_in" };
+export type MyBooking = { id: string; status: "booked" | "waitlisted" | "checked_in"; spotLabel?: string | null };
 
 // The schedule with Book / Join waitlist / Cancel buttons.
 export function MemberSchedule({
@@ -275,6 +286,7 @@ function ClassAction({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [picking, setPicking] = useState(false);
   const started = Date.parse(item.startsAt) <= Date.now();
 
   if (!signedIn) {
@@ -289,13 +301,23 @@ function ClassAction({
     );
   }
 
-  async function book() {
+  async function book(spotId?: string) {
     setBusy(true);
     setMessage(null);
-    const result = await post("/api/member/bookings", { studio, sessionId: item.id });
+    const result = await post("/api/member/bookings", { studio, sessionId: item.id, spotId });
     setBusy(false);
-    if (!result.success) return setMessage({ ok: false, text: result.error ?? "Couldn't book." });
-    setMessage({ ok: true, text: result.status === "waitlisted" ? "You're on the waitlist." : "You're booked. See you there!" });
+    if (!result.success) {
+      if (result.spotTaken) setPicking(true);
+      return setMessage({ ok: false, text: result.error ?? "Couldn't book." });
+    }
+    setPicking(false);
+    setMessage({
+      ok: true,
+      text:
+        result.status === "waitlisted"
+          ? "You're on the waitlist."
+          : `You're booked${result.spot ? ` on ${result.spot}` : ""}. See you there!`,
+    });
     router.refresh();
   }
 
@@ -326,6 +348,7 @@ function ClassAction({
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full px-2.5 py-1 text-xs font-medium text-white" style={{ background: color }}>
             {booking.status === "waitlisted" ? "On the waitlist" : booking.status === "checked_in" ? "Checked in" : "You're booked"}
+            {booking.spotLabel && booking.status !== "waitlisted" ? ` · ${booking.spotLabel}` : ""}
           </span>
           {booking.status !== "checked_in" && !started ? (
             confirming ? (
@@ -353,17 +376,105 @@ function ClassAction({
           ) : null}
         </div>
       ) : !started ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={book}
-          className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-          style={{ background: color }}
-        >
-          {busy ? "Booking…" : item.spotsLeft === 0 ? "Join waitlist" : "Book"}
-        </button>
+        picking ? (
+          <SpotPicker
+            studio={studio}
+            sessionId={item.id}
+            color={color}
+            busy={busy}
+            onPick={(spotId) => book(spotId)}
+            onCancel={() => setPicking(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => (item.pickSpot && item.spotsLeft !== 0 ? setPicking(true) : book())}
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+            style={{ background: color }}
+          >
+            {busy
+              ? "Booking…"
+              : item.spotsLeft === 0
+                ? "Join waitlist"
+                : item.pickSpot
+                  ? `Book · pick your ${item.pickSpot.toLowerCase()}`
+                  : "Book"}
+          </button>
+        )
       ) : null}
       {message ? <p className={`text-sm ${message.ok ? "text-emerald-700" : "text-red-700"}`}>{message.text}</p> : null}
+    </div>
+  );
+}
+
+// Pick-a-spot: the room with taken spots greyed out; tap a free one, then
+// confirm. Taken spots never say who has them.
+function SpotPicker({
+  studio,
+  sessionId,
+  color,
+  busy,
+  onPick,
+  onCancel,
+}: {
+  studio: number;
+  sessionId: string;
+  color: string;
+  busy: boolean;
+  onPick: (spotId: string) => void;
+  onCancel: () => void;
+}) {
+  const [data, setData] = useState<{ layout: RoomLayout; taken: Set<string> } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/member/spots?studio=${studio}&sessionId=${sessionId}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((result: { success?: boolean; error?: string; layout?: RoomLayout | null; taken?: string[] }) => {
+        if (!live) return;
+        if (!result.success || !result.layout) return setError(result.error ?? "Couldn't load the room. Try again.");
+        setData({ layout: result.layout, taken: new Set(result.taken ?? []) });
+      })
+      .catch(() => live && setError("Couldn't load the room. Check your connection."));
+    return () => {
+      live = false;
+    };
+  }, [studio, sessionId]);
+
+  if (error) return <p className="text-sm text-red-700">{error}</p>;
+  if (!data) return <p className="text-sm text-neutral-500">Loading the room…</p>;
+  const spot = data.layout.items.find((item) => item.id === chosen);
+  const noun = data.layout.spotNoun;
+  return (
+    <div className="space-y-2 rounded-lg border bg-white p-3">
+      <p className="text-sm font-medium">Pick your {noun.toLowerCase()}</p>
+      <p className="text-center text-[11px] tracking-wide text-neutral-500 uppercase">Front of the room</p>
+      <RoomMap
+        layout={data.layout}
+        taken={data.taken}
+        selected={chosen}
+        color={color}
+        onCell={(_x, _y, item) => {
+          if (item?.kind === "spot" && !data.taken.has(item.id)) setChosen(item.id);
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <button
+          type="button"
+          disabled={!spot || busy}
+          onClick={() => spot && onPick(spot.id)}
+          className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          style={{ background: color }}
+        >
+          {busy ? "Booking…" : spot ? `Book ${noun} ${spot.label}` : `Tap a ${noun.toLowerCase()}`}
+        </button>
+        <button type="button" onClick={onCancel} className="px-2 py-1 text-sm underline">
+          Not now
+        </button>
+      </div>
     </div>
   );
 }

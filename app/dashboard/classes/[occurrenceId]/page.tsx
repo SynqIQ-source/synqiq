@@ -17,6 +17,7 @@ import { ROSTER_LABELS, buildRoster, rosterCounts, type MindbodyRosterVisit, typ
 import { loadSessionContext, type BookingRow } from "@/lib/booking/context";
 import { BOOKING_LABELS, bookingWindow, cancellationFor, placeFor } from "@/lib/booking/rules";
 import { BookSomeone, BookingRowActions } from "./booking-actions";
+import { SpotBoard } from "./spot-board";
 
 type Params = Promise<{ occurrenceId: string }>;
 
@@ -263,6 +264,30 @@ export default async function ClassPage({ params }: { params: Params }) {
           </Card>
         ) : null}
 
+        {context?.layout ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>The room</CardTitle>
+              <CardDescription>
+                Members pick their {context.layout.spotNoun.toLowerCase()} when they book; staff bookings get the next free one.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SpotBoard
+                layout={context.layout}
+                manage={Boolean(manage)}
+                holders={context.bookings
+                  .filter((booking) => booking.spot_id && (booking.status === "booked" || booking.status === "checked_in"))
+                  .map((booking) => {
+                    const [first, ...rest] = booking.client_name.split(" ");
+                    const last = rest.length ? ` ${rest[rest.length - 1].charAt(0)}.` : "";
+                    return { bookingId: booking.id, spotId: booking.spot_id as string, name: `${first}${last}` };
+                  })}
+              />
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card className="py-0">
           <CardHeader className="pt-6">
             <CardTitle>Who&apos;s in this class</CardTitle>
@@ -307,6 +332,11 @@ export default async function ClassPage({ params }: { params: Params }) {
                           <Badge variant={SYNQ_BADGE[booking.status]}>
                             {booking.status === "booked" && isPast ? "Not checked in" : BOOKING_LABELS[booking.status]}
                           </Badge>
+                          {booking.spot_label && (booking.status === "booked" || booking.status === "checked_in") ? (
+                            <Badge variant="outline" className="ml-1">
+                              {booking.spot_label}
+                            </Badge>
+                          ) : null}
                           {booking.status === "late_cancelled" && booking.late_cancel_fee_cents ? (
                             <span className="block text-xs">{money(booking.late_cancel_fee_cents)} fee (not charged yet)</span>
                           ) : null}

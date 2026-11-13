@@ -199,6 +199,11 @@ export function ScheduleWidget({
                       <img src={type.imageUrl} alt={item.name} loading="lazy" className="max-h-56 w-full rounded-lg object-cover" />
                     ) : null}
                     <p className="whitespace-pre-line text-neutral-700">{type?.description ?? "No description yet."}</p>
+                    {item.pickSpot && !item.cancelled ? (
+                      <p className="text-xs font-medium" style={{ color }}>
+                        Choose your {item.pickSpot.toLowerCase()} when you book.
+                      </p>
+                    ) : null}
                     {!item.cancelled && renderAction ? <div className="pt-1">{renderAction(item)}</div> : null}
                     {!item.cancelled && !renderAction && bookingHref ? (
                       <a
