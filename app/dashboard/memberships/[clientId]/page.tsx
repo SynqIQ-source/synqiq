@@ -23,6 +23,8 @@ import { PersonalCard } from "./personal-card";
 import { MemberSearch } from "../member-search";
 import { scheduleTerms, upcomingPaymentDates } from "@/lib/pos/packages";
 import { memberPhotoLink } from "@/lib/memberships/photos";
+import { BillingTest, type PracticeChargeRow } from "./billing-test";
+import type { ChargeResult } from "@/lib/billing/practice";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   PurchasesList,
@@ -272,6 +274,8 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     { data: contact },
     { data: personalRow },
     { data: posSchedules },
+    { data: testMember },
+    { data: practiceRows },
   ] = await Promise.all([
     supabase.from("member_profile_sync").select("synced_at").eq("organization_id", orgId).eq("mindbody_client_id", clientId).maybeSingle(),
     supabase
@@ -321,17 +325,41 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       .eq("organization_id", orgId)
       .eq("mindbody_client_id", clientId)
       .maybeSingle(),
-    // Payment schedules from memberships sold at SynqIQ's POS.
+    // SynqIQ payment schedules: memberships sold at the POS, and Mindbody
+    // contracts imported for the billing test.
     supabase
       .from("member_billing_schedules")
       .select(
-        "id, sale_id, name, status, start_date, first_bill_date, recurring_lines, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, autopay_count, auto_renews, created_at",
+        "id, sale_id, source, name, status, start_date, first_bill_date, recurring_lines, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, autopay_count, auto_renews, created_at",
       )
       .eq("organization_id", orgId)
       .eq("mindbody_client_id", clientId)
       .order("created_at", { ascending: false })
       .limit(50),
+    supabase
+      .from("billing_test_members")
+      .select("mindbody_client_id")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .maybeSingle(),
+    supabase
+      .from("practice_charges")
+      .select("id, schedule_id, due_date, total_cents, result, mindbody_total_cents, mindbody_charged_on")
+      .eq("organization_id", orgId)
+      .eq("mindbody_client_id", clientId)
+      .order("due_date", { ascending: false })
+      .limit(200),
   ]);
+  const scheduleName = new Map((posSchedules ?? []).map((row) => [row.id as string, row.name as string]));
+  const practiceCharges: PracticeChargeRow[] = (practiceRows ?? []).map((row) => ({
+    id: row.id as string,
+    name: scheduleName.get(row.schedule_id as string) ?? "Membership",
+    dueDate: String(row.due_date),
+    totalCents: Number(row.total_cents),
+    result: row.result as ChargeResult,
+    mindbodyTotalCents: row.mindbody_total_cents == null ? null : Number(row.mindbody_total_cents),
+    mindbodyChargedOn: row.mindbody_charged_on == null ? null : String(row.mindbody_charged_on),
+  }));
   const saleIds = (sales ?? []).map((sale) => sale.mindbody_sale_id);
   const mindbodyStaffIds = [
     ...new Set(
@@ -648,12 +676,14 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                 <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
                   Mindbody still charges until the switch; these edits don&apos;t change charges yet.
                 </div>
+                <BillingTest clientId={clientId} inTest={Boolean(testMember)} charges={practiceCharges} />
                 {posSchedules?.length ? (
                   <Card>
                     <CardHeader>
-                      <CardTitle>Payment schedules from SynqIQ sales</CardTitle>
+                      <CardTitle>SynqIQ payment schedules</CardTitle>
                       <CardDescription>
-                        Monthly payments set up when a membership was sold at SynqIQ&apos;s POS. Practice schedules are never charged.
+                        Monthly payments SynqIQ works out itself: memberships sold at SynqIQ&apos;s POS, and Mindbody contracts imported for
+                        the billing test. Practice schedules are never charged.
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -679,9 +709,18 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                     : String(schedule.status).replace(/^./, (c) => c.toUpperCase())}
                                 </Badge>
                               </p>
-                              <Link href={`/dashboard/pos/sales/${schedule.sale_id as string}`} className="text-xs text-primary underline">
-                                Sold {day(schedule.start_date as string)}
-                              </Link>
+                              {schedule.sale_id ? (
+                                <Link
+                                  href={`/dashboard/pos/sales/${schedule.sale_id as string}`}
+                                  className="text-xs text-primary underline"
+                                >
+                                  Sold {day(schedule.start_date as string)}
+                                </Link>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  Imported from Mindbody · started {day(schedule.start_date as string)}
+                                </span>
+                              )}
                             </div>
                             <p className="text-muted-foreground">
                               {lines.map((line) => `${line.label} ${money(line.amountCents)}`).join(" + ")} +{" "}

@@ -9,15 +9,17 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 // is safe to call from both the success page and the webhook: the signup
 // row is claimed first, so only one of them ever creates the studio.
 
-export async function startSignup(
-  studio: NewStudio,
-  urls: { origin: string },
-): Promise<{ checkoutUrl: string }> {
+export async function startSignup(studio: NewStudio, urls: { origin: string }): Promise<{ checkoutUrl: string }> {
   if (studio.modules.length === 0) throw new StudioError("Pick at least one module.");
   const admin = createSupabaseAdminClient();
 
   // A login can belong to only one studio, so an existing one can't own a new studio.
-  const { data: existing } = await admin.from("staff").select("id").ilike("email", studio.owner.email).not("auth_user_id", "is", null).limit(1);
+  const { data: existing } = await admin
+    .from("staff")
+    .select("id")
+    .ilike("email", studio.owner.email)
+    .not("auth_user_id", "is", null)
+    .limit(1);
   if (existing?.length) {
     throw new StudioError(`${studio.owner.email} already has a SynqIQ login. Use a different email for the new studio's owner.`);
   }
@@ -61,9 +63,7 @@ export async function startSignup(
 }
 
 export type ProvisionResult =
-  | { status: "provisioned"; organizationId: string; ownerEmail: string; invited: boolean }
-  | { status: "unpaid" }
-  | { status: "not_found" };
+  { status: "provisioned"; organizationId: string; ownerEmail: string; invited: boolean } | { status: "unpaid" } | { status: "not_found" };
 
 // Creates the studio for a completed checkout (once).
 export async function provisionCheckout(sessionId: string, inviteRedirect: string): Promise<ProvisionResult> {
@@ -110,8 +110,7 @@ export async function provisionCheckout(sessionId: string, inviteRedirect: strin
       .from("organizations")
       .update({
         stripe_customer_id: typeof session.customer === "string" ? session.customer : (session.customer?.id ?? null),
-        stripe_subscription_id:
-          typeof session.subscription === "string" ? session.subscription : (session.subscription?.id ?? null),
+        stripe_subscription_id: typeof session.subscription === "string" ? session.subscription : (session.subscription?.id ?? null),
         billing_status: "active",
       })
       .eq("id", result.organizationId);
