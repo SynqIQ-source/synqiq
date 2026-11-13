@@ -22,6 +22,8 @@ import { FREEZE_NOTICE, isInForce } from "@/lib/memberships/freeze-check";
 import { PersonalCard } from "./personal-card";
 import { MemberSearch } from "../member-search";
 import { scheduleTerms, upcomingPaymentDates } from "@/lib/pos/packages";
+import { memberPhotoLink } from "@/lib/memberships/photos";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   PurchasesList,
   ServicesCard,
@@ -315,7 +317,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       .maybeSingle(),
     supabase
       .from("member_personal")
-      .select("mindbody, mindbody_synced_at, edits, edited_at, edited_by_staff_id")
+      .select("mindbody, mindbody_synced_at, edits, edited_at, edited_by_staff_id, photo_path")
       .eq("organization_id", orgId)
       .eq("mindbody_client_id", clientId)
       .maybeSingle(),
@@ -379,6 +381,12 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       ...((personalRow?.mindbody as Partial<MemberPersonal> | undefined) ?? {}),
     },
     (personalRow?.edits as Partial<Record<PersonalField, string | null>> | undefined) ?? {},
+  );
+  // SynqIQ's copy of the photo (private bucket, signed link), else Mindbody's.
+  personal.photoUrl = await memberPhotoLink(
+    createSupabaseAdminClient(),
+    (personalRow?.photo_path as string | null | undefined) ?? null,
+    personal.photoUrl,
   );
   const displayName = `${personal.firstName ?? ""} ${personal.lastName ?? ""}`.trim() || name;
   let editedNote: string | null = null;

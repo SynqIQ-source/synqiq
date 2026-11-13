@@ -4,6 +4,7 @@ import { createMindbodyClient } from "@/lib/mindbody/client";
 import { toDate } from "@/lib/memberships/contracts";
 import type { MindbodyClientService } from "@/lib/memberships/profile";
 import { decideCheckIn, type CheckInDecision, type ServiceInfo } from "@/lib/checkin/eligibility";
+import { memberPhotoLink } from "@/lib/memberships/photos";
 
 // Everything the front desk needs to check someone in: who they are, what
 // covers the visit (live from Mindbody's services, falling back to SynqIQ's
@@ -108,7 +109,7 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
         .maybeSingle(),
       admin
         .from("member_personal")
-        .select("mindbody, edits")
+        .select("mindbody, edits, photo_path")
         .eq("organization_id", organizationId)
         .eq("mindbody_client_id", mindbodyClientId)
         .maybeSingle(),
@@ -134,7 +135,11 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
     alreadyCheckedInToday: Boolean(todays?.length),
   });
 
-  const photo = (personal?.mindbody as { photoUrl?: string | null } | null)?.photoUrl ?? null;
+  const photo = await memberPhotoLink(
+    admin,
+    (personal?.photo_path as string | null | undefined) ?? null,
+    (personal?.mindbody as { photoUrl?: string | null } | null)?.photoUrl ?? null,
+  );
   const editedEmail = (personal?.edits as { email?: string | null } | null)?.email;
   return {
     client: {
