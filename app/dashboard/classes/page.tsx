@@ -397,10 +397,10 @@ export default async function ClassesPage({
                 {[...dayGroups.entries()].map(([dayKey, occurrences]) => (
                   <Fragment key={dayKey}>
                     {viewMode === "week" ? (
-                      <TableRow className="bg-muted/30 hover:bg-muted/30">
-                        <TableCell colSpan={6} className="pl-4 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                          {dayKey === "unknown" ? "Unscheduled" : DateTime.fromISO(dayKey).toFormat("cccc, LLL d")}
-                          <span className="ml-2 font-normal normal-case">
+                      <TableRow className="border-t-2 bg-muted/60 hover:bg-muted/60">
+                        <TableCell colSpan={6} className="py-3 pl-4 text-lg font-semibold text-foreground">
+                          {dayKey === "unknown" ? "Unscheduled" : DateTime.fromISO(dayKey).toFormat("cccc, LLLL d")}
+                          <span className="ml-3 text-sm font-normal text-muted-foreground">
                             {occurrences.length} class{occurrences.length === 1 ? "" : "es"}
                           </span>
                         </TableCell>

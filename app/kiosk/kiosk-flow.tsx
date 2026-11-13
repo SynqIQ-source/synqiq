@@ -19,18 +19,7 @@ export type KioskConfig = {
 };
 
 type Step =
-  | "welcome"
-  | "referrer"
-  | "contact"
-  | "confirm"
-  | "front_desk"
-  | "details"
-  | "heard"
-  | "checkin"
-  | "photo"
-  | "consent"
-  | "waiver"
-  | "done";
+  "welcome" | "referrer" | "contact" | "confirm" | "front_desk" | "details" | "heard" | "checkin" | "photo" | "consent" | "waiver" | "done";
 
 type VisitReason = "membership" | "guest_of_member";
 
@@ -59,15 +48,57 @@ const EMPTY_DETAILS = {
 };
 
 const US_STATES: Record<string, string> = {
-  alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO",
-  connecticut: "CT", delaware: "DE", "district of columbia": "DC", florida: "FL", georgia: "GA",
-  hawaii: "HI", idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS", kentucky: "KY",
-  louisiana: "LA", maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", minnesota: "MN",
-  mississippi: "MS", missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV", "new hampshire": "NH",
-  "new jersey": "NJ", "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND",
-  ohio: "OH", oklahoma: "OK", oregon: "OR", pennsylvania: "PA", "rhode island": "RI",
-  "south carolina": "SC", "south dakota": "SD", tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT",
-  virginia: "VA", washington: "WA", "west virginia": "WV", wisconsin: "WI", wyoming: "WY",
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  "district of columbia": "DC",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new hampshire": "NH",
+  "new jersey": "NJ",
+  "new mexico": "NM",
+  "new york": "NY",
+  "north carolina": "NC",
+  "north dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode island": "RI",
+  "south carolina": "SC",
+  "south dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
 };
 
 // "tx", "Tx", "Texas" -> "TX"; anything unrecognized -> null.
@@ -111,12 +142,7 @@ function BigChoice({
   );
 }
 
-function Field({
-  id,
-  label,
-  className,
-  ...props
-}: { id: string; label: string } & React.ComponentProps<typeof Input>) {
+function Field({ id, label, className, ...props }: { id: string; label: string } & React.ComponentProps<typeof Input>) {
   return (
     <div className={cn("space-y-2", className)}>
       <Label htmlFor={id} className="text-base">
@@ -423,10 +449,43 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
         >
           <h1 className="text-3xl font-semibold tracking-tight">Tell us about you</h1>
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field id="first" label="First name" value={details.firstName} onChange={(e) => setDetail("firstName", e.target.value)} autoComplete="off" maxLength={60} />
-            <Field id="last" label="Last name" value={details.lastName} onChange={(e) => setDetail("lastName", e.target.value)} autoComplete="off" maxLength={60} />
-            <Field id="phone" label="Mobile number" type="tel" inputMode="tel" value={details.phone} onChange={(e) => setDetail("phone", e.target.value)} autoComplete="off" maxLength={30} />
-            <Field id="email" label="Email" type="email" inputMode="email" autoCapitalize="none" value={details.email} onChange={(e) => setDetail("email", e.target.value)} autoComplete="off" maxLength={254} />
+            <Field
+              id="first"
+              label="First name"
+              value={details.firstName}
+              onChange={(e) => setDetail("firstName", e.target.value)}
+              autoComplete="off"
+              maxLength={60}
+            />
+            <Field
+              id="last"
+              label="Last name"
+              value={details.lastName}
+              onChange={(e) => setDetail("lastName", e.target.value)}
+              autoComplete="off"
+              maxLength={60}
+            />
+            <Field
+              id="phone"
+              label="Mobile number"
+              type="tel"
+              inputMode="tel"
+              value={details.phone}
+              onChange={(e) => setDetail("phone", e.target.value)}
+              autoComplete="off"
+              maxLength={30}
+            />
+            <Field
+              id="email"
+              label="Email"
+              type="email"
+              inputMode="email"
+              autoCapitalize="none"
+              value={details.email}
+              onChange={(e) => setDetail("email", e.target.value)}
+              autoComplete="off"
+              maxLength={254}
+            />
           </div>
           <Button type="submit" className="h-14 w-full text-lg" disabled={busy}>
             {busy ? "One moment…" : "Continue"}
@@ -473,8 +532,7 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
         <div className="space-y-8 text-center">
           <h1 className="text-3xl font-semibold tracking-tight">Thanks{firstName ? `, ${firstName}` : ""}!</h1>
           <p className="text-xl text-muted-foreground">
-            Please see the front desk when you&apos;re done so we can make sure your details are right. Tap
-            Continue to finish checking in.
+            Please see the front desk when you&apos;re done so we can make sure your details are right. Tap Continue to finish checking in.
           </p>
           <Button className="h-14 w-full text-lg" onClick={() => go("details")}>
             Continue
@@ -509,10 +567,44 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
               onChange={(e) => setDetail("dateOfBirth", e.target.value)}
               className="sm:col-span-6"
             />
-            <Field id="street" label="Street address" value={details.addressLine1} onChange={(e) => setDetail("addressLine1", e.target.value)} autoComplete="off" maxLength={120} className="sm:col-span-6" />
-            <Field id="city" label="City" value={details.city} onChange={(e) => setDetail("city", e.target.value)} autoComplete="off" maxLength={60} className="sm:col-span-3" />
-            <Field id="state" label="State" value={details.state} onChange={(e) => setDetail("state", e.target.value)} autoComplete="off" maxLength={20} placeholder="TX" className="sm:col-span-1" />
-            <Field id="zip" label="ZIP" inputMode="numeric" value={details.postalCode} onChange={(e) => setDetail("postalCode", e.target.value)} autoComplete="off" maxLength={10} className="sm:col-span-2" />
+            <Field
+              id="street"
+              label="Street address"
+              value={details.addressLine1}
+              onChange={(e) => setDetail("addressLine1", e.target.value)}
+              autoComplete="off"
+              maxLength={120}
+              className="sm:col-span-6"
+            />
+            <Field
+              id="city"
+              label="City"
+              value={details.city}
+              onChange={(e) => setDetail("city", e.target.value)}
+              autoComplete="off"
+              maxLength={60}
+              className="sm:col-span-3"
+            />
+            <Field
+              id="state"
+              label="State"
+              value={details.state}
+              onChange={(e) => setDetail("state", e.target.value)}
+              autoComplete="off"
+              maxLength={20}
+              placeholder="TX"
+              className="sm:col-span-1"
+            />
+            <Field
+              id="zip"
+              label="ZIP"
+              inputMode="numeric"
+              value={details.postalCode}
+              onChange={(e) => setDetail("postalCode", e.target.value)}
+              autoComplete="off"
+              maxLength={10}
+              className="sm:col-span-2"
+            />
           </div>
           {details.dateOfBirth && minor ? (
             <p className="rounded-xl bg-muted px-5 py-4 text-base">
@@ -588,14 +680,13 @@ export function KioskFlow({ config }: { config: KioskConfig }) {
               Email me news and offers from {config.organizationName}.
             </CheckRow>
             <CheckRow id="consent-sms" checked={consent.sms} onChange={(sms) => setConsent((c) => ({ ...c, sms }))}>
-              Text me from {config.organizationName} about my visit, appointments and membership, including offers.
-              Not required to buy anything. Message frequency varies. Message and data rates may apply. Reply HELP for
-              help or STOP to opt out.
+              Text me from {config.organizationName} about my visit, appointments and membership, including offers. Not required to buy
+              anything. Message frequency varies. Message and data rates may apply. Reply HELP for help or STOP to opt out.
             </CheckRow>
             {/* Plain text, not links: tapping a link would leave the kiosk. */}
             <p className="px-1 text-sm text-muted-foreground">
-              Terms: synqiq.co/terms · Privacy: synqiq.co/privacy. We never share your mobile number or text consent
-              with third parties for marketing.
+              Terms: synqiq.co/terms · Privacy: synqiq.co/privacy. We never share your mobile number or text consent with third parties for
+              marketing.
             </p>
           </div>
           <Button className="h-14 w-full text-lg" onClick={() => go("waiver")}>

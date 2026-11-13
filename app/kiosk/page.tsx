@@ -11,6 +11,9 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Guest check-in",
   robots: { index: false, follow: false },
+  // Its own home-screen app: the shortcut opens /kiosk, not the staff login.
+  manifest: "/kiosk/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "Check-in", statusBarStyle: "default" },
 };
 
 // Full-screen guest check-in for a paired iPad. No staff login and no staff
@@ -28,12 +31,7 @@ export default async function KioskPage() {
   const [org, branding, sources, waiver] = await Promise.all([
     getCrmOrg(device.organizationId),
     getOrgBranding(device.organizationId),
-    admin
-      .from("crm_marketing_sources")
-      .select("label")
-      .eq("organization_id", device.organizationId)
-      .eq("active", true)
-      .order("sort_order"),
+    admin.from("crm_marketing_sources").select("label").eq("organization_id", device.organizationId).eq("active", true).order("sort_order"),
     admin
       .from("waiver_templates")
       .select("id, version, body")

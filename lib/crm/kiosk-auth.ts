@@ -60,7 +60,15 @@ export async function getKioskDevice(): Promise<KioskDevice | null> {
   }
 
   // Best-effort heartbeat for the admin device list.
-  void admin.from("kiosk_devices").update({ last_seen_at: new Date().toISOString() }).eq("id", device.id);
+  // (A Supabase query only runs when awaited or then-ed.)
+  await admin
+    .from("kiosk_devices")
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq("id", device.id)
+    .then(
+      () => undefined,
+      () => undefined,
+    );
 
   return { deviceId: device.id, organizationId: device.organization_id, name: device.name };
 }

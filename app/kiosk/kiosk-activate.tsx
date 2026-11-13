@@ -66,6 +66,15 @@ export function KioskActivate() {
               {status === "saving" ? "Pairing…" : "Pair this iPad"}
             </Button>
           </form>
+          <div className="mt-6 space-y-1 rounded-md bg-muted px-4 py-3 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Set it up once as a home-screen app</p>
+            <p>1. In Safari, tap Share, then Add to Home Screen.</p>
+            <p>2. Open &ldquo;Check-in&rdquo; from the home screen and enter the pairing code there.</p>
+            <p>
+              The iPad stays paired; staff just tap the Check-in icon. (A home-screen app keeps its own sign-in, so pair it from the icon,
+              not from Safari.)
+            </p>
+          </div>
         </CardContent>
       </Card>
     </main>
