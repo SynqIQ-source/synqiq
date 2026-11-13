@@ -36,7 +36,8 @@ function PrimaryButton({ color, disabled, children }: { color: string; disabled?
   );
 }
 
-export function SignInForm({ studio, color, next }: { studio: number; color: string; next: string }) {
+export function SignInForm({ studio, color, next, classId }: { studio: number; color: string; next: string; classId?: string }) {
+  const keep = classId ? `&class=${classId}` : "";
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -76,10 +77,10 @@ export function SignInForm({ studio, color, next }: { studio: number; color: str
         {busy ? "Signing in…" : "Sign in"}
       </PrimaryButton>
       <div className="flex justify-between text-sm">
-        <Link href={`/m/${studio}/get-link?new=1`} className="underline underline-offset-4">
+        <Link href={`/m/${studio}/get-link?new=1${keep}`} className="underline underline-offset-4">
           First time? Create your password
         </Link>
-        <Link href={`/m/${studio}/get-link`} className="underline underline-offset-4">
+        <Link href={`/m/${studio}/get-link?${keep.slice(1)}`} className="underline underline-offset-4">
           Forgot password
         </Link>
       </div>
@@ -87,7 +88,7 @@ export function SignInForm({ studio, color, next }: { studio: number; color: str
   );
 }
 
-export function RequestLinkForm({ studio, color }: { studio: number; color: string }) {
+export function RequestLinkForm({ studio, color, classId }: { studio: number; color: string; classId?: string }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -95,7 +96,7 @@ export function RequestLinkForm({ studio, color }: { studio: number; color: stri
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
-    const result = await post("/api/member/request-link", { studio, email });
+    const result = await post("/api/member/request-link", { studio, email, classId });
     setBusy(false);
     setMessage(
       result.success ? { ok: true, text: result.message ?? "Check your email." } : { ok: false, text: result.error ?? "Try again." },
@@ -113,7 +114,7 @@ export function RequestLinkForm({ studio, color }: { studio: number; color: stri
         {busy ? "Sending…" : "Email me a link"}
       </PrimaryButton>
       <p className="text-sm">
-        <Link href={`/m/${studio}/sign-in`} className="underline underline-offset-4">
+        <Link href={`/m/${studio}/sign-in${classId ? `?class=${classId}` : ""}`} className="underline underline-offset-4">
           Back to sign in
         </Link>
       </p>
@@ -121,7 +122,7 @@ export function RequestLinkForm({ studio, color }: { studio: number; color: stri
   );
 }
 
-export function SetPasswordForm({ studio, color, token }: { studio: number; color: string; token: string }) {
+export function SetPasswordForm({ studio, color, token, classId }: { studio: number; color: string; token: string; classId?: string }) {
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -136,7 +137,7 @@ export function SetPasswordForm({ studio, color, token }: { studio: number; colo
     const result = await post("/api/member/set-password", { token, password });
     setBusy(false);
     if (!result.success) return setError(result.error ?? "Couldn't save.");
-    router.replace(`/m/${studio}`);
+    router.replace(`/m/${studio}${classId ? `?class=${classId}` : ""}`);
     router.refresh();
   }
 
@@ -208,11 +209,37 @@ export function MemberSchedule({
   header: ReactNode;
 }) {
   const color = schedule.studio.primaryColor;
+  const picked = initialClassId ? schedule.classes.find((item) => item.id === initialClassId) : undefined;
+  const lateMinutes = (item: PublicClass) => (item.typeId ? (schedule.types[item.typeId]?.lateCancelMinutes ?? null) : null);
+  const pickedCard = picked ? (
+    <div className="mb-3 rounded-lg border-2 px-3 py-3" style={{ borderColor: color }}>
+      <p className="text-xs font-medium tracking-wide text-neutral-500 uppercase">Your class</p>
+      <p className="text-base font-semibold">{picked.name}</p>
+      <p className="mb-2 text-sm text-neutral-600">
+        {new Date(`${picked.date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} ·{" "}
+        {picked.start}
+        {picked.instructor ? ` · ${picked.instructor}` : ""}
+      </p>
+      <ClassAction
+        item={picked}
+        lateMinutes={lateMinutes(picked)}
+        studio={studio}
+        signedIn={signedIn}
+        booking={bookings[picked.id]}
+        color={color}
+      />
+    </div>
+  ) : null;
   return (
     <ScheduleWidget
       schedule={schedule}
       initialClassId={initialClassId}
-      header={header}
+      header={
+        <>
+          {header}
+          {pickedCard}
+        </>
+      }
       footer={null}
       renderAction={(item) => (
         <ClassAction

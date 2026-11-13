@@ -15,7 +15,9 @@ const LINK_MINUTES = 60;
 // parallel run only testers a Club Admin added get an email.
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ success: false, error: "Not allowed." }, { status: 403 });
-  const body = (await request.json().catch(() => null)) as { studio?: unknown; email?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { studio?: unknown; email?: unknown; classId?: unknown } | null;
+  // The class they were booking (a public schedule id), so the link brings them back to it.
+  const classId = typeof body?.classId === "string" && /^[0-9a-f-]{36}$/i.test(body.classId) ? body.classId : null;
   const email = typeof body?.email === "string" ? normalizeEmail(body.email) : "";
   if (!looksLikeEmail(email)) return NextResponse.json({ success: false, error: "Enter your email address." }, { status: 400 });
   const studio = await findStudio(Number(body?.studio));
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest) {
     console.error("[member] token failed:", tokenError.message);
     return ok;
   }
-  const link = `${resolveRequestOrigin(request)}/m/${studio.siteId}/set-password?token=${encodeURIComponent(token)}`;
+  const link = `${resolveRequestOrigin(request)}/m/${studio.siteId}/set-password?token=${encodeURIComponent(token)}${classId ? `&class=${classId}` : ""}`;
   const message = memberPasswordLinkEmail({
     studioName: studio.name,
     firstName: ((client.first_name as string | null) ?? "").trim() || "there",

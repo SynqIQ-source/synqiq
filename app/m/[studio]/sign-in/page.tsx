@@ -17,7 +17,12 @@ export default async function MemberSignInPage({ params, searchParams }: Props) 
   if (await getCurrentMember(studio)) redirect(next);
   return (
     <MemberShell studio={studio} title="Sign in to book">
-      <SignInForm studio={studio.siteId} color={studio.primaryColor} next={next} />
+      <SignInForm
+        studio={studio.siteId}
+        color={studio.primaryColor}
+        next={next}
+        classId={classId && UUID.test(classId) ? classId : undefined}
+      />
     </MemberShell>
   );
 }
