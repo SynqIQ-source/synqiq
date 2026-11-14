@@ -18,6 +18,7 @@
     { "path": "/api/sync/trainer-availability", "schedule": "5 10 * * *" },
     { "path": "/api/sync/member-photos", "schedule": "30 12 * * *" },
     { "path": "/api/billing/practice-renewals", "schedule": "0 13 * * *" },
+    { "path": "/api/ratings/nightly", "schedule": "0 14 * * *" },
     { "path": "/api/crm/jobs", "schedule": "*/10 * * * *" },
     { "path": "/api/followup/post-class-reminders", "schedule": "2 * * * *" },
     { "path": "/api/demo/refresh", "schedule": "15 10 * * *" },

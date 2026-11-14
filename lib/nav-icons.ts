@@ -1,5 +1,6 @@
 import {
   Banknote,
+  Star,
   Bell,
   Building2,
   BookOpen,
@@ -55,6 +56,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/follow-up": MailCheck,
   "/dashboard/sub-requests": Repeat2,
   "/dashboard/messages": MessageSquare,
+  "/dashboard/ratings": Star,
   "/dashboard/notifications": Bell,
   "/dashboard/heatmap": Flame,
   "/dashboard/instructors": Users,

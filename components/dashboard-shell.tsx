@@ -44,6 +44,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/schedule", label: "My Schedule", who: isInstructorAccess, modules: ["group_fitness"] },
       { href: "/dashboard/classes", label: "Classes", modules: ["group_fitness"] },
       { href: "/dashboard/sub-requests", label: "Sub Requests", who: isInstructorAccess, modules: ["group_fitness"] },
+      { href: "/dashboard/ratings", label: "Ratings", who: isInstructorAccess, modules: ["group_fitness"] },
       { href: "/dashboard/follow-up", label: "Follow Up", who: instructorOrTrainer, modules: ["group_fitness", "trainer"] },
       { href: "/dashboard/messages", label: "Message Boards" },
       { href: "/dashboard/notifications", label: "Notifications" },
