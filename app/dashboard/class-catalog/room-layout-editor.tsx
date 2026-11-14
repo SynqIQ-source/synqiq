@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, Trash2 } from "lucide-react";
+import { LayoutGrid, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -18,12 +18,33 @@ import {
   type RoomLayout,
 } from "@/lib/rooms/layout";
 
+export type SavedLayout = { id: string; name: string; isDefault: boolean; classTypeIds: string[]; layout: RoomLayout };
+type ClassTypeOption = { id: string; name: string; inRoom: boolean };
+
 // Club Admin: design a room for pick-a-spot booking. Pick a tool and tap
 // squares to place things; drag anything to move it; tap an item to rename
-// or remove it. Classes in this room then let members choose a spot.
-export function RoomLayoutEditor({ roomId, roomName, initial }: { roomId: string; roomName: string; initial: RoomLayout | null }) {
+// or remove it. A room has a main layout and can have others used only by
+// certain classes (Beat on mats in the Cycle room).
+export function RoomLayoutEditor({
+  roomId,
+  roomName,
+  record,
+  classTypes,
+  hasMain,
+}: {
+  roomId: string;
+  roomName: string;
+  record: SavedLayout | null; // null = a new layout
+  classTypes: ClassTypeOption[];
+  hasMain: boolean;
+}) {
   const router = useRouter();
+  const initial = record?.layout ?? null;
   const [open, setOpen] = useState(false);
+  const [layoutId, setLayoutId] = useState<string | null>(record?.id ?? null);
+  const [name, setName] = useState(record?.name ?? (hasMain ? "" : "Main layout"));
+  const [isDefault, setIsDefault] = useState(record?.isDefault ?? !hasMain);
+  const [classTypeIds, setClassTypeIds] = useState<string[]>(record?.classTypeIds ?? []);
   const [layout, setLayout] = useState<RoomLayout | null>(initial);
   const [tool, setTool] = useState<ItemKind>("spot");
   const [selected, setSelected] = useState<string | null>(null);
@@ -87,11 +108,18 @@ export function RoomLayoutEditor({ roomId, roomName, initial }: { roomId: string
       const response = await fetch(`/api/rooms/${roomId}/layout`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(layout),
+        body: JSON.stringify({ ...layout, layoutId, name, isDefault, classTypeIds }),
       });
-      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; id?: string };
       if (!response.ok || !result.success) return setMessage({ ok: false, text: result.error ?? "Couldn't save." });
-      setMessage({ ok: true, text: `Saved. Classes in ${roomName} now let members pick a ${layout.spotNoun.toLowerCase()}.` });
+      if (result.id) setLayoutId(result.id);
+      const who = isDefault
+        ? `Classes in ${roomName}`
+        : classTypes
+            .filter((type) => classTypeIds.includes(type.id))
+            .map((type) => type.name)
+            .join(", ") + " classes";
+      setMessage({ ok: true, text: `Saved. ${who} now let members pick a ${layout.spotNoun.toLowerCase()}.` });
       router.refresh();
     } finally {
       setSaving(false);
@@ -100,11 +128,12 @@ export function RoomLayoutEditor({ roomId, roomName, initial }: { roomId: string
 
   async function remove() {
     setSaving(true);
-    await fetch(`/api/rooms/${roomId}/layout`, { method: "DELETE" });
+    if (layoutId) await fetch(`/api/rooms/${roomId}/layout?layoutId=${layoutId}`, { method: "DELETE" });
     setSaving(false);
     setLayout(null);
+    setLayoutId(null);
     setSelected(null);
-    setMessage({ ok: true, text: "Layout removed. Classes in this room go back to no spot choice." });
+    setMessage({ ok: true, text: isDefault ? "Layout removed." : "Layout removed. Those classes use the room's main layout again." });
     router.refresh();
   }
 
@@ -112,18 +141,69 @@ export function RoomLayoutEditor({ roomId, roomName, initial }: { roomId: string
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" variant={initial ? "outline" : "ghost"}>
-          <LayoutGrid /> {initial ? `Layout (${spotsOf(initial).length} ${initial.spotNoun.toLowerCase()}s)` : "Design layout"}
-        </Button>
+        {record ? (
+          <Button size="sm" variant="outline">
+            <LayoutGrid /> {record.name} ({spotsOf(record.layout).length} {record.layout.spotNoun.toLowerCase()}s)
+          </Button>
+        ) : hasMain ? (
+          <Button size="sm" variant="ghost">
+            <Plus /> Layout for certain classes
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost">
+            <LayoutGrid /> Design layout
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="max-h-[95vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>{roomName} layout</DialogTitle>
+          <DialogTitle>
+            {roomName}: {name || (isDefault ? "Main layout" : "New layout")}
+          </DialogTitle>
           <DialogDescription>
             Members pick their spot when they book a class in this room. Pick a tool and tap squares to place things; drag to move; tap
             something to rename or remove it. The front of the room is the top.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="space-y-2 rounded-md border p-3 text-sm">
+          <label className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground">Layout name</span>
+            <Input
+              className="h-8 w-56"
+              value={name}
+              maxLength={40}
+              placeholder={isDefault ? "Main layout" : "e.g. Beat (mats)"}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <div className="space-y-1">
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={isDefault} onChange={() => setIsDefault(true)} />
+              Main layout: every class in {roomName} unless another layout is set for it
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={!isDefault} onChange={() => setIsDefault(false)} />
+              Only for these classes:
+            </label>
+            {!isDefault ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 pl-6">
+                {classTypes.map((type) => (
+                  <label key={type.id} className={`flex items-center gap-1.5 ${type.inRoom ? "" : "text-muted-foreground"}`}>
+                    <input
+                      type="checkbox"
+                      checked={classTypeIds.includes(type.id)}
+                      onChange={(e) =>
+                        setClassTypeIds(e.target.checked ? [...classTypeIds, type.id] : classTypeIds.filter((id) => id !== type.id))
+                      }
+                    />
+                    {type.name}
+                  </label>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
 
         {!layout ? (
           <div className="flex flex-wrap items-end gap-2 rounded-md border p-4">
@@ -143,7 +223,15 @@ export function RoomLayoutEditor({ roomId, roomName, initial }: { roomId: string
                 update(
                   starterLayout(
                     Math.max(1, Math.min(200, starter || 1)),
-                    roomName.match(/cycle/i) ? "Bike" : roomName.match(/pilates/i) ? "Reformer" : roomName.match(/pool/i) ? "Lane" : "Spot",
+                    !isDefault
+                      ? "Mat"
+                      : roomName.match(/cycle/i)
+                        ? "Bike"
+                        : roomName.match(/pilates/i)
+                          ? "Reformer"
+                          : roomName.match(/pool/i)
+                            ? "Lane"
+                            : "Spot",
                   ),
                 )
               }

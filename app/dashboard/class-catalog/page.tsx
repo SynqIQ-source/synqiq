@@ -11,7 +11,7 @@ import { DAY_NAMES } from "@/lib/classes/catalog";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { CatalogEditDialog } from "./edit-dialog";
 import { ClassPhoto } from "./class-photo";
-import { RoomLayoutEditor } from "./room-layout-editor";
+import { RoomLayoutEditor, type SavedLayout } from "./room-layout-editor";
 import { parseLayout } from "@/lib/rooms/layout";
 import { CatalogCreateDialog } from "./create-dialog";
 import { WidgetTab } from "./widget-tab";
@@ -152,9 +152,25 @@ export default async function ClassCatalogPage() {
   const rooms = (roomRows ?? []).map((row) => effective("room", row));
   const { data: layoutRows } = await supabase
     .from("room_layouts")
-    .select("room_id, columns, rows, items, spot_noun")
-    .eq("organization_id", staff.organizationId);
-  const layoutBy = new Map((layoutRows ?? []).map((row) => [row.room_id as string, parseLayout(row)]));
+    .select("id, room_id, name, is_default, class_type_ids, columns, rows, items, spot_noun")
+    .eq("organization_id", staff.organizationId)
+    .order("is_default", { ascending: false })
+    .order("name");
+  // Each room's layouts: the main one first, then per-class ones.
+  const layoutsByRoom = new Map<string, SavedLayout[]>();
+  for (const row of layoutRows ?? []) {
+    const layout = parseLayout(row);
+    if (!layout) continue;
+    const list = layoutsByRoom.get(row.room_id as string) ?? [];
+    list.push({
+      id: row.id as string,
+      name: row.name as string,
+      isDefault: Boolean(row.is_default),
+      classTypeIds: (row.class_type_ids as string[] | null) ?? [],
+      layout,
+    });
+    layoutsByRoom.set(row.room_id as string, list);
+  }
   const sessionTypes = (sessionRows ?? []).map((row) => effective("session_type", row));
   // A schedule is running if it had a class in the last 30 days and hasn't
   // been taken off the schedule in SynqIQ.
@@ -193,6 +209,19 @@ export default async function ClassCatalogPage() {
   }
   const offered = classTypes.filter((type) => weeklyByType.has(type.id) || (type.source === "synqiq" && type.active !== false));
   const notOffered = classTypes.filter((type) => !offered.includes(type) && type.active);
+  // Class types that run in each room (listed first when assigning a layout).
+  const typesInRoom = new Map<number, Set<string>>();
+  for (const schedule of running) {
+    const room = schedule.mindbody_resource_id as number | null;
+    if (!room || !schedule.class_type_id) continue;
+    const set = typesInRoom.get(room) ?? new Set<string>();
+    set.add(schedule.class_type_id as string);
+    typesInRoom.set(room, set);
+  }
+  const typeOptionsFor = (room: number) =>
+    offered
+      .map((type) => ({ id: type.id, name: type.name as string, inRoom: Boolean(typesInRoom.get(room)?.has(type.id)) }))
+      .sort((a, b) => Number(b.inRoom) - Number(a.inRoom) || a.name.localeCompare(b.name));
   const roomUse = new Map<number, number>();
   for (const schedule of running) {
     const room = schedule.mindbody_resource_id as number | null;
@@ -519,11 +548,34 @@ export default async function ClassCatalogPage() {
                     <TableRow key={room.id} className={room.active === false ? "text-muted-foreground" : undefined}>
                       <TableCell className="font-medium">
                         {room.name as string} {room.active === false ? <Badge variant="outline">Not in use</Badge> : null}
+                        {(layoutsByRoom.get(room.id) ?? [])
+                          .filter((record) => !record.isDefault)
+                          .map((record) => (
+                            <span key={record.id} className="block text-xs font-normal text-muted-foreground">
+                              {record.name}: {record.classTypeIds.map((id) => typeNameById.get(id) ?? "class").join(", ")}
+                            </span>
+                          ))}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{roomUse.get(room.mindbody_resource_id) ?? 0}</TableCell>
                       <TableCell className="text-right">
                         <span className="inline-flex items-center gap-1">
-                          <RoomLayoutEditor roomId={room.id} roomName={room.name as string} initial={layoutBy.get(room.id) ?? null} />
+                          {(layoutsByRoom.get(room.id) ?? []).map((record) => (
+                            <RoomLayoutEditor
+                              key={record.id}
+                              roomId={room.id}
+                              roomName={room.name as string}
+                              record={record}
+                              classTypes={typeOptionsFor(room.mindbody_resource_id as number)}
+                              hasMain={(layoutsByRoom.get(room.id) ?? []).some((other) => other.isDefault && other.id !== record.id)}
+                            />
+                          ))}
+                          <RoomLayoutEditor
+                            roomId={room.id}
+                            roomName={room.name as string}
+                            record={null}
+                            classTypes={typeOptionsFor(room.mindbody_resource_id as number)}
+                            hasMain={(layoutsByRoom.get(room.id) ?? []).some((other) => other.isDefault)}
+                          />
                           <Edited show={room.edited.length > 0} />
                           <CatalogEditDialog
                             entity="room"

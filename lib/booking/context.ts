@@ -2,7 +2,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import type { ProgramRules, SessionInfo } from "@/lib/booking/rules";
 import { toInstant } from "@/lib/classes/calendar";
-import { parseLayout, type RoomLayout } from "@/lib/rooms/layout";
+import { layoutForClass, parseLayout, type RoomLayout } from "@/lib/rooms/layout";
 
 // Everything about one class on SynqIQ's calendar that booking needs: the
 // class (with single-date edits), its program's rules (with SynqIQ edits),
@@ -123,7 +123,11 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
     .order("booked_at")
     .returns<BookingRow[]>();
   const synqiqTaken = (bookings ?? []).filter((booking) => ACTIVE.has(booking.status)).length;
-  const layout = await loadRoomLayout(organizationId, (merged.mindbody_resource_id as number | null) ?? null);
+  const layout = await loadRoomLayout(
+    organizationId,
+    (merged.mindbody_resource_id as number | null) ?? null,
+    (row.class_type_id as string | null) ?? null,
+  );
   const takenSpots = new Set(
     (bookings ?? []).filter((booking) => ACTIVE.has(booking.status) && booking.spot_id).map((booking) => booking.spot_id as string),
   );
@@ -154,8 +158,13 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
   };
 }
 
-// The pick-a-spot layout of a room (by Mindbody resource id), if it has one.
-export async function loadRoomLayout(organizationId: string, mindbodyResourceId: number | null): Promise<RoomLayout | null> {
+// The pick-a-spot layout a class uses in a room (by Mindbody resource id):
+// the room's layout for its class type, else the room's main layout.
+export async function loadRoomLayout(
+  organizationId: string,
+  mindbodyResourceId: number | null,
+  classTypeId: string | null = null,
+): Promise<RoomLayout | null> {
   if (mindbodyResourceId == null) return null;
   const admin = createSupabaseAdminClient();
   const { data: room } = await admin
@@ -165,11 +174,14 @@ export async function loadRoomLayout(organizationId: string, mindbodyResourceId:
     .eq("mindbody_resource_id", mindbodyResourceId)
     .maybeSingle();
   if (!room) return null;
-  const { data: row } = await admin
+  const { data: rows } = await admin
     .from("room_layouts")
-    .select("columns, rows, items, spot_noun, active")
+    .select("columns, rows, items, spot_noun, is_default, class_type_ids")
     .eq("room_id", room.id)
-    .eq("active", true)
-    .maybeSingle();
-  return parseLayout(row);
+    .eq("active", true);
+  const chosen = layoutForClass(
+    (rows ?? []).map((row) => ({ row, isDefault: Boolean(row.is_default), classTypeIds: (row.class_type_ids as string[] | null) ?? [] })),
+    classTypeId,
+  );
+  return parseLayout(chosen?.row);
 }

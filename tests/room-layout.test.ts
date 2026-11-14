@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoNumber, chooseSpot, cleanLayout, spotsOf, starterLayout, type RoomLayout } from "@/lib/rooms/layout";
+import { autoNumber, chooseSpot, cleanLayout, layoutForClass, spotsOf, starterLayout, type RoomLayout } from "@/lib/rooms/layout";
 
 const room: RoomLayout = {
   columns: 4,
@@ -51,5 +51,20 @@ describe("chooseSpot", () => {
   it("gives the lowest free spot when none is picked", () => {
     expect(chooseSpot(room, new Set(["a"]), null).spot?.label).toBe("2");
     expect(chooseSpot(room, new Set(["a", "b", "c"]), null).spot).toBeNull();
+  });
+});
+
+describe("layoutForClass", () => {
+  const bikes = { id: "bikes", isDefault: true, classTypeIds: [] as string[] };
+  const mats = { id: "mats", isDefault: false, classTypeIds: ["beat"] };
+  it("uses the layout assigned to the class type", () => {
+    expect(layoutForClass([bikes, mats], "beat")?.id).toBe("mats");
+  });
+  it("falls back to the room's default", () => {
+    expect(layoutForClass([bikes, mats], "cycle")?.id).toBe("bikes");
+    expect(layoutForClass([bikes, mats], null)?.id).toBe("bikes");
+  });
+  it("no default and not assigned: no layout", () => {
+    expect(layoutForClass([mats], "cycle")).toBeNull();
   });
 });

@@ -104,3 +104,13 @@ export function parseLayout(
   const cleaned = cleanLayout({ columns: row.columns, rows: row.rows, items: row.items, spotNoun: row.spot_noun });
   return "layout" in cleaned ? cleaned.layout : null;
 }
+
+// Which layout a class uses: the room's layout assigned to its class type,
+// else the room's default. Null when the room has neither.
+export function layoutForClass<T extends { isDefault: boolean; classTypeIds: string[] }>(
+  layouts: T[],
+  classTypeId: string | null,
+): T | null {
+  const assigned = classTypeId ? layouts.find((layout) => layout.classTypeIds.includes(classTypeId)) : undefined;
+  return assigned ?? layouts.find((layout) => layout.isDefault) ?? null;
+}

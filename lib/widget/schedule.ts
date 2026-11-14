@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { CALENDAR_DAYS } from "@/lib/sync/class-calendar";
+import { layoutForClass } from "@/lib/rooms/layout";
 
 // The public class schedule for a studio's website widget. Read with the
 // service role but returns ONLY public fields (class, time, instructor,
@@ -129,17 +130,27 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       effective("room", row as Record<string, unknown> & { edits: Edits }).name as string,
     ]),
   );
+  // Pick-a-spot: each room's layouts (main + per class type).
   const { data: layoutRows } = await admin
     .from("room_layouts")
-    .select("room_id, spot_noun")
+    .select("room_id, spot_noun, is_default, class_type_ids")
     .eq("organization_id", orgId)
     .eq("active", true);
-  const nounByRoom = new Map((layoutRows ?? []).map((row) => [row.room_id as string, row.spot_noun as string]));
-  const spotNoun = new Map(
-    (rooms ?? [])
-      .filter((row) => nounByRoom.has(row.id as string))
-      .map((row) => [Number(row.mindbody_resource_id), nounByRoom.get(row.id as string) as string]),
-  );
+  const roomIdByResource = new Map((rooms ?? []).map((row) => [Number(row.mindbody_resource_id), row.id as string]));
+  const layoutsByRoom = new Map<string, { noun: string; isDefault: boolean; classTypeIds: string[] }[]>();
+  for (const row of layoutRows ?? []) {
+    const list = layoutsByRoom.get(row.room_id as string) ?? [];
+    list.push({
+      noun: row.spot_noun as string,
+      isDefault: Boolean(row.is_default),
+      classTypeIds: (row.class_type_ids as string[] | null) ?? [],
+    });
+    layoutsByRoom.set(row.room_id as string, list);
+  }
+  const spotNounFor = (resourceId: number | null, classTypeId: string | null) => {
+    const roomUuid = resourceId == null ? undefined : roomIdByResource.get(resourceId);
+    return roomUuid ? (layoutForClass(layoutsByRoom.get(roomUuid) ?? [], classTypeId)?.noun ?? null) : null;
+  };
   const teacherName = new Map((teachers ?? []).map((row) => [Number(row.mindbody_staff_id), row.display_name as string]));
   const mindbodyBooked = new Map(
     (occurrences ?? []).map((row) => [
@@ -175,7 +186,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       spotsLeft: capacity === null ? null : Math.max(0, capacity - taken),
       cancelled: merged.active === false,
       isPool: /pool lane/i.test(row.class_name as string),
-      pickSpot: roomId != null ? (spotNoun.get(roomId) ?? null) : null,
+      pickSpot: spotNounFor(roomId, (row.class_type_id as string | null) ?? null),
     });
   }
   classes.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.name.localeCompare(b.name));
