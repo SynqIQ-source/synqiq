@@ -28,7 +28,7 @@ const LEAD_DAILY_DAYS = 7;
 const VISITED_EVERY_TWO_DAYS = 14;
 
 export const FOLLOW_UP_CONTACT_FIELDS =
-  "id, created_at, status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, assigned_staff_id";
+  "id, created_at, status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, assigned_staff_id, import_batch_id, last_message_at";
 
 export type FollowUpContact = {
   id: string;
@@ -39,6 +39,10 @@ export type FollowUpContact = {
   follow_up_on: string | null;
   follow_up_set_at: string | null;
   assigned_staff_id: string | null;
+  // Imported from another system (Gym Sales): no follow-up schedule until
+  // someone works the lead in SynqIQ or they reply or visit.
+  import_batch_id?: string | null;
+  last_message_at?: string | null;
 };
 
 export type LeadActivity = {
@@ -69,10 +73,7 @@ const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ?
 
 // Visits, outbound contacts and appointments for these contacts, read
 // through the staff member's session (chunked to keep .in() URLs short).
-export async function loadLeadActivity(
-  supabase: ScopedSupabaseClient,
-  contactIds: string[],
-): Promise<Map<string, LeadActivity>> {
+export async function loadLeadActivity(supabase: ScopedSupabaseClient, contactIds: string[]): Promise<Map<string, LeadActivity>> {
   const activity = new Map<string, LeadActivity>();
   const get = (id: string) => {
     let row = activity.get(id);
@@ -194,7 +195,7 @@ export function formatHours(hours: number): string {
 export type FollowUpQueue = "lead" | "visited";
 
 export type FollowUp =
-  | { kind: "stopped"; reason: "enrolled" | "not_interested" | "opted_out" }
+  | { kind: "stopped"; reason: "enrolled" | "not_interested" | "opted_out" | "imported" }
   | { kind: "appointment"; at: string }
   | {
       kind: "due";
@@ -206,15 +207,11 @@ export type FollowUp =
       daysOverdue: number;
     };
 
-export function followUpFor(
-  contact: FollowUpContact,
-  activity: LeadActivity,
-  timezone: string,
-  now = DateTime.now(),
-): FollowUp {
+export function followUpFor(contact: FollowUpContact, activity: LeadActivity, timezone: string, now = DateTime.now()): FollowUp {
   if (contact.closed_at || contact.status === "member") return { kind: "stopped", reason: "enrolled" };
   if (contact.status === "not_interested") return { kind: "stopped", reason: "not_interested" };
   if (contact.sms_opted_out_at) return { kind: "stopped", reason: "opted_out" };
+  if (isDormantImport(contact, activity)) return { kind: "stopped", reason: "imported" };
   if (activity.nextAppointmentAt) return { kind: "appointment", at: activity.nextAppointmentAt };
 
   const day = (iso: string) => DateTime.fromISO(iso).setZone(timezone).startOf("day");
@@ -266,10 +263,14 @@ export async function loadOpenFollowUpContacts<T extends FollowUpContact>(
       .is("closed_at", null)
       .is("sms_opted_out_at", null)
       .neq("source", "member")
-      .not("status", "in", "(member,not_interested)");
+      .not("status", "in", "(member,not_interested)")
+      .or("import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null");
     if (staffId === "unassigned") query = query.is("assigned_staff_id", null);
     else if (staffId) query = query.eq("assigned_staff_id", staffId);
-    const { data, error } = await query.order("created_at").range(from, from + 999).returns<T[]>();
+    const { data, error } = await query
+      .order("created_at")
+      .range(from, from + 999)
+      .returns<T[]>();
     if (error) throw error;
     rows.push(...(data ?? []));
     if (!data || data.length < 1000) return rows;
@@ -305,7 +306,22 @@ export const QUEUE_LABELS: Record<FollowUpQueue, string> = {
   visited: "Visited",
 };
 
+// An imported lead nobody has worked in SynqIQ yet: no texts/emails/calls,
+// no visit or appointment, no follow-up date set.
+export function isDormantImport(contact: FollowUpContact, activity: LeadActivity): boolean {
+  return Boolean(
+    contact.import_batch_id &&
+    !contact.follow_up_on &&
+    !contact.last_message_at &&
+    activity.contactTimes.length === 0 &&
+    !activity.firstVisitAt &&
+    !activity.nextAppointmentAt &&
+    !activity.lastMissedAppointmentAt,
+  );
+}
+
 export const STOPPED_LABELS: Record<string, string> = {
+  imported: "Imported, not worked yet",
   enrolled: "Enrolled",
   not_interested: "Not interested",
   opted_out: "Replied STOP",

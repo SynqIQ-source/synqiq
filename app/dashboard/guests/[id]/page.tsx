@@ -127,7 +127,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, follow_up_on, follow_up_set_at, close_source, merged_into_id, created_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, follow_up_on, follow_up_set_at, close_source, merged_into_id, created_at, import_batch_id, last_message_at,
        member_enrolled_at, membership_name, membership_sold_by_staff_id, enrollment_status, trainer_staff_id, trainer_assigned_at, intro_declined_at, intro_declined_reason,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
@@ -210,20 +210,14 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   const staffNames = new Map(staffRows.map((member) => [member.id, member.display_name as string]));
   // Salesperson choices: active salespeople, plus whoever is assigned now.
   const salespeople = staffRows
-    .filter(
-      (member) =>
-        (!member.archived_at && member.can_sell) || member.id === contact.assigned_staff_id,
-    )
+    .filter((member) => (!member.archived_at && member.can_sell) || member.id === contact.assigned_staff_id)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
   const notes = notesResult.data ?? [];
   const isAdmin = isClubAdmin(staff);
   const canReassign = managesSales(staff);
   // Trainer choices: staff tagged Trainer who can sign in, plus whoever is assigned now.
   const trainers = staffRows
-    .filter(
-      (member) =>
-        (!member.archived_at && member.auth_user_id && member.is_trainer) || member.id === contact.trainer_staff_id,
-    )
+    .filter((member) => (!member.archived_at && member.auth_user_id && member.is_trainer) || member.id === contact.trainer_staff_id)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
   let introLine: string | null = null;
   let introStatus: string | null = null;
@@ -276,12 +270,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
     body: m.body,
     subject: m.subject,
     at: DateTime.fromISO(m.created_at).setZone(org.timezone).toFormat("LLL d, yyyy, h:mm a"),
-    sender:
-      m.direction === "inbound"
-        ? contact.first_name
-        : m.sent_by_staff_id
-          ? (staffNames.get(m.sent_by_staff_id) ?? "Staff")
-          : "Staff",
+    sender: m.direction === "inbound" ? contact.first_name : m.sent_by_staff_id ? (staffNames.get(m.sent_by_staff_id) ?? "Staff") : "Staff",
     status: m.status,
     error: m.error,
   }));
@@ -303,9 +292,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
         : !contact.sms_consent
           ? { ok: false as const, reason: "This guest didn't agree to texts." }
           : { ok: true as const };
-  const emailState = contact.email
-    ? { ok: true as const }
-    : { ok: false as const, reason: "Add an email address to email this guest." };
+  const emailState = contact.email ? { ok: true as const } : { ok: false as const, reason: "Add an email address to email this guest." };
   const visits = visitsResult.data ?? [];
   const signatures = signaturesResult.data ?? [];
   const matches = matchesResult.data ?? [];
@@ -339,9 +326,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
           {full ? (
             <>
               <SoldButton contactId={contact.id} sold={Boolean(contact.closed_at)} />
-              {contact.closed_at ? null : (
-                <InterestButton contactId={contact.id} notInterested={contact.status === "not_interested"} />
-              )}
+              {contact.closed_at ? null : <InterestButton contactId={contact.id} notInterested={contact.status === "not_interested"} />}
               <EditContactButton
                 contactId={contact.id}
                 initial={{
@@ -415,9 +400,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                   </Item>
                   <Item label="Membership">{contact.membership_name ?? "—"}</Item>
                   <Item label="Sold by">
-                    {contact.membership_sold_by_staff_id
-                      ? (staffNames.get(contact.membership_sold_by_staff_id) ?? "—")
-                      : "—"}
+                    {contact.membership_sold_by_staff_id ? (staffNames.get(contact.membership_sold_by_staff_id) ?? "—") : "—"}
                   </Item>
                   <Item label="Trainer">
                     {isAdmin ? (
@@ -452,20 +435,13 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center gap-4">
-                <GuestAvatar
-                  url={photoUrl}
-                  firstName={contact.first_name}
-                  lastName={contact.last_name}
-                  className="h-24 w-24 text-2xl"
-                />
+                <GuestAvatar url={photoUrl} firstName={contact.first_name} lastName={contact.last_name} className="h-24 w-24 text-2xl" />
                 <div>
                   <p className="text-lg font-semibold">
                     {contact.first_name} {contact.last_name}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {contact.date_of_birth
-                      ? `Born ${DateTime.fromISO(contact.date_of_birth).toFormat("LLL d, yyyy")}`
-                      : "No date of birth"}
+                    {contact.date_of_birth ? `Born ${DateTime.fromISO(contact.date_of_birth).toFormat("LLL d, yyyy")}` : "No date of birth"}
                   </p>
                 </div>
               </div>
@@ -516,9 +492,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                   {contact.referrer_set_at ? (
                     <span className="mt-0.5 block text-xs text-muted-foreground">
                       Added {local(contact.referrer_set_at)}
-                      {contact.referrer_set_by_staff_id
-                        ? ` by ${staffNames.get(contact.referrer_set_by_staff_id) ?? "staff"}`
-                        : ""}
+                      {contact.referrer_set_by_staff_id ? ` by ${staffNames.get(contact.referrer_set_by_staff_id) ?? "staff"}` : ""}
                     </span>
                   ) : null}
                   {full ? (
@@ -665,9 +639,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
               <dl className="space-y-3">
                 <Item label="Email marketing">
                   {consent(contact.email_consent, contact.email_consent_at)}
-                  {isAdmin ? (
-                    <ConsentControl contactId={contact.id} channel="email" given={contact.email_consent} />
-                  ) : null}
+                  {isAdmin ? <ConsentControl contactId={contact.id} channel="email" given={contact.email_consent} /> : null}
                 </Item>
                 <Item label="SMS">
                   {consent(contact.sms_consent, contact.sms_consent_at)}
@@ -694,7 +666,10 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                 <Item label="Client ID">
                   {contact.mindbody_client_id ?? "—"}
                   {isAdmin && contact.mindbody_client_id ? (
-                    <Link href={`/dashboard/memberships/${contact.mindbody_client_id}`} className="ml-2 text-xs underline underline-offset-4">
+                    <Link
+                      href={`/dashboard/memberships/${contact.mindbody_client_id}`}
+                      className="ml-2 text-xs underline underline-offset-4"
+                    >
                       Billing
                     </Link>
                   ) : null}
@@ -705,9 +680,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                     <span className="ml-2 text-xs text-muted-foreground">{local(contact.mindbody_synced_at, "LLL d, yyyy")}</span>
                   ) : null}
                 </Item>
-                {contact.mindbody_sync_error ? (
-                  <p className="text-xs text-destructive">{contact.mindbody_sync_error}</p>
-                ) : null}
+                {contact.mindbody_sync_error ? <p className="text-xs text-destructive">{contact.mindbody_sync_error}</p> : null}
               </dl>
               {full && !contact.mindbody_client_id && !mindbodyPending ? (
                 <>
