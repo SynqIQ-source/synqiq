@@ -1,17 +1,11 @@
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
-import { GuestMessagesFeed } from "@/components/crm/guest-messages-feed";
 import { requireAccess } from "@/lib/require-access";
 import { canViewOverview, canViewPay } from "@/lib/permissions";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
 import { excludedDepartmentIds } from "@/lib/excluded-departments";
 import { OverviewRangeSelect } from "./overview-range-select";
-import {
-  DepartmentFillRateChart,
-  WeeklyFillRateChart,
-  type DepartmentPoint,
-  type WeeklyPoint,
-} from "./overview-charts";
+import { DepartmentFillRateChart, WeeklyFillRateChart, type DepartmentPoint, type WeeklyPoint } from "./overview-charts";
 import { CalendarCheck, Gauge, UserCheck, Users } from "lucide-react";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { Badge } from "@/components/ui/badge";
@@ -47,11 +41,7 @@ async function getOrgTimezone(supabase: ScopedSupabaseClient) {
 // caveat as the Classes page's historical fetch) -- a plain unbounded
 // .select() silently truncates past that. There are more occurred classes
 // than that today, so this has to paginate.
-async function getOverviewRows(
-  supabase: ScopedSupabaseClient,
-  rangeStart: DateTime | null,
-  rangeEnd: DateTime | null,
-) {
+async function getOverviewRows(supabase: ScopedSupabaseClient, rangeStart: DateTime | null, rangeEnd: DateTime | null) {
   const allRows: OverviewRow[] = [];
   let offset = 0;
 
@@ -76,7 +66,10 @@ async function getOverviewRows(
       query = query.lte("start_datetime", rangeEnd.toUTC().toISO() ?? "");
     }
 
-    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<OverviewRow[]>();
+    const { data, error } = await query
+      .order("id")
+      .range(offset, offset + PAGE_SIZE - 1)
+      .returns<OverviewRow[]>();
 
     if (error) {
       throw new Error(`Failed to load overview metrics: ${error.message}`);
@@ -99,10 +92,7 @@ type ResolvedRange = { range: string; rangeStart: string; rangeEnd: string };
 // Today / week to date / month to date, or a custom range. Anything else
 // (including old links with the retired all/ytd/30/60/90 presets) falls
 // back to month to date.
-function resolveRange(
-  params: { range?: string; rangeStart?: string; rangeEnd?: string },
-  timezone: string,
-): ResolvedRange {
+function resolveRange(params: { range?: string; rangeStart?: string; rangeEnd?: string }, timezone: string): ResolvedRange {
   if (params.range === "custom" && params.rangeStart && params.rangeEnd) {
     return { range: "custom", rangeStart: params.rangeStart, rangeEnd: params.rangeEnd };
   }
@@ -193,7 +183,10 @@ async function getPayrollRows(
       query = query.gte("class_date", rangeStart.toISODate() ?? "").lte("class_date", rangeEnd.toISODate() ?? "");
     }
 
-    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<PayrollCostRow[]>();
+    const { data, error } = await query
+      .order("id")
+      .range(offset, offset + PAGE_SIZE - 1)
+      .returns<PayrollCostRow[]>();
 
     if (error) {
       throw new Error(`Failed to load payroll cost data: ${error.message}`);
@@ -228,11 +221,7 @@ type RawVisitRow = {
 // signed_in = true only -- a no-show shouldn't count as "engagement," same
 // convention as every other real number on this page already using
 // total_signed_in rather than total_booked.
-async function getClassVisits(
-  supabase: ScopedSupabaseClient,
-  rangeStart: DateTime | null,
-  rangeEnd: DateTime | null,
-): Promise<VisitRow[]> {
+async function getClassVisits(supabase: ScopedSupabaseClient, rangeStart: DateTime | null, rangeEnd: DateTime | null): Promise<VisitRow[]> {
   const allRows: VisitRow[] = [];
   let offset = 0;
 
@@ -249,7 +238,10 @@ async function getClassVisits(
       query = query.lte("class_occurrences.start_datetime", rangeEnd.toUTC().toISO() ?? "");
     }
 
-    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<RawVisitRow[]>();
+    const { data, error } = await query
+      .order("id")
+      .range(offset, offset + PAGE_SIZE - 1)
+      .returns<RawVisitRow[]>();
 
     if (error) {
       throw new Error(`Failed to load class visits: ${error.message}`);
@@ -334,10 +326,7 @@ type ClientEngagementSummary = {
   frequency: number | null;
 };
 
-function summarizeClientEngagement(
-  visits: VisitRow[],
-  activeMemberIds: Set<number>,
-): ClientEngagementSummary {
+function summarizeClientEngagement(visits: VisitRow[], activeMemberIds: Set<number>): ClientEngagementSummary {
   const totalClients = visits.length;
   // Total Clients/Unique Clients/Frequency count every real visitor
   // (members, drop-ins, trial/guest visits, anyone with a Non-Member/
@@ -571,9 +560,7 @@ export default async function DashboardPage({
   const [currentPayrollRows, priorAllRows, priorPayrollRows] = await Promise.all([
     showPay ? getPayrollRows(supabase, rangeStartDT, rangeEndDT) : Promise.resolve<PayrollCostRow[]>([]),
     priorWindow ? getOverviewRows(supabase, priorWindow.start, priorWindow.end) : Promise.resolve<OverviewRow[]>([]),
-    priorWindow && showPay
-      ? getPayrollRows(supabase, priorWindow.start, priorWindow.end)
-      : Promise.resolve<PayrollCostRow[]>([]),
+    priorWindow && showPay ? getPayrollRows(supabase, priorWindow.start, priorWindow.end) : Promise.resolve<PayrollCostRow[]>([]),
   ]);
 
   const priorRows = priorAllRows.filter((row) => !row.department_id || !hiddenDepartmentIds.has(row.department_id));
@@ -659,12 +646,11 @@ export default async function DashboardPage({
 
   return (
     <DashboardShell
-      title="Overview"
-      description="Studio health at a glance, from your synced Mindbody classes."
+      title="Class Dashboard"
+      description="Group fitness at a glance: classes, class size, fill rate and attendance from your synced Mindbody classes."
       actions={<OverviewRangeSelect range={range} rangeStart={rangeStart} rangeEnd={rangeEnd} />}
     >
       <div className="flex flex-col gap-6">
-        <GuestMessagesFeed />
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
             icon={CalendarCheck}
@@ -678,12 +664,7 @@ export default async function DashboardPage({
             value={hasClasses ? orgSummary.avgClassSize.toFixed(1) : "—"}
             detail="checked-in clients per class"
           />
-          <KpiCard
-            icon={Gauge}
-            label="Fill rate"
-            value={formatPercent(orgSummary.fillRatePct)}
-            detail="of class capacity used"
-          />
+          <KpiCard icon={Gauge} label="Fill rate" value={formatPercent(orgSummary.fillRatePct)} detail="of class capacity used" />
           <KpiCard
             icon={UserCheck}
             label="Attendance"
@@ -785,36 +766,36 @@ export default async function DashboardPage({
                 />
               </TabsContent>
               {showPay ? (
-              <TabsContent value="cost">
-                <DepartmentTable
-                  columns={["Instructor pay", "Per class", "vs. prior period"]}
-                  total={[
-                    hasClasses ? formatCurrency(allDepartmentsTotalSpend) : "—",
-                    allDepartmentsAvgPerClass !== null ? formatCurrencyPerClass(allDepartmentsAvgPerClass) : "—",
-                    formatVsPrior(allDepartmentsVsPriorPct),
-                  ]}
-                  rows={departmentRows.map(({ department, summary }, index) => {
-                    const cost = departmentCostRows[index];
-                    return {
-                      id: department.id,
-                      name: department.name,
-                      inactive: summary.totalClasses === 0,
-                      cells: [
-                        cost.totalSpend !== null ? formatCurrency(cost.totalSpend) : "—",
-                        cost.avgPerClass !== null ? formatCurrencyPerClass(cost.avgPerClass) : "—",
-                        formatVsPrior(cost.vsPriorPct),
-                      ],
-                    };
-                  })}
-                  footnote={
-                    range === "all"
-                      ? "From imported payroll, matched to each class taught. Pick a time frame to compare against the prior period."
-                      : range === "custom"
-                        ? "From imported payroll, matched to each class taught. Compared with the same-length period just before."
-                        : `From imported payroll, matched to each class taught. Compared with the same days ${range === "today" ? "yesterday" : range === "wtd" ? "last week" : "last month"}.`
-                  }
-                />
-              </TabsContent>
+                <TabsContent value="cost">
+                  <DepartmentTable
+                    columns={["Instructor pay", "Per class", "vs. prior period"]}
+                    total={[
+                      hasClasses ? formatCurrency(allDepartmentsTotalSpend) : "—",
+                      allDepartmentsAvgPerClass !== null ? formatCurrencyPerClass(allDepartmentsAvgPerClass) : "—",
+                      formatVsPrior(allDepartmentsVsPriorPct),
+                    ]}
+                    rows={departmentRows.map(({ department, summary }, index) => {
+                      const cost = departmentCostRows[index];
+                      return {
+                        id: department.id,
+                        name: department.name,
+                        inactive: summary.totalClasses === 0,
+                        cells: [
+                          cost.totalSpend !== null ? formatCurrency(cost.totalSpend) : "—",
+                          cost.avgPerClass !== null ? formatCurrencyPerClass(cost.avgPerClass) : "—",
+                          formatVsPrior(cost.vsPriorPct),
+                        ],
+                      };
+                    })}
+                    footnote={
+                      range === "all"
+                        ? "From imported payroll, matched to each class taught. Pick a time frame to compare against the prior period."
+                        : range === "custom"
+                          ? "From imported payroll, matched to each class taught. Compared with the same-length period just before."
+                          : `From imported payroll, matched to each class taught. Compared with the same days ${range === "today" ? "yesterday" : range === "wtd" ? "last week" : "last month"}.`
+                    }
+                  />
+                </TabsContent>
               ) : null}
             </CardContent>
           </Tabs>
@@ -890,9 +871,7 @@ function formatVsPrior(pct: number | null): string {
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="flex h-[160px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-      {text}
-    </div>
+    <div className="flex h-[160px] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">{text}</div>
   );
 }
 

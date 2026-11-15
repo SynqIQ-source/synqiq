@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { isCrmEnabled } from "@/lib/crm/module";
+import { managesSales } from "@/lib/permissions";
 import { getCrmOrg } from "@/lib/crm/org";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -19,11 +20,12 @@ type FeedRow = {
 const FEED_DAYS = 7;
 const FEED_LIMIT = 8;
 
-// Overview card for admins: the latest texts and emails guests sent in,
-// who they're from, which salesperson they belong to, and when.
+// Sales Dashboard card for Club Admins and Sales Leads: the latest texts and
+// emails guests sent in, who they're from, which salesperson they belong to,
+// and when. (Salespeople see their own on Lead Status > Replied.)
 export async function GuestMessagesFeed() {
   const staff = await getCurrentStaff();
-  if (!staff || staff.role !== "admin" || !(await isCrmEnabled(staff.organizationId))) return null;
+  if (!staff || !managesSales(staff) || !(await isCrmEnabled(staff.organizationId))) return null;
 
   const admin = createSupabaseAdminClient();
   const org = await getCrmOrg(staff.organizationId);
@@ -31,9 +33,7 @@ export async function GuestMessagesFeed() {
   const [{ data }, { data: staffRows }] = await Promise.all([
     admin
       .from("crm_messages")
-      .select(
-        "id, channel, created_at, read_at, contact:crm_contacts!inner ( id, first_name, last_name, assigned_staff_id, deleted_at )",
-      )
+      .select("id, channel, created_at, read_at, contact:crm_contacts!inner ( id, first_name, last_name, assigned_staff_id, deleted_at )")
       .eq("organization_id", staff.organizationId)
       .eq("direction", "inbound")
       .gte("created_at", since)

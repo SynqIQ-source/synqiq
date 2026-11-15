@@ -36,7 +36,7 @@ const instructorOrTrainer = (staff: CurrentStaff) => isInstructorAccess(staff) |
 const navigation: { label: string | null; items: NavEntry[] }[] = [
   {
     label: null,
-    items: [{ href: "/dashboard", label: "Overview", who: canViewOverview }],
+    items: [{ href: "/dashboard", label: "Class Dashboard", who: canViewOverview }],
   },
   {
     label: "Teaching",
@@ -65,12 +65,18 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     ],
   },
   {
+    label: "Fitness",
+    items: [
+      { href: "/dashboard/fitness", label: "Fitness Dashboard", who: isTrainerAccess, modules: ["trainer"] },
+      { href: "/dashboard/sales/new-members", label: "New Members", who: isTrainerAccess, modules: ["trainer"] },
+      { href: "/dashboard/trainer-health", label: "Trainer Health", who: isTrainerAccess, modules: ["trainer"] },
+    ],
+  },
+  {
     label: "Insights",
     items: [
       { href: "/dashboard/heatmap", label: "Heat Map", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/instructors", label: "Instructors", who: isClubAdmin, modules: ["group_fitness"] },
-      { href: "/dashboard/trainer-health", label: "Trainer Health", who: isTrainerAccess, modules: ["trainer"] },
-      { href: "/dashboard/sales/new-members", label: "New Members", who: isTrainerAccess, modules: ["trainer"] },
       { href: "/dashboard/substitutions", label: "Substitutions", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/follow-up-activity", label: "Follow-ups", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/comp-audit", label: "Comp Audit", who: isClubAdmin },

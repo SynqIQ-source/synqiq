@@ -2,6 +2,7 @@ import { isClubAdmin, managesSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { GuestMessagesFeed } from "@/components/crm/guest-messages-feed";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { overdueBySeller } from "@/lib/crm/follow-ups";
@@ -170,10 +171,7 @@ export default async function SalesDashboardPage({
   const staffId = sellerParam === "all" ? null : sellerParam;
   const leadType = isLeadType(params.type) ? params.type : null;
 
-  const { data: staffRows } = await supabase
-    .from("staff")
-    .select("id, display_name, can_sell, role, archived_at")
-    .order("display_name");
+  const { data: staffRows } = await supabase.from("staff").select("id, display_name, can_sell, role, archived_at").order("display_name");
   const salespeople = (staffRows ?? [])
     .filter((member) => !member.archived_at && member.can_sell)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
@@ -204,12 +202,9 @@ export default async function SalesDashboardPage({
   }
 
   const periodLabel = `${from.toFormat("LLL d")} – ${to.toFormat("LLL d, yyyy")}`;
-  const who = staffId
-    ? (salespeople.find((person) => person.id === staffId)?.name ?? staff.displayName)
-    : "The whole club";
+  const who = staffId ? (salespeople.find((person) => person.id === staffId)?.name ?? staff.displayName) : "The whole club";
   const typeLabel = LEAD_TYPES.find((type) => type.value === leadType)?.label;
-  const { walkIns, guestsOfMembers, returning, leads, leadSources, activity, appointments, appointmentsMade, totals } =
-    funnel;
+  const { walkIns, guestsOfMembers, returning, leads, leadSources, activity, appointments, appointmentsMade, totals } = funnel;
   // Drill-down links keep the dashboard's period and filters.
   const detailsHref = (metric: string) => {
     const query = new URLSearchParams({ metric, range: preset });
@@ -226,9 +221,7 @@ export default async function SalesDashboardPage({
   // salesperson shown. Targets cover all lead types, so they're hidden while
   // the dashboard is narrowed to one.
   const targetMonthLabel = to.toFormat("LLL yyyy");
-  const targets: Targets | null = leadType
-    ? null
-    : (await effectiveTargets(supabase, { month: monthKey(to), staffId })).targets;
+  const targets: Targets | null = leadType ? null : (await effectiveTargets(supabase, { month: monthKey(to), staffId })).targets;
   const targetColumn = (sectionKey: string) => {
     if (!targets) return undefined;
     const section = KPI_SECTIONS.find((item) => item.key === sectionKey)!;
@@ -263,6 +256,7 @@ export default async function SalesDashboardPage({
       }
     >
       <div className="space-y-6">
+        <GuestMessagesFeed />
         <Section
           title="Walk-ins"
           description="New guests who walked in interested in a membership or pass."
@@ -270,12 +264,7 @@ export default async function SalesDashboardPage({
         >
           <Stat label="Walk-ins" value={String(walkIns.total)} href={detailsHref("walk_ins")} />
           <Stat label="Closed" value={String(walkIns.closed)} href={detailsHref("walk_ins_closed")} />
-          <Stat
-            label="Closing %"
-            value={percent(walkIns.closed, walkIns.total)}
-            href={detailsHref("walk_ins_closed")}
-            highlight
-          />
+          <Stat label="Closing %" value={percent(walkIns.closed, walkIns.total)} href={detailsHref("walk_ins_closed")} highlight />
         </Section>
 
         <Section
@@ -300,12 +289,7 @@ export default async function SalesDashboardPage({
         >
           <Stat label="Returning" value={String(returning.total)} href={detailsHref("returning")} />
           <Stat label="Closed" value={String(returning.closed)} href={detailsHref("returning_closed")} />
-          <Stat
-            label="Closing %"
-            value={percent(returning.closed, returning.total)}
-            href={detailsHref("returning_closed")}
-            highlight
-          />
+          <Stat label="Closing %" value={percent(returning.closed, returning.total)} href={detailsHref("returning_closed")} highlight />
         </Section>
 
         <Section
@@ -333,8 +317,7 @@ export default async function SalesDashboardPage({
           target={targetColumn("appointments")}
           description={
             <>
-              Appointments set for this period (not canceled), how many showed, and how many of those bought. Click a
-              number to see who, or{" "}
+              Appointments set for this period (not canceled), how many showed, and how many of those bought. Click a number to see who, or{" "}
               <Link href="/dashboard/sales/calendar" className="text-primary underline-offset-4 hover:underline">
                 open the calendar
               </Link>
@@ -409,8 +392,7 @@ export default async function SalesDashboardPage({
           <CardHeader>
             <CardTitle>Follow-ups</CardTitle>
             <CardDescription>
-              Right now, whatever the period: open leads whose follow-up has passed its due day with no text, email or
-              call.{" "}
+              Right now, whatever the period: open leads whose follow-up has passed its due day with no text, email or call.{" "}
               <Link href="/dashboard/sales/follow-ups" className="text-primary underline-offset-4 hover:underline">
                 See the list
               </Link>
@@ -438,12 +420,7 @@ export default async function SalesDashboardPage({
         >
           <Stat label="Total guests" value={String(totals.guests)} href={detailsHref("total_guests")} />
           <Stat label="Enrolled" value={String(totals.enrolled)} href={detailsHref("enrolled")} />
-          <Stat
-            label="Closing %"
-            value={percent(totals.enrolled, totals.guests)}
-            href={detailsHref("enrolled")}
-            highlight
-          />
+          <Stat label="Closing %" value={percent(totals.enrolled, totals.guests)} href={detailsHref("enrolled")} highlight />
         </Section>
 
         {bySeller.length > 0 ? (
@@ -501,9 +478,9 @@ export default async function SalesDashboardPage({
         ) : null}
 
         <p className="text-xs text-muted-foreground">
-          &ldquo;Closed&rdquo; and &ldquo;Enrolled&rdquo; count sales made during this period, whether staff marked
-          them sold or Mindbody shows them as a new active member (updated overnight). Someone who toured in an earlier
-          period and buys now counts here as a returning guest.
+          &ldquo;Closed&rdquo; and &ldquo;Enrolled&rdquo; count sales made during this period, whether staff marked them sold or Mindbody
+          shows them as a new active member (updated overnight). Someone who toured in an earlier period and buys now counts here as a
+          returning guest.
         </p>
       </div>
     </DashboardShell>
