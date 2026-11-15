@@ -616,7 +616,7 @@ export function Checkout({
                 </div>
                 {missingAmount ? <p className="text-xs text-amber-700 dark:text-amber-400">Enter the amount for the fee.</p> : null}
                 {packageNeedsMember ? (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">Pick the member for the membership.</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">Pick who the membership is for (member, guest or lead).</p>
                 ) : null}
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
                 <Button className="w-full" disabled={saving || lines.length === 0 || packageNeedsMember || missingAmount} onClick={save}>
@@ -761,7 +761,7 @@ function MemberPicker({ member, onChange }: { member: Member | null; onChange: (
     <div className="relative">
       <Input
         className="h-8 text-sm"
-        placeholder="Member name (or leave blank for walk-in)"
+        placeholder="Member, guest or lead (blank for walk-in)"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />

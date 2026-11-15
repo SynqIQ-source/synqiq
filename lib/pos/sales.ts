@@ -60,6 +60,24 @@ export async function savePracticeSale(
   const admin = createSupabaseAdminClient();
   const org = staff.organizationId;
   if (input.lines.length === 0) return { error: "The cart is empty." };
+  // Who's buying: a Mindbody client id, or "crm:<id>" for a CRM guest or lead
+  // who isn't a Mindbody client yet (e.g. a guest buying their first membership).
+  let mindbodyClientId = input.clientId;
+  let crmContactId: string | null = null;
+  if (input.clientId?.startsWith("crm:")) {
+    const id = input.clientId.slice(4);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return { error: "Pick the buyer again." };
+    const { data: contact } = await admin
+      .from("crm_contacts")
+      .select("id, mindbody_client_id")
+      .eq("id", id)
+      .eq("organization_id", org)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!contact) return { error: "That guest wasn't found." };
+    crmContactId = contact.id as string;
+    mindbodyClientId = (contact.mindbody_client_id as string | null) ?? null;
+  }
   if (input.lines.length > 100) return { error: "Too many lines." };
   const [{ data: orgRow }, { data: items }, { data: categories }] = await Promise.all([
     admin.from("organizations").select("sales_tax_rate, timezone").eq("id", org).maybeSingle(),
@@ -154,7 +172,8 @@ export async function savePracticeSale(
     .insert({
       organization_id: org,
       status: "practice",
-      mindbody_client_id: input.clientId,
+      mindbody_client_id: mindbodyClientId,
+      crm_contact_id: crmContactId,
       client_name: input.clientName?.slice(0, 200) ?? null,
       staff_id: staff.id,
       subtotal_cents: cart.subtotalCents,
@@ -218,7 +237,8 @@ export async function savePracticeSale(
         organization_id: org,
         sale_id: sale.id,
         pos_item_id: item.id,
-        mindbody_client_id: input.clientId,
+        mindbody_client_id: mindbodyClientId,
+        crm_contact_id: crmContactId,
         client_name: input.clientName?.slice(0, 200) ?? null,
         name: item.name as string,
         status: "practice",

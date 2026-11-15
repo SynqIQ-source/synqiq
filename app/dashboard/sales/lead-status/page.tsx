@@ -42,8 +42,12 @@ type LeadContact = FollowUpContact & {
 
 const LEAD_FIELDS = `${FOLLOW_UP_CONTACT_FIELDS}, first_name, last_name, source, referring_client_id, referrer_name_typed`;
 
+const PAGE_SIZE = 100;
+const REPLY_DAYS = 7;
+
 type Row = {
   contact: LeadContact;
+  lastReplyAt: string | null;
   activity: LeadActivity;
   cameInAt: string;
   visited: boolean;
@@ -77,7 +81,7 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub?:
 export default async function LeadStatusPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; start?: string; end?: string; seller?: string; type?: string }>;
+  searchParams: Promise<{ range?: string; start?: string; end?: string; seller?: string; type?: string; view?: string; page?: string }>;
 }) {
   const staff = await requireCrmStaff();
   const params = await searchParams;
@@ -106,19 +110,61 @@ export default async function LeadStatusPage({
     .filter((member) => !member.archived_at && member.can_sell)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
 
-  // Candidates: added in the period, or visited in it. Whether they "came
-  // in" in the period is decided below, from their first visit.
-  const [addedResult, visitedResult] = await Promise.all([
-    supabase.from("crm_contacts").select("id").gte("created_at", fromIso).lte("created_at", toIso).limit(5000),
-    supabase.from("guest_visits").select("contact_id").gte("visit_at", fromIso).lte("visit_at", toIso).limit(5000),
-  ]);
-  if (addedResult.error || visitedResult.error) throw new Error("Failed to load leads.");
-  const candidateIds = [
-    ...new Set([
-      ...(addedResult.data ?? []).map((row) => row.id as string),
-      ...(visitedResult.data ?? []).map((row) => row.contact_id as string),
-    ]),
-  ];
+  // Three views: the date-range report; every open lead (the working list,
+  // any date, paged); and leads who replied (text, email or form) lately.
+  const view = params.view === "open" || params.view === "replied" ? params.view : "period";
+  const page = Math.max(1, Math.floor(Number(params.page) || 1));
+  let openTotal = 0;
+  const lastReply = new Map<string, string>();
+  let candidateIds: string[] = [];
+  if (view === "period") {
+    // Added in the period, or visited in it. Whether they "came in" in the
+    // period is decided below, from their first visit.
+    const [addedResult, visitedResult] = await Promise.all([
+      supabase.from("crm_contacts").select("id").gte("created_at", fromIso).lte("created_at", toIso).limit(5000),
+      supabase.from("guest_visits").select("contact_id").gte("visit_at", fromIso).lte("visit_at", toIso).limit(5000),
+    ]);
+    if (addedResult.error || visitedResult.error) throw new Error("Failed to load leads.");
+    candidateIds = [
+      ...new Set([
+        ...(addedResult.data ?? []).map((row) => row.id as string),
+        ...(visitedResult.data ?? []).map((row) => row.contact_id as string),
+      ]),
+    ];
+  } else if (view === "open") {
+    // Still being worked: not a member, not marked not interested. Follow-ups
+    // due first, then the most recently active.
+    let query = supabase
+      .from("crm_contacts")
+      .select("id", { count: "exact" })
+      .in("status", ["lead", "guest"])
+      .is("deleted_at", null)
+      .is("merged_into_id", null)
+      .neq("source", "member");
+    if (staffId) query = query.eq("assigned_staff_id", staffId);
+    const { data, count, error } = await query
+      .order("follow_up_on", { ascending: true, nullsFirst: false })
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
+    if (error) throw new Error("Failed to load leads.");
+    openTotal = count ?? 0;
+    candidateIds = (data ?? []).map((row) => row.id as string);
+  } else {
+    const since = DateTime.now().minus({ days: REPLY_DAYS }).toUTC().toISO()!;
+    const { data, error } = await supabase
+      .from("crm_messages")
+      .select("contact_id, created_at")
+      .eq("direction", "inbound")
+      .in("channel", ["sms", "email", "web"])
+      .gte("created_at", since)
+      .order("created_at", { ascending: false })
+      .limit(3000);
+    if (error) throw new Error("Failed to load replies.");
+    for (const row of data ?? [])
+      if (!lastReply.has(row.contact_id as string)) lastReply.set(row.contact_id as string, row.created_at as string);
+    candidateIds = [...lastReply.keys()];
+  }
 
   const contacts: LeadContact[] = [];
   for (let index = 0; index < candidateIds.length; index += 200) {
@@ -146,6 +192,7 @@ export default async function LeadStatusPage({
       const firstContact = firstContactFor(contact, contactActivity, now);
       return {
         contact,
+        lastReplyAt: lastReply.get(contact.id) ?? null,
         activity: contactActivity,
         cameInAt: firstContact.cameInAt,
         visited: Boolean(contactActivity.firstVisitAt),
@@ -153,13 +200,25 @@ export default async function LeadStatusPage({
         followUp: followUpFor(contact, contactActivity, org.timezone, now),
       };
     })
-    .filter((row) => row.cameInAt >= fromIso && row.cameInAt <= toIso)
-    .sort((a, b) => b.cameInAt.localeCompare(a.cameInAt));
+    .filter((row) => view !== "period" || (row.cameInAt >= fromIso && row.cameInAt <= toIso))
+    .sort((a, b) =>
+      view === "replied"
+        ? (b.lastReplyAt ?? "").localeCompare(a.lastReplyAt ?? "")
+        : view === "open"
+          ? candidateIds.indexOf(a.contact.id) - candidateIds.indexOf(b.contact.id)
+          : b.cameInAt.localeCompare(a.cameInAt),
+    );
 
+  // Grouped by day came in (report), day of the reply (replied), or one list (open).
   const byDay = new Map<string, Row[]>();
   for (const row of rows) {
-    const day = DateTime.fromISO(row.cameInAt).setZone(org.timezone).toISODate()!;
-    byDay.set(day, [...(byDay.get(day) ?? []), row]);
+    const key =
+      view === "open"
+        ? "open"
+        : DateTime.fromISO(view === "replied" ? (row.lastReplyAt as string) : row.cameInAt)
+            .setZone(org.timezone)
+            .toISODate()!;
+    byDay.set(key, [...(byDay.get(key) ?? []), row]);
   }
 
   const count = (state: FirstContact["state"]) => rows.filter((row) => row.firstContact.state === state).length;
@@ -177,11 +236,25 @@ export default async function LeadStatusPage({
   const who = staffId ? (staffNames.get(staffId) ?? staff.displayName) : "The whole club";
   const typeLabel = LEAD_TYPES.find((type) => type.value === leadType)?.label;
   const local = (iso: string, format: string) => DateTime.fromISO(iso).setZone(org.timezone).toFormat(format);
+  const viewHref = (name: string) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) if (value && key !== "view" && key !== "page") query.set(key, String(value));
+    if (name !== "period") query.set("view", name);
+    return `/dashboard/sales/lead-status${query.toString() ? `?${query.toString()}` : ""}`;
+  };
+  const pageHref = (target: number) => `${viewHref("open")}&page=${target}`;
+  const pages = Math.max(1, Math.ceil(openTotal / PAGE_SIZE));
 
   return (
     <DashboardShell
       title="Lead Status"
-      description={`${who}${typeLabel ? ` · ${typeLabel} leads` : ""} · ${period.from.toFormat("LLL d")} – ${period.to.toFormat("LLL d, yyyy")}`}
+      description={`${who}${typeLabel ? ` · ${typeLabel} leads` : ""} · ${
+        view === "open"
+          ? "every open lead, any date"
+          : view === "replied"
+            ? `replied in the last ${REPLY_DAYS} days`
+            : `${period.from.toFormat("LLL d")} – ${period.to.toFormat("LLL d, yyyy")}`
+      }`}
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <SalesFilters
@@ -197,8 +270,46 @@ export default async function LeadStatusPage({
       }
     >
       <div className="space-y-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border bg-card p-0.5 text-sm">
+            {(
+              [
+                ["period", "By date range"],
+                ["open", "Open leads"],
+                ["replied", `Replied (${REPLY_DAYS} days)`],
+              ] as const
+            ).map(([name, label]) => (
+              <Link
+                key={name}
+                href={viewHref(name)}
+                className={`rounded-md px-3 py-1.5 ${view === name ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+          {view === "open" ? (
+            <span className="text-sm text-muted-foreground">
+              {openTotal} open leads · page {page} of {pages}
+              {page > 1 ? (
+                <Link href={pageHref(page - 1)} className="ml-3 underline">
+                  Previous
+                </Link>
+              ) : null}
+              {page < pages ? (
+                <Link href={pageHref(page + 1)} className="ml-3 underline">
+                  Next
+                </Link>
+              ) : null}
+            </span>
+          ) : view === "replied" ? (
+            <span className="text-sm text-muted-foreground">Leads who texted, emailed or used a website form, newest reply first.</span>
+          ) : (
+            <span className="text-sm text-muted-foreground">The time frame filter applies to this view.</span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Leads" value={String(rows.length)} />
+          <Stat label="Leads" value={String(view === "open" ? openTotal : rows.length)} />
           <Stat
             label={`Contacted ≤ ${FIRST_CONTACT_HOURS}h`}
             value={percent(onTime, judged)}
@@ -223,7 +334,7 @@ export default async function LeadStatusPage({
                 <TableHead>Name</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Source</TableHead>
-                <TableHead>Came in</TableHead>
+                <TableHead>{view === "replied" ? "Replied" : "Came in"}</TableHead>
                 <TableHead>Salesperson</TableHead>
                 <TableHead>Time to first contact</TableHead>
                 <TableHead className="text-right">Calls</TableHead>
@@ -236,7 +347,11 @@ export default async function LeadStatusPage({
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
-                    No leads came in during this period.
+                    {view === "replied"
+                      ? `Nobody replied in the last ${REPLY_DAYS} days.`
+                      : view === "open"
+                        ? "No open leads."
+                        : "No leads came in during this period."}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -244,8 +359,10 @@ export default async function LeadStatusPage({
                   <Fragment key={day}>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
                       <TableCell colSpan={10} className="py-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                        {DateTime.fromISO(day, { zone: org.timezone }).toFormat("cccc, LLL d")} · {dayRows.length}{" "}
-                        {dayRows.length === 1 ? "lead" : "leads"}
+                        {day === "open"
+                          ? "Follow-ups due first, then most recently active"
+                          : DateTime.fromISO(day, { zone: org.timezone }).toFormat("cccc, LLL d")}{" "}
+                        · {dayRows.length} {dayRows.length === 1 ? "lead" : "leads"}
                       </TableCell>
                     </TableRow>
                     {dayRows.map((row) => (
@@ -264,8 +381,10 @@ export default async function LeadStatusPage({
                         </TableCell>
                         <TableCell>{SOURCE_LABELS[row.contact.source] ?? row.contact.source}</TableCell>
                         <TableCell className="whitespace-nowrap text-muted-foreground">
-                          {local(row.cameInAt, "h:mm a")}
-                          <span className="ml-1 text-xs">{row.visited ? "visit" : "added"}</span>
+                          {view === "replied" && row.lastReplyAt
+                            ? local(row.lastReplyAt, "h:mm a")
+                            : local(row.cameInAt, view === "open" ? "LLL d, yyyy" : "h:mm a")}
+                          <span className="ml-1 text-xs">{view === "replied" ? "reply" : row.visited ? "visit" : "added"}</span>
                         </TableCell>
                         <TableCell>
                           {row.contact.assigned_staff_id ? (staffNames.get(row.contact.assigned_staff_id) ?? "—") : "Unassigned"}
