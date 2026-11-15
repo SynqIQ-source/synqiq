@@ -2,6 +2,7 @@ import { isClubAdmin, seesOnlyOwnSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { LeadSearch } from "./lead-search";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -264,6 +265,7 @@ export default async function GuestsPage({
       }
     >
       <div className="space-y-6">
+        <LeadSearch />
         {pending.length > 0 ? (
           <Card>
             <CardHeader>

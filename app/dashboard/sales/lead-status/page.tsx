@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { Fragment } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { AddLeadButton } from "../../guests/add-lead-button";
+import { LeadSearch } from "../../guests/lead-search";
 import { FirstContactBadge, NextFollowUp } from "@/components/crm/follow-up-status";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -270,6 +271,7 @@ export default async function LeadStatusPage({
       }
     >
       <div className="space-y-6">
+        <LeadSearch />
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border bg-card p-0.5 text-sm">
             {(
