@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -373,13 +374,6 @@ export function ChangeCharge({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!open) {
-    return (
-      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setOpen(true)}>
-        Change
-      </Button>
-    );
-  }
   async function save() {
     const cents = dollarsToCents(amount);
     if (cents === null) return setError("Enter the dues, e.g. 179.00.");
@@ -409,51 +403,65 @@ export function ChangeCharge({
     }
   }
   return (
-    <div className="w-72 space-y-2 rounded-md border bg-background p-3 text-left text-sm shadow-sm">
-      <p className="font-medium">Change the {longDay(date)} charge</p>
-      {contracts.length > 1 ? (
-        <select
-          aria-label="Membership"
-          className={selectClass}
-          value={contractId}
-          onChange={(e) => {
-            setContractId(e.target.value);
-            const next = contracts.find((contract) => contract.id === e.target.value);
-            setAmount(((next?.subtotalCents ?? 0) / 100).toFixed(2));
-          }}
-        >
-          {contracts.map((contract) => (
-            <option key={contract.id} value={contract.id}>
-              {contract.name}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <p className="text-muted-foreground">{picked?.name}</p>
-      )}
-      <label className="flex items-center gap-2">
-        <span className="w-28 shrink-0 text-muted-foreground">Dues (before tax) $</span>
-        <Input className="h-8" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      </label>
-      <div className="space-y-1">
-        <label className="flex items-center gap-2">
-          <input type="radio" checked={scope === "once"} onChange={() => setScope("once")} /> Just this charge
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="radio" checked={scope === "onward"} onChange={() => setScope("onward")} /> This and every charge after
-        </label>
-      </div>
-      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (kept with the change)" maxLength={500} />
-      <p className="text-xs text-muted-foreground">Tax is added at the membership&apos;s rate. Undo it any time under Billing edits.</p>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={saving}>
-          Cancel
-        </Button>
-        <Button size="sm" onClick={save} disabled={saving}>
-          {saving ? "Saving…" : "Save change"}
-        </Button>
-      </div>
-    </div>
+    <>
+      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setOpen(true)}>
+        Change
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change the {longDay(date)} charge</DialogTitle>
+            <DialogDescription>Saved as a billing edit with your reason. Mindbody keeps charging until the switch.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            {contracts.length > 1 ? (
+              <select
+                aria-label="Membership"
+                className={selectClass}
+                value={contractId}
+                onChange={(e) => {
+                  setContractId(e.target.value);
+                  const next = contracts.find((contract) => contract.id === e.target.value);
+                  setAmount(((next?.subtotalCents ?? 0) / 100).toFixed(2));
+                }}
+              >
+                {contracts.map((contract) => (
+                  <option key={contract.id} value={contract.id}>
+                    {contract.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="text-muted-foreground">{picked?.name}</p>
+            )}
+            <label className="flex items-center gap-2">
+              <span className="w-28 shrink-0 text-muted-foreground">Dues (before tax) $</span>
+              <Input className="h-8" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            </label>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={scope === "once"} onChange={() => setScope("once")} /> Just this charge
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="radio" checked={scope === "onward"} onChange={() => setScope("onward")} /> This and every charge after
+              </label>
+            </div>
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (kept with the change)" maxLength={500} />
+            <p className="text-xs text-muted-foreground">
+              Tax is added at the membership&apos;s rate. Undo it any time under Billing edits.
+            </p>
+            {error ? <p className="text-xs text-destructive">{error}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save change"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
