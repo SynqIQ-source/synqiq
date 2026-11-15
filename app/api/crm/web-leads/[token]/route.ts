@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse, after } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sha256 } from "@/lib/crm/kiosk-auth";
 import { isCrmEnabled } from "@/lib/crm/module";
 import { rateLimitAll } from "@/lib/crm/rate-limit";
-import { enqueueEmailCheck, runJobById } from "@/lib/crm/jobs";
-import { recordInbound } from "@/lib/crm/messages";
 import { jsonError, logCrmError } from "@/lib/crm/http";
-import { flattenFields, parseWebLead, webLeadThreadBody } from "@/lib/crm/web-leads";
+import { flattenFields, parseWebLead } from "@/lib/crm/web-leads";
+import { saveWebLead } from "@/lib/crm/web-lead-save";
+import { spamCheck } from "@/lib/crm/spam";
 
 const MAX_BYTES = 64_000;
 
@@ -59,9 +59,7 @@ async function readFields(request: NextRequest): Promise<Map<string, string> | n
   if (type.includes("json") || trimmed.startsWith("{")) {
     try {
       const parsed = JSON.parse(trimmed) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? flattenFields(parsed as Record<string, unknown>)
-        : null;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? flattenFields(parsed as Record<string, unknown>) : null;
     } catch {
       return null;
     }
@@ -113,116 +111,38 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const admin = createSupabaseAdminClient();
-    const organizationId = form.organization_id;
     // Retries of the same submission are recorded once: by the sender's own
     // submission id when it sends one, else by the exact payload.
     const fingerprint = lead.submissionId
       ? `web:${form.id}:${lead.submissionId}`
       : `web:${form.id}:${sha256(JSON.stringify([...fields.entries()]))}`;
-    const { count: seen } = await admin
-      .from("crm_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", organizationId)
-      .eq("provider_message_id", fingerprint);
-    if ((seen ?? 0) > 0) return NextResponse.json({ success: true, duplicate: true });
 
-    const filters = [
-      lead.email ? `email_normalized.eq.${lead.email}` : null,
-      lead.phone ? `phone_e164.eq.${lead.phone}` : null,
-    ].filter(Boolean);
-    const { data: existing, error: matchError } = await admin
-      .from("crm_contacts")
-      .select("id, email, phone_e164, email_consent, sms_consent")
-      .eq("organization_id", organizationId)
-      .is("merged_into_id", null)
-      .is("deleted_at", null)
-      .or(filters.join(","))
-      .order("created_at", { ascending: true })
-      .limit(1);
-    if (matchError) throw matchError;
-    const match = existing?.[0] ?? null;
-    const now = new Date().toISOString();
-
-    let contactId: string;
-    let isNewLead = false;
-    if (match) {
-      contactId = match.id;
-      // Fill gaps and record new opt-ins; never overwrite what staff have.
-      const updates: Record<string, unknown> = {};
-      if (!match.email && lead.email) Object.assign(updates, { email: lead.email, email_normalized: lead.email });
-      if (!match.phone_e164 && lead.phone) updates.phone_e164 = lead.phone;
-      if (lead.emailConsent && !match.email_consent) Object.assign(updates, { email_consent: true, email_consent_at: now });
-      if (lead.smsConsent && !match.sms_consent) Object.assign(updates, { sms_consent: true, sms_consent_at: now });
-      if (Object.keys(updates).length) {
-        const { error } = await admin
-          .from("crm_contacts")
-          .update({ ...updates, updated_at: now })
-          .eq("id", contactId)
-          .eq("organization_id", organizationId);
-        // Another contact may already own this email/phone; the lead's message
-        // still gets recorded below.
-        if (error) logCrmError("crm/web-leads fill-in", error);
-      }
-    } else {
-      let assignedStaffId: string | null = null;
-      if (form.assigned_staff_id) {
-        const { data: owner } = await admin
-          .from("staff")
-          .select("id")
-          .eq("id", form.assigned_staff_id)
-          .eq("organization_id", organizationId)
-          .is("archived_at", null)
-          .maybeSingle();
-        assignedStaffId = owner?.id ?? null;
-      }
-      const { data: created, error } = await admin
-        .from("crm_contacts")
-        .insert({
-          organization_id: organizationId,
+    // Bot submissions (random-letter names and messages, dot-padded Gmail)
+    // are held for a Club Admin to review instead of becoming leads. The
+    // sender still gets a normal success so bots learn nothing.
+    const verdict = spamCheck({ firstName: lead.firstName, lastName: lead.lastName, email: lead.email, message: lead.message });
+    if (verdict.spam) {
+      await admin.from("crm_spam_submissions").upsert(
+        {
+          organization_id: form.organization_id,
+          lead_form_id: form.id,
+          fingerprint,
           first_name: lead.firstName,
           last_name: lead.lastName,
           email: lead.email,
-          email_normalized: lead.email,
-          phone_e164: lead.phone,
-          status: "lead",
-          source: "web",
-          how_heard: form.how_heard_label ? [form.how_heard_label] : [],
-          assigned_staff_id: assignedStaffId,
-          email_consent: lead.emailConsent,
-          email_consent_at: lead.emailConsent ? now : null,
-          sms_consent: lead.smsConsent,
-          sms_consent_at: lead.smsConsent ? now : null,
-          email_check_status: lead.email ? "pending" : "skipped",
-          created_by_lead_form_id: form.id,
-        })
-        .select("id")
-        .single();
-      if (error) throw error;
-      contactId = created.id;
-      isNewLead = true;
-
-      if (lead.email) {
-        const jobId = await enqueueEmailCheck(admin, organizationId, contactId);
-        after(() => runJobById(jobId));
-      }
+          phone: lead.phone,
+          message: lead.message,
+          lead,
+          reasons: verdict.reasons,
+        },
+        { onConflict: "fingerprint", ignoreDuplicates: true },
+      );
+      return NextResponse.json({ success: true });
     }
 
-    await recordInbound(admin, {
-      organizationId,
-      contactId,
-      channel: "web",
-      subject: `Website: ${form.name}`,
-      body: webLeadThreadBody(lead, form.name),
-      providerMessageId: fingerprint,
-      isNewLead,
-    });
-
-    await admin
-      .from("crm_lead_forms")
-      .update({ last_received_at: now, submission_count: form.submission_count + 1 })
-      .eq("id", form.id);
-
-    return NextResponse.json({ success: true, created: isNewLead });
+    const result = await saveWebLead(admin, form, lead, fingerprint);
+    if (result.duplicate) return NextResponse.json({ success: true, duplicate: true });
+    return NextResponse.json({ success: true, created: result.created });
   } catch (error) {
     logCrmError("crm/web-leads POST", error);
     return jsonError("Couldn't save the lead.", 500);
