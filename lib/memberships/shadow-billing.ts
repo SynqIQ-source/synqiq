@@ -28,14 +28,14 @@ export type ContractSchedule = {
   }[];
 };
 
-export type AdjustmentKind = "credit" | "discount_once" | "discount_ongoing" | "freeze" | "cancel";
+export type AdjustmentKind = "credit" | "discount_once" | "discount_ongoing" | "freeze" | "cancel" | "set_amount";
 
 export type BillingAdjustment = {
   id: string;
   mindbodyClientId: string;
   contractId: string | null; // null = every contract of the member
   kind: AdjustmentKind;
-  amountCents: number | null; // credit / $ discount
+  amountCents: number | null; // credit / $ discount / the dues a set_amount sets
   percent: number | null; // % discount (0-100)
   startsOn: string; // YYYY-MM-DD
   endsOn: string | null; // inclusive; freezes and ongoing discounts
@@ -116,6 +116,15 @@ export function expectedCharges(
       line.date >= adjustment.startsOn &&
       (adjustment.endsOn === null || line.date <= adjustment.endsOn);
 
+    // A changed amount sets the dues (before tax) outright, over any price
+    // increase; the latest-starting one wins. Freezes, discounts and credits
+    // still apply on top.
+    const setters = adjustments.filter((candidate) => candidate.kind === "set_amount" && applies(candidate));
+    if (setters.length) {
+      const setter = setters.reduce((latest, candidate) => (candidate.startsOn >= latest.startsOn ? candidate : latest));
+      cents = Math.max(0, setter.amountCents ?? 0);
+      applied.push(setter.id);
+    }
     for (const adjustment of adjustments.filter(
       (candidate) => (candidate.kind === "freeze" || candidate.kind === "cancel") && applies(candidate),
     )) {

@@ -347,3 +347,113 @@ export function CancelBillingEdit({ id, label }: { id: string; label: string }) 
     </div>
   );
 }
+
+// "Change" on one upcoming charge: set the dues (before tax) for just that
+// charge or for it and every charge after. Saved as a billing edit
+// (set_amount) with who, when and why; tax is recalculated at the
+// membership's rate. Until the switch it only changes what SynqIQ would charge.
+export function ChangeCharge({
+  mindbodyClientId,
+  date,
+  contracts,
+  currentSubtotalCents,
+}: {
+  mindbodyClientId: string;
+  date: string;
+  contracts: { id: string; name: string; subtotalCents: number | null }[];
+  currentSubtotalCents: number;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [contractId, setContractId] = useState(contracts[0]?.id ?? "");
+  const picked = contracts.find((contract) => contract.id === contractId);
+  const [amount, setAmount] = useState(((contracts.length === 1 ? currentSubtotalCents : (picked?.subtotalCents ?? 0)) / 100).toFixed(2));
+  const [scope, setScope] = useState<"once" | "onward">("once");
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setOpen(true)}>
+        Change
+      </Button>
+    );
+  }
+  async function save() {
+    const cents = dollarsToCents(amount);
+    if (cents === null) return setError("Enter the dues, e.g. 179.00.");
+    if (!reason.trim()) return setError("Add a reason.");
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/memberships/adjustments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mindbodyClientId,
+          kind: "set_amount",
+          contractId,
+          amountCents: cents,
+          startsOn: date,
+          endsOn: scope === "once" ? date : null,
+          reason: reason.trim(),
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!response.ok || !result.success) return setError(result.error ?? "Couldn't save. Try again.");
+      setOpen(false);
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="w-72 space-y-2 rounded-md border bg-background p-3 text-left text-sm shadow-sm">
+      <p className="font-medium">Change the {longDay(date)} charge</p>
+      {contracts.length > 1 ? (
+        <select
+          aria-label="Membership"
+          className={selectClass}
+          value={contractId}
+          onChange={(e) => {
+            setContractId(e.target.value);
+            const next = contracts.find((contract) => contract.id === e.target.value);
+            setAmount(((next?.subtotalCents ?? 0) / 100).toFixed(2));
+          }}
+        >
+          {contracts.map((contract) => (
+            <option key={contract.id} value={contract.id}>
+              {contract.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <p className="text-muted-foreground">{picked?.name}</p>
+      )}
+      <label className="flex items-center gap-2">
+        <span className="w-28 shrink-0 text-muted-foreground">Dues (before tax) $</span>
+        <Input className="h-8" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      </label>
+      <div className="space-y-1">
+        <label className="flex items-center gap-2">
+          <input type="radio" checked={scope === "once"} onChange={() => setScope("once")} /> Just this charge
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" checked={scope === "onward"} onChange={() => setScope("onward")} /> This and every charge after
+        </label>
+      </div>
+      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (kept with the change)" maxLength={500} />
+      <p className="text-xs text-muted-foreground">Tax is added at the membership&apos;s rate. Undo it any time under Billing edits.</p>
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={saving}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={save} disabled={saving}>
+          {saving ? "Saving…" : "Save change"}
+        </Button>
+      </div>
+    </div>
+  );
+}

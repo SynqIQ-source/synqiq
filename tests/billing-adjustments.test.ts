@@ -92,17 +92,24 @@ describe("cancellations and freeze lengths", async () => {
     expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25" }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "other" }, TODAY)).toMatchObject({ ok: false });
     expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "bored" }, TODAY)).toMatchObject({ ok: false });
-    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "moving", amountCents: 100 }, TODAY)).toMatchObject({
-      ok: false,
-    });
-    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "moving", endsOn: "2027-01-01" }, TODAY)).toMatchObject({
+    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "moving", amountCents: 100 }, TODAY)).toMatchObject(
+      {
+        ok: false,
+      },
+    );
+    expect(
+      validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "moving", endsOn: "2027-01-01" }, TODAY),
+    ).toMatchObject({
       ok: true,
       value: { kind: "cancel", reason: "Moving", reasonCategory: "moving", endsOn: null },
     });
-    expect(
-      validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "other", reason: "Injury" }, TODAY),
-    ).toMatchObject({ ok: true, value: { reason: "Injury", reasonCategory: "other" } });
-    expect(describeAdjustment({ kind: "cancel", amountCents: null, percent: null, reasonCategory: "non_use" })).toBe("Cancellation · Not using it");
+    expect(validateAdjustment({ kind: "cancel", startsOn: "2026-11-25", reasonCategory: "other", reason: "Injury" }, TODAY)).toMatchObject({
+      ok: true,
+      value: { reason: "Injury", reasonCategory: "other" },
+    });
+    expect(describeAdjustment({ kind: "cancel", amountCents: null, percent: null, reasonCategory: "non_use" })).toBe(
+      "Cancellation · Not using it",
+    );
   });
 
   it("freeze lengths end the day before the same date N months on", () => {
@@ -114,10 +121,53 @@ describe("cancellations and freeze lengths", async () => {
 
   it("a cancellation stops every charge from its date on", () => {
     const charges = expectedCharges(
-      [{ contractId: "c1", mindbodyClientId: "A", contractName: "Adult", autopays: [{ date: "2026-11-16", totalCents: 100 }, { date: "2026-12-16", totalCents: 100 }] }],
-      [{ id: "x", mindbodyClientId: "A", contractId: null, kind: "cancel", amountCents: null, percent: null, startsOn: "2026-12-01", endsOn: null, reason: "Moving" }],
+      [
+        {
+          contractId: "c1",
+          mindbodyClientId: "A",
+          contractName: "Adult",
+          autopays: [
+            { date: "2026-11-16", totalCents: 100 },
+            { date: "2026-12-16", totalCents: 100 },
+          ],
+        },
+      ],
+      [
+        {
+          id: "x",
+          mindbodyClientId: "A",
+          contractId: null,
+          kind: "cancel",
+          amountCents: null,
+          percent: null,
+          startsOn: "2026-12-01",
+          endsOn: null,
+          reason: "Moving",
+        },
+      ],
       { from: "2026-11-10", to: "2026-12-31" },
     );
     expect(charges.map((charge) => charge.cents)).toEqual([100, 0]);
+  });
+});
+
+describe("changed dues (set_amount)", () => {
+  const contract = "11111111-2222-4333-8444-555555555555";
+  it("needs a membership and an amount; $0 is allowed", () => {
+    expect(validateAdjustment({ ...base, kind: "set_amount", contractId: contract, amountCents: 19900 }, TODAY).ok).toBe(true);
+    expect(validateAdjustment({ ...base, kind: "set_amount", contractId: contract, amountCents: 0 }, TODAY).ok).toBe(true);
+    expect(validateAdjustment({ ...base, kind: "set_amount", amountCents: 19900 }, TODAY)).toMatchObject({ ok: false });
+    expect(validateAdjustment({ ...base, kind: "set_amount", contractId: contract }, TODAY)).toMatchObject({ ok: false });
+    expect(validateAdjustment({ ...base, kind: "set_amount", contractId: contract, percent: 10 }, TODAY)).toMatchObject({ ok: false });
+  });
+  it("keeps the end date for a single charge", () => {
+    const result = validateAdjustment(
+      { ...base, kind: "set_amount", contractId: contract, amountCents: 15000, startsOn: "2026-12-02", endsOn: "2026-12-02" },
+      TODAY,
+    );
+    expect(result).toMatchObject({ ok: true, value: { endsOn: "2026-12-02" } });
+  });
+  it("describes it", () => {
+    expect(describeAdjustment({ kind: "set_amount", amountCents: 15000, percent: null })).toBe("Dues changed to $150.00");
   });
 });

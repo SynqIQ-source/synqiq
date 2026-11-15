@@ -6,7 +6,12 @@ import type { AdjustmentKind, BillingAdjustment } from "@/lib/memberships/shadow
 
 export const ADJUSTMENT_KINDS: AdjustmentKind[] = ["credit", "discount_once", "discount_ongoing", "freeze", "cancel"];
 
+// Kinds a Club Admin can save (the general billing-edit form offers
+// ADJUSTMENT_KINDS; "Change" on an upcoming charge saves set_amount).
+const SAVABLE_KINDS: AdjustmentKind[] = [...ADJUSTMENT_KINDS, "set_amount"];
+
 export const ADJUSTMENT_LABELS: Record<AdjustmentKind, string> = {
+  set_amount: "Changed dues",
   credit: "Dues credit",
   discount_once: "One-time discount",
   discount_ongoing: "Ongoing discount",
@@ -80,7 +85,7 @@ export function validateAdjustment(
   today: string,
 ): { ok: true; value: ValidAdjustment } | { ok: false; error: string } {
   const kind = input.kind as AdjustmentKind;
-  if (!ADJUSTMENT_KINDS.includes(kind)) return { ok: false, error: "Pick a kind of change." };
+  if (!SAVABLE_KINDS.includes(kind)) return { ok: false, error: "Pick a kind of change." };
 
   let reason = typeof input.reason === "string" ? input.reason.trim() : "";
   let reasonCategory: CancelReason | null = null;
@@ -118,9 +123,12 @@ export function validateAdjustment(
   const percent = input.percent === undefined || input.percent === null || input.percent === "" ? null : input.percent;
   if (
     amountCents !== null &&
-    (typeof amountCents !== "number" || !Number.isInteger(amountCents) || amountCents <= 0 || amountCents > MAX_CENTS)
+    (typeof amountCents !== "number" ||
+      !Number.isInteger(amountCents) ||
+      amountCents < (kind === "set_amount" ? 0 : 1) ||
+      amountCents > MAX_CENTS)
   ) {
-    return { ok: false, error: "Enter an amount between $0.01 and $10,000." };
+    return { ok: false, error: kind === "set_amount" ? "Enter the dues, $0 to $10,000." : "Enter an amount between $0.01 and $10,000." };
   }
   if (
     percent !== null &&
@@ -133,7 +141,10 @@ export function validateAdjustment(
     return { ok: false, error: "Enter a percent between 0.01 and 100." };
   }
 
-  if (kind === "credit") {
+  if (kind === "set_amount") {
+    if (amountCents === null || percent !== null) return { ok: false, error: "Enter the new dues amount." };
+    if (!contractId) return { ok: false, error: "Pick the membership to change." };
+  } else if (kind === "credit") {
     if (amountCents === null || percent !== null) return { ok: false, error: "A credit needs a dollar amount." };
   } else if (kind === "discount_once" || kind === "discount_ongoing") {
     if ((amountCents === null) === (percent === null))
@@ -177,6 +188,7 @@ export function describeAdjustment(
   adjustment: Pick<BillingAdjustment, "kind" | "amountCents" | "percent"> & { reasonCategory?: string | null },
 ): string {
   if (adjustment.kind === "freeze") return "Freeze";
+  if (adjustment.kind === "set_amount") return `Dues changed to ${money(adjustment.amountCents ?? 0)}`;
   if (adjustment.kind === "cancel") {
     return isCancelReason(adjustment.reasonCategory) ? `Cancellation · ${CANCEL_REASONS[adjustment.reasonCategory]}` : "Cancellation";
   }

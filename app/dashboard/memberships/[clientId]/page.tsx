@@ -16,7 +16,7 @@ import { loadScheduledIncreases } from "@/lib/memberships/price-increase-data";
 import { contractTaxRate, formatTaxRate, taxOn } from "@/lib/memberships/tax";
 import { isUnlimited } from "@/lib/memberships/profile";
 import { mergePersonal, type MemberPersonal, type PersonalField } from "@/lib/memberships/personal";
-import { AddBillingEdit, CancelBillingEdit, type EditContract } from "./billing-edits";
+import { AddBillingEdit, CancelBillingEdit, ChangeCharge, type EditContract } from "./billing-edits";
 import { RefreshFromMindbody } from "./refresh-button";
 import { FREEZE_NOTICE, isInForce } from "@/lib/memberships/freeze-check";
 import { PersonalCard } from "./personal-card";
@@ -242,6 +242,13 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
   };
   const increases = await loadScheduledIncreases(supabase, orgId, clientId);
   const upcoming = expectedCharges(schedules, active, window, increases);
+  // Rows changed by a "Change" (set_amount) edit, and each contract's
+  // Mindbody dues per date to start the Change form from.
+  const changedIds = new Set(active.filter((row) => row.kind === "set_amount").map((row) => row.id));
+  const duesOn = (contractId: string, date: string) => {
+    const autopay = (current.find((contract) => contract.id === contractId)?.upcoming_autopays ?? []).find((row) => row.date === date);
+    return autopay ? (autopay.subtotalCents ?? autopay.totalCents ?? null) : null;
+  };
   const increasesByContract = new Map<string, typeof increases>();
   for (const increase of increases)
     increasesByContract.set(increase.contractId, [...(increasesByContract.get(increase.contractId) ?? []), increase]);
@@ -771,6 +778,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                             <TableHead className="text-right">Total</TableHead>
                             <TableHead className="text-right">Mindbody has scheduled</TableHead>
                             <TableHead>Charged to</TableHead>
+                            <TableHead />
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -787,6 +795,23 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                 {charge.mindbodyClientId === clientId
                                   ? "This member"
                                   : (clientName.get(charge.mindbodyClientId) ?? "Payer")}
+                                {charge.adjustmentIds.some((id) => changedIds.has(id)) ? (
+                                  <Badge variant="outline" className="ml-1">
+                                    Changed
+                                  </Badge>
+                                ) : null}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <ChangeCharge
+                                  mindbodyClientId={clientId}
+                                  date={charge.date}
+                                  currentSubtotalCents={charge.subtotalCents}
+                                  contracts={charge.contractIds.map((id) => ({
+                                    id,
+                                    name: contractName.get(id) ?? "Membership",
+                                    subtotalCents: duesOn(id, charge.date),
+                                  }))}
+                                />
                               </TableCell>
                             </TableRow>
                           ))}

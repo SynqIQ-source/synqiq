@@ -222,3 +222,53 @@ describe("compareCharges", () => {
     expect(summary).toMatchObject({ mindbodyCents: 100, synqiqCents: 100, matched: 1, compared: 1, matchRate: 1 });
   });
 });
+
+describe("changed dues (set_amount)", () => {
+  const paige = {
+    contractId: "c1",
+    mindbodyClientId: "A",
+    contractName: "12 Month Commitment",
+    autopays: [
+      { date: "2026-12-02", totalCents: 19377, subtotalCents: 17900, taxCents: 1477 },
+      { date: "2027-01-02", totalCents: 19377, subtotalCents: 17900, taxCents: 1477 },
+    ],
+  };
+  const window = { from: "2026-11-15", to: "2027-02-01" };
+  it("changes one charge, tax recalculated at the contract's rate", () => {
+    const charges = expectedCharges(
+      [paige],
+      [adjustment({ kind: "set_amount", contractId: "c1", amountCents: 15000, startsOn: "2026-12-02", endsOn: "2026-12-02" })],
+      window,
+    );
+    expect(charges.map((c) => [c.date, c.subtotalCents, c.taxCents, c.cents])).toEqual([
+      ["2026-12-02", 15000, 1238, 16238],
+      ["2027-01-02", 17900, 1477, 19377],
+    ]);
+  });
+  it("can raise dues from a date on, and $0 waives a month", () => {
+    const raised = expectedCharges(
+      [paige],
+      [adjustment({ kind: "set_amount", contractId: "c1", amountCents: 19900, startsOn: "2026-12-02" })],
+      window,
+    );
+    expect(raised.map((c) => c.subtotalCents)).toEqual([19900, 19900]);
+    const waived = expectedCharges(
+      [paige],
+      [adjustment({ kind: "set_amount", contractId: "c1", amountCents: 0, startsOn: "2027-01-02", endsOn: "2027-01-02" })],
+      window,
+    );
+    expect(waived.map((c) => c.cents)).toEqual([19377, 0]);
+  });
+  it("the later change wins and a discount still applies on top", () => {
+    const charges = expectedCharges(
+      [paige],
+      [
+        adjustment({ id: "a", kind: "set_amount", contractId: "c1", amountCents: 19900, startsOn: "2026-12-02" }),
+        adjustment({ id: "b", kind: "set_amount", contractId: "c1", amountCents: 16000, startsOn: "2027-01-02" }),
+        adjustment({ id: "d", kind: "discount_ongoing", contractId: "c1", amountCents: 1000, startsOn: "2027-01-01" }),
+      ],
+      window,
+    );
+    expect(charges.map((c) => c.subtotalCents)).toEqual([19900, 15000]);
+  });
+});
