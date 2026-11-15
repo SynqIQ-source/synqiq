@@ -9,7 +9,7 @@ export const maxDuration = 300;
 // Products & Inventory (Club Admin). By `action`:
 //   import    pull Mindbody's active catalog (read-only)
 //   item      { id?, name, price, revenueCategoryId, taxable: "category"|"yes"|"no", barcode, active, kind?,
-//               inventoryCategoryId?, openPrice?, packageParts?: [{label, revenueCategoryId, amountCents, recurring}] | null, autopayCount?, autoRenews? }
+//               inventoryCategoryId?, openPrice?, membersOnly?, packageParts?: [{label, revenueCategoryId, amountCents, recurring}] | null, autopayCount?, autoRenews? }
 //   itemDelete { id }  (Club Admin; soft delete)
 //   inventoryCategory { id?, name, parentId?, sort }  (organizing only)
 //   inventoryCategoryDelete { id }                     (its items become uncategorized)
@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
         barcode,
         active: body.active !== false,
         open_price: body.openPrice === true,
+        members_only: body.membersOnly === true,
         updated_at: now,
         updated_by_staff_id: currentStaff.id,
       };

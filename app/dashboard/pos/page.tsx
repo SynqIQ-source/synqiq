@@ -29,7 +29,7 @@ export default async function PosPage() {
     admin
       .from("pos_items")
       .select(
-        "id, kind, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, package_parts, autopay_count, auto_renews, open_price, inventory_category_id, sort",
+        "id, kind, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, package_parts, autopay_count, auto_renews, open_price, members_only, inventory_category_id, sort",
       )
       .eq("organization_id", staff.organizationId)
       .eq("active", true)
@@ -84,6 +84,7 @@ export default async function PosPage() {
       autopayCount: row.autopay_count == null ? null : Number(row.autopay_count),
       autoRenews: Boolean(row.auto_renews),
       openPrice: Boolean(row.open_price),
+      membersOnly: Boolean(row.members_only),
       inventoryCategoryId: (row.inventory_category_id as string | null) ?? null,
     };
   });

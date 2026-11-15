@@ -24,6 +24,7 @@ export type CheckoutItem = {
   autopayCount: number | null;
   autoRenews: boolean;
   openPrice: boolean; // amount entered at checkout (e.g. termination fee)
+  membersOnly: boolean; // personal training / Pilates: needs an active membership
   inventoryCategoryId: string | null;
 };
 export type PosCategory = { id: string; parentId: string | null; name: string; sort: number };
@@ -150,6 +151,17 @@ export function Checkout({
       ? item.parts.some((part) => categoryBy.get(part.revenueCategoryId)?.commissionable)
       : Boolean(categoryBy.get(item.categoryId)?.commissionable);
   const sellsMembership = lines.some((line) => categoryKeysOf(itemBy.get(line.itemId)!).includes("membership_dues"));
+  // Personal training / Pilates: only for someone with a membership (current
+  // plans on their account) or buying one now. The server checks it too.
+  const membersOnlyNames = [
+    ...new Set(
+      lines
+        .map((line) => itemBy.get(line.itemId)!)
+        .filter((item) => item.membersOnly)
+        .map((item) => item.name),
+    ),
+  ];
+  const membersOnlyBlocked = membersOnlyNames.length > 0 && !sellsMembership && !(member && member.plans.length > 0);
   const packageNeedsMember = !member && lines.some((line) => itemBy.get(line.itemId)?.parts);
   const missingAmount = lines.some((line) => itemBy.get(line.itemId)?.openPrice && !(Number(line.price) >= 0 && line.price?.trim()));
   const today = new Date().toLocaleDateString("en-CA");
@@ -410,6 +422,14 @@ export function Checkout({
                 <MemberPicker member={member} onChange={setMember} />
               </CardHeader>
               <CardContent className="space-y-3">
+                {membersOnlyBlocked ? (
+                  <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                    {membersOnlyNames.join(", ")} {membersOnlyNames.length === 1 ? "is" : "are"} for members.{" "}
+                    {member
+                      ? "This person has no active membership: add a membership to this sale, or remove it."
+                      : "Pick the member first."}
+                  </p>
+                ) : null}
                 {member?.frozen && sellsMembership ? (
                   <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
                     {freezeNotice}
@@ -619,7 +639,11 @@ export function Checkout({
                   <p className="text-xs text-amber-700 dark:text-amber-400">Pick who the membership is for (member, guest or lead).</p>
                 ) : null}
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
-                <Button className="w-full" disabled={saving || lines.length === 0 || packageNeedsMember || missingAmount} onClick={save}>
+                <Button
+                  className="w-full"
+                  disabled={saving || lines.length === 0 || packageNeedsMember || missingAmount || membersOnlyBlocked}
+                  onClick={save}
+                >
                   {saving ? "Saving…" : "Save practice sale"}
                 </Button>
                 <p className="text-center text-xs text-muted-foreground">Card payment connects here once Stripe is set up.</p>

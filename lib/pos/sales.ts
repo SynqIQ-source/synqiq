@@ -84,7 +84,7 @@ export async function savePracticeSale(
     admin
       .from("pos_items")
       .select(
-        "id, name, kind, price_cents, revenue_category_id, taxable, active, package_parts, autopay_count, auto_renews, open_price, deleted_at",
+        "id, name, kind, price_cents, revenue_category_id, taxable, active, package_parts, autopay_count, auto_renews, open_price, members_only, deleted_at",
       )
       .eq("organization_id", org)
       .in(
@@ -165,6 +165,40 @@ export async function savePracticeSale(
       };
     }),
   );
+  // Members-only items (personal training, Pilates): the buyer needs an
+  // active membership, or to be buying one in this sale.
+  const membersOnly = input.lines.map((line) => itemBy.get(line.itemId)!).filter((item) => item.members_only);
+  if (membersOnly.length) {
+    const duesKey = new Set((categories ?? []).filter((row) => row.key === "membership_dues").map((row) => row.id as string));
+    const joiningNow = input.lines.some((line) => {
+      const parts = partsBy.get(line.itemId);
+      return Boolean(parts?.some((part) => duesKey.has(part.revenueCategoryId)));
+    });
+    let member = false;
+    if (mindbodyClientId) {
+      const today = DateTime.now().setZone(timezone).toISODate()!;
+      const { data: inForce } = await admin
+        .from("member_contracts")
+        .select("id")
+        .eq("organization_id", org)
+        .eq("mindbody_client_id", mindbodyClientId)
+        .lte("start_date", today)
+        .or(`end_date.is.null,end_date.gte.${today}`)
+        .or(`termination_date.is.null,termination_date.gt.${today}`)
+        .limit(1);
+      member = Boolean(inForce?.length);
+    }
+    if (!member && !joiningNow) {
+      const names = [...new Set(membersOnly.map((item) => item.name as string))].join(", ");
+      return {
+        error:
+          mindbodyClientId || crmContactId
+            ? `${names} ${membersOnly.length === 1 ? "is" : "are"} for members. This person has no active membership: add a membership to this sale, or remove it.`
+            : `${names} ${membersOnly.length === 1 ? "is" : "are"} for members. Pick the member first.`,
+      };
+    }
+  }
+
   const cart = computeCart(expanded, taxRate, promo);
 
   const { data: sale, error } = await admin

@@ -34,6 +34,7 @@ export type CatalogItem = {
   autopayCount: number | null;
   autoRenews: boolean;
   openPrice: boolean;
+  membersOnly: boolean;
 };
 
 const KIND_LABELS = { product: "Retail", service: "Pack / service", membership: "Membership" } as const;
@@ -385,6 +386,7 @@ function ItemEditor({
   const [barcode, setBarcode] = useState(item?.barcode ?? "");
   const [active, setActive] = useState(item?.active ?? true);
   const [openPrice, setOpenPrice] = useState(item?.openPrice ?? false);
+  const [membersOnly, setMembersOnly] = useState(item?.membersOnly ?? false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? null);
@@ -420,6 +422,7 @@ function ItemEditor({
       active,
       inventoryCategoryId: inventoryCategoryId || null,
       openPrice,
+      membersOnly,
       packageParts: parts
         ? parts.map((part) => ({
             label: part.label,
@@ -582,6 +585,10 @@ function ItemEditor({
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Show at checkout
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={membersOnly} onChange={(e) => setMembersOnly(e.target.checked)} />
+            Members only (needs an active membership, or one bought in the same sale)
           </label>
           {!parts ? (
             <label className="flex items-center gap-2 text-sm">
