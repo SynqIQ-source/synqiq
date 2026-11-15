@@ -59,7 +59,22 @@ export async function POST(request: NextRequest) {
     // instead -- there's no membership list to read.
     let recipientStaffIds: string[];
 
-    if (board.board_type === "announcements") {
+    if (board.board_type === "team_sales" || board.board_type === "team_trainers") {
+      // Team boards: access comes from the role, so the team is the recipients.
+      const { data: orgStaff, error: orgStaffError } = await supabase
+        .from("staff")
+        .select("id, role, can_sell, is_trainer")
+        .eq("organization_id", board.organization_id)
+        .is("archived_at", null);
+      if (orgStaffError) throw new Error(orgStaffError.message);
+      recipientStaffIds = (orgStaff ?? [])
+        .filter((staff) =>
+          board.board_type === "team_sales"
+            ? staff.role === "admin" || staff.role === "sales_lead" || staff.role === "sales" || staff.can_sell
+            : staff.role === "admin" || staff.is_trainer,
+        )
+        .map((staff) => staff.id);
+    } else if (board.board_type === "announcements") {
       const { data: orgStaff, error: orgStaffError } = await supabase
         .from("staff")
         .select("id")
@@ -92,14 +107,11 @@ export async function POST(request: NextRequest) {
     await sendPushToStaff(recipientStaffIds, {
       title: `New message in ${board.title}`,
       body: bodyPreview,
-      url: "/dashboard/messages",
+      url: `/dashboard/messages?board=${message.board_id}`,
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

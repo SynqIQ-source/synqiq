@@ -7,7 +7,7 @@ import { createRealtimeAuthedBrowserClient, createSupabaseBrowserClient } from "
 import type { StaffOption } from "@/lib/staff";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
-type BoardType = "announcements" | "group_department" | "sub_specific";
+type BoardType = "announcements" | "group_department" | "sub_specific" | "team_sales" | "team_trainers";
 
 type Board = {
   id: string;
@@ -32,6 +32,7 @@ type Message = {
 };
 
 type MessageBoardsClientProps = {
+  initialBoardId?: string | null;
   currentStaffId: string;
   currentStaffRole: StaffRole;
   initialBoards: Board[];
@@ -42,20 +43,33 @@ const BOARD_TYPE_LABELS: Record<BoardType, string> = {
   announcements: "Announcements",
   group_department: "Department Chats",
   sub_specific: "Coverage Chats",
+  team_sales: "Sales Team",
+  team_trainers: "Trainers",
 };
 
-const BOARD_TYPE_ORDER: BoardType[] = ["announcements", "group_department", "sub_specific"];
+const BOARD_TYPE_ORDER: BoardType[] = ["announcements", "team_sales", "team_trainers", "group_department", "sub_specific"];
 
 export function MessageBoardsClient({
+  initialBoardId = null,
   currentStaffId,
   currentStaffRole,
   initialBoards,
   staffDirectory,
 }: MessageBoardsClientProps) {
   const [boards, setBoards] = useState<Board[]>(initialBoards);
-  const [selectedBoardId, setSelectedBoardId] = useState<string | null>(
-    initialBoards[0]?.id ?? null,
-  );
+  const [selectedBoardId, setSelectedBoardId] = useState<string | null>(initialBoardId ?? initialBoards[0]?.id ?? null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Club Admin: delete one post (hidden for everyone, kept on record).
+  async function deleteMessage(messageId: string) {
+    setDeleting(messageId);
+    try {
+      const response = await fetch(`/api/message-boards/messages/${messageId}`, { method: "DELETE" });
+      if (response.ok) setMessages((prev) => prev.filter((message) => message.id !== messageId));
+    } finally {
+      setDeleting(null);
+    }
+  }
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [draft, setDraft] = useState("");
@@ -115,16 +129,10 @@ export function MessageBoardsClient({
       }
       channel = supabase
         .channel("message-boards-list")
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "message_boards" },
-          (payload) => {
-            const newBoard = payload.new as Board;
-            setBoards((prev) =>
-              prev.some((board) => board.id === newBoard.id) ? prev : [...prev, newBoard],
-            );
-          },
-        )
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "message_boards" }, (payload) => {
+          const newBoard = payload.new as Board;
+          setBoards((prev) => (prev.some((board) => board.id === newBoard.id) ? prev : [...prev, newBoard]));
+        })
         .subscribe();
     });
 
@@ -203,6 +211,7 @@ export function MessageBoardsClient({
       .from("board_messages")
       .select("id, author_staff_id, body, created_at")
       .eq("board_id", selectedBoardId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .then(({ data, error }) => {
         if (cancelled) {
@@ -237,9 +246,21 @@ export function MessageBoardsClient({
             // myself doesn't show up twice when this subscription echoes
             // it back.
             const newMessage = payload.new as Message;
-            setMessages((prev) =>
-              prev.some((message) => message.id === newMessage.id) ? prev : [...prev, newMessage],
-            );
+            setMessages((prev) => (prev.some((message) => message.id === newMessage.id) ? prev : [...prev, newMessage]));
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "board_messages",
+            filter: `board_id=eq.${selectedBoardId}`,
+          },
+          (payload) => {
+            // A Club Admin deleted a post: drop it for everyone watching.
+            const changed = payload.new as Message & { deleted_at: string | null };
+            if (changed.deleted_at) setMessages((prev) => prev.filter((message) => message.id !== changed.id));
           },
         )
         .subscribe();
@@ -252,9 +273,7 @@ export function MessageBoardsClient({
   }, [selectedBoardId]);
 
   const selectedBoard = boards.find((board) => board.id === selectedBoardId) ?? null;
-  const canPost =
-    selectedBoard !== null &&
-    (selectedBoard.board_type !== "announcements" || currentStaffRole === "admin");
+  const canPost = selectedBoard !== null && (selectedBoard.board_type !== "announcements" || currentStaffRole === "admin");
 
   async function handleSend() {
     const body = draft.trim();
@@ -313,9 +332,7 @@ export function MessageBoardsClient({
 
           return (
             <div key={type}>
-              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {BOARD_TYPE_LABELS[type]}
-              </h3>
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{BOARD_TYPE_LABELS[type]}</h3>
               <div className="mt-2 flex flex-col gap-1">
                 {boardsOfType.map((board) => (
                   <button
@@ -327,9 +344,7 @@ export function MessageBoardsClient({
                       setArchiveError(null);
                     }}
                     className={`rounded-md px-3 py-2 text-left text-sm font-medium ${
-                      board.id === selectedBoardId
-                        ? "bg-brand-secondary-subtle text-brand-secondary"
-                        : "text-foreground hover:bg-accent"
+                      board.id === selectedBoardId ? "bg-brand-secondary-subtle text-brand-secondary" : "text-foreground hover:bg-accent"
                     }`}
                   >
                     <span className="block">{board.title}</span>
@@ -350,17 +365,13 @@ export function MessageBoardsClient({
           );
         })}
 
-        {boards.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No boards available yet.</p>
-        ) : null}
+        {boards.length === 0 ? <p className="text-sm text-muted-foreground">No boards available yet.</p> : null}
       </div>
 
       <div className="rounded-xl border border-border bg-card">
         {!selectedBoard ? (
           <div className="p-6 text-sm text-muted-foreground">
-            {accessRevokedNotice
-              ? "You no longer have access to this board."
-              : "Select a board to view messages."}
+            {accessRevokedNotice ? "You no longer have access to this board." : "Select a board to view messages."}
           </div>
         ) : (
           <div className="flex h-[32rem] flex-col">
@@ -417,12 +428,20 @@ export function MessageBoardsClient({
                 messages.map((message) => (
                   <div key={message.id}>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm font-medium text-foreground">
-                        {nameById.get(message.author_staff_id) ?? "Unknown"}
-                      </span>
+                      <span className="text-sm font-medium text-foreground">{nameById.get(message.author_staff_id) ?? "Unknown"}</span>
                       <span className="text-xs text-muted-foreground">
                         {DateTime.fromISO(message.created_at).toFormat("MMM d, h:mm a")}
                       </span>
+                      {currentStaffRole === "admin" ? (
+                        <button
+                          type="button"
+                          onClick={() => deleteMessage(message.id)}
+                          disabled={deleting === message.id}
+                          className="ml-auto text-xs text-muted-foreground hover:text-destructive"
+                        >
+                          {deleting === message.id ? "Deleting…" : "Delete"}
+                        </button>
+                      ) : null}
                     </div>
                     <p className="mt-0.5 text-sm text-foreground">{message.body}</p>
                   </div>

@@ -57,6 +57,8 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/follow-up": MailCheck,
   "/dashboard/sub-requests": Repeat2,
   "/dashboard/messages": MessageSquare,
+  "/dashboard/messages?team=sales": MessageSquare,
+  "/dashboard/messages?team=trainers": MessageSquare,
   "/dashboard/ratings": Star,
   "/dashboard/notifications": Bell,
   "/dashboard/heatmap": Flame,

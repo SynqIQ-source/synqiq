@@ -8,7 +8,7 @@ import { MessageBoardsClient } from "./message-boards-client";
 
 type BoardRow = {
   id: string;
-  board_type: "announcements" | "group_department" | "sub_specific";
+  board_type: "announcements" | "group_department" | "sub_specific" | "team_sales" | "team_trainers";
   title: string;
   department_id: string | null;
   substitution_request_id: string | null;
@@ -69,34 +69,43 @@ function withClassDates(boards: BoardRow[], timezone: string): BoardWithClassDat
   });
 }
 
-export default async function MessagesPage() {
+export default async function MessagesPage({ searchParams }: { searchParams: Promise<{ board?: string; team?: string }> }) {
+  const params = await searchParams;
   const currentStaff = await getCurrentStaff();
 
   if (!currentStaff) {
     return (
-      <DashboardShell
-        title="Message Boards"
-        description="Announcements, department chats, and coverage chats."
-      >
+      <DashboardShell title="Message Boards" description="Announcements, department chats, and coverage chats.">
         <StaffNotProvisioned />
       </DashboardShell>
     );
   }
 
   const supabase = await getScopedClient(currentStaff);
-  const [rawBoards, staffDirectory, timezone] = await Promise.all([
-    getBoards(supabase),
-    getActiveStaff(),
-    getOrgTimezone(supabase),
-  ]);
+  const [rawBoards, staffDirectory, timezone] = await Promise.all([getBoards(supabase), getActiveStaff(), getOrgTimezone(supabase)]);
   const boards = withClassDates(rawBoards, timezone);
+  // The Sales and Trainers menu links open their team board directly.
+  const teamType = params.team === "sales" ? "team_sales" : params.team === "trainers" ? "team_trainers" : null;
+  const initialBoardId =
+    (teamType ? boards.find((board) => board.board_type === teamType)?.id : undefined) ??
+    (params.board ? boards.find((board) => board.id === params.board)?.id : undefined) ??
+    null;
+  const title = teamType === "team_sales" ? "Sales Board" : teamType === "team_trainers" ? "Trainer Board" : "Message Boards";
 
   return (
     <DashboardShell
-      title="Message Boards"
-      description="Announcements, department chats, and coverage chats."
+      title={title}
+      description={
+        teamType === "team_sales"
+          ? "Sales team only: Club Admins, Sales Leads and Sales."
+          : teamType === "team_trainers"
+            ? "Trainers only, plus Club Admins."
+            : "Announcements, department chats, coverage chats and team boards."
+      }
     >
       <MessageBoardsClient
+        key={initialBoardId ?? "all"}
+        initialBoardId={initialBoardId}
         currentStaffId={currentStaff.id}
         currentStaffRole={currentStaff.role}
         initialBoards={boards}
