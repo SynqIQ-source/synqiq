@@ -309,22 +309,27 @@ export default async function LeadStatusPage({
           )}
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Leads" value={String(view === "open" ? openTotal : rows.length)} />
-          <Stat
-            label={`Contacted ≤ ${FIRST_CONTACT_HOURS}h`}
-            value={percent(onTime, judged)}
-            sub={`${onTime} of ${judged}`}
-            tone={judged === 0 ? undefined : onTime === judged ? "good" : undefined}
-          />
-          <Stat label="Contacted late" value={String(late)} tone={late ? "bad" : undefined} />
-          <Stat
-            label="Not contacted"
-            value={String(notContacted)}
-            sub={`past ${FIRST_CONTACT_HOURS}h`}
-            tone={notContacted ? "bad" : undefined}
-          />
-          <Stat label="Avg first contact" value={averageHours === null ? "—" : formatHours(averageHours)} />
-          <Stat label="Overdue follow-ups" value={String(overdueFollowUps)} tone={overdueFollowUps ? "bad" : undefined} />
+          <Stat label={view === "open" ? "Open leads" : "Leads"} value={String(view === "open" ? openTotal : rows.length)} />
+          {/* Open leads is paged, so per-page rates would mislead: the count only. */}
+          {view === "open" ? null : (
+            <>
+              <Stat
+                label={`Contacted ≤ ${FIRST_CONTACT_HOURS}h`}
+                value={percent(onTime, judged)}
+                sub={`${onTime} of ${judged}`}
+                tone={judged === 0 ? undefined : onTime === judged ? "good" : undefined}
+              />
+              <Stat label="Contacted late" value={String(late)} tone={late ? "bad" : undefined} />
+              <Stat
+                label="Not contacted"
+                value={String(notContacted)}
+                sub={`past ${FIRST_CONTACT_HOURS}h`}
+                tone={notContacted ? "bad" : undefined}
+              />
+              <Stat label="Avg first contact" value={averageHours === null ? "—" : formatHours(averageHours)} />
+              <Stat label="Overdue follow-ups" value={String(overdueFollowUps)} tone={overdueFollowUps ? "bad" : undefined} />
+            </>
+          )}
         </div>
 
         <Card className="py-0">
