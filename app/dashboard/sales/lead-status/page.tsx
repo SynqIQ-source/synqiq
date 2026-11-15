@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DateTime } from "luxon";
 import { Fragment } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { AddLeadButton } from "../../guests/add-lead-button";
 import { FirstContactBadge, NextFollowUp } from "@/components/crm/follow-up-status";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -96,10 +97,10 @@ export default async function LeadStatusPage({
   const staffId = sellerParam === "all" ? null : sellerParam;
   const leadType = isLeadType(params.type) ? params.type : null;
 
-  const { data: staffRows } = await supabase
-    .from("staff")
-    .select("id, display_name, can_sell, role, archived_at")
-    .order("display_name");
+  const [{ data: staffRows }, { data: sourceRows }] = await Promise.all([
+    supabase.from("staff").select("id, display_name, can_sell, role, archived_at").order("display_name"),
+    supabase.from("crm_marketing_sources").select("label").eq("active", true).order("sort_order"),
+  ]);
   const staffNames = new Map((staffRows ?? []).map((member) => [member.id, member.display_name as string]));
   const salespeople = (staffRows ?? [])
     .filter((member) => !member.archived_at && member.can_sell)
@@ -168,9 +169,7 @@ export default async function LeadStatusPage({
   const contactedHours = rows.flatMap((row) =>
     row.firstContact.state === "on_time" || row.firstContact.state === "late" ? [row.firstContact.hours] : [],
   );
-  const averageHours = contactedHours.length
-    ? contactedHours.reduce((sum, hours) => sum + hours, 0) / contactedHours.length
-    : null;
+  const averageHours = contactedHours.length ? contactedHours.reduce((sum, hours) => sum + hours, 0) / contactedHours.length : null;
   const overdueFollowUps = rows.filter((row) => row.followUp.kind === "due" && row.followUp.daysOverdue > 0).length;
   // Leads still inside their 48 hours aren't counted for or against.
   const judged = onTime + late + notContacted;
@@ -184,14 +183,17 @@ export default async function LeadStatusPage({
       title="Lead Status"
       description={`${who}${typeLabel ? ` · ${typeLabel} leads` : ""} · ${period.from.toFormat("LLL d")} – ${period.to.toFormat("LLL d, yyyy")}`}
       actions={
-        <SalesFilters
-          range={period.preset}
-          start={period.start}
-          end={period.end}
-          seller={sellerParam}
-          leadType={leadType ?? "all"}
-          salespeople={isAdmin ? salespeople : null}
-        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <SalesFilters
+            range={period.preset}
+            start={period.start}
+            end={period.end}
+            seller={sellerParam}
+            leadType={leadType ?? "all"}
+            salespeople={isAdmin ? salespeople : null}
+          />
+          <AddLeadButton sources={(sourceRows ?? []).map((row) => row.label as string)} />
+        </div>
       }
     >
       <div className="space-y-6">
@@ -266,9 +268,7 @@ export default async function LeadStatusPage({
                           <span className="ml-1 text-xs">{row.visited ? "visit" : "added"}</span>
                         </TableCell>
                         <TableCell>
-                          {row.contact.assigned_staff_id
-                            ? (staffNames.get(row.contact.assigned_staff_id) ?? "—")
-                            : "Unassigned"}
+                          {row.contact.assigned_staff_id ? (staffNames.get(row.contact.assigned_staff_id) ?? "—") : "Unassigned"}
                         </TableCell>
                         <TableCell>
                           <FirstContactBadge firstContact={row.firstContact} />
@@ -289,9 +289,9 @@ export default async function LeadStatusPage({
         </Card>
         <Card>
           <CardContent className="text-xs text-muted-foreground">
-            Time to first contact runs from a guest&apos;s first visit (or from when they were added, if they
-            haven&apos;t visited) to the first text, email or logged call after it. The goal is {FIRST_CONTACT_HOURS}{" "}
-            hours. Calls, texts and emails count everything sent to the guest, by anyone.
+            Time to first contact runs from a guest&apos;s first visit (or from when they were added, if they haven&apos;t visited) to the
+            first text, email or logged call after it. The goal is {FIRST_CONTACT_HOURS} hours. Calls, texts and emails count everything
+            sent to the guest, by anyone.
           </CardContent>
         </Card>
       </div>

@@ -11,7 +11,6 @@ import { signedPhotoUrls } from "@/lib/crm/photos";
 import { MATCH_REASON_LABELS, SOURCE_LABELS, VISIT_TYPE_LABELS, nextAction } from "@/lib/crm/labels";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { cn } from "@/lib/utils";
-import { AddLeadButton } from "./add-lead-button";
 import { GuestAvatar } from "./guest-avatar";
 import { GuestFilters } from "./guest-filters";
 import { PendingMatchActions } from "./pending-match-actions";
@@ -135,41 +134,39 @@ export default async function GuestsPage({
   let contacts: ContactSummary[];
   const latestVisit = new Map<string, Visit>();
 
+  // Guests are people who have been in the club (kiosk check-in, guest
+  // visit, trial or appointment). Leads who haven't visited are worked from
+  // Lead Status.
   if (range === "all") {
-    const { data, error } = await filtered()
-      .order("created_at", { ascending: false })
-      .limit(ROW_LIMIT)
-      .returns<ContactSummary[]>();
-    if (error) throw new Error("Failed to load guests.");
-    contacts = data ?? [];
-    if (contacts.length > 0) {
-      const { data: visits, error: visitsError } = await supabase
-        .from("guest_visits")
-        .select("contact_id, visit_at, visit_type")
-        .in(
-          "contact_id",
-          contacts.map((contact) => contact.id),
-        )
-        .order("visit_at", { ascending: false })
-        .returns<Visit[]>();
-      if (visitsError) throw new Error("Failed to load visits.");
-      for (const visit of visits ?? []) if (!latestVisit.has(visit.contact_id)) latestVisit.set(visit.contact_id, visit);
+    const { data: visits, error: visitsError } = await supabase
+      .from("guest_visits")
+      .select("contact_id, visit_at, visit_type")
+      .order("visit_at", { ascending: false })
+      .limit(5000)
+      .returns<Visit[]>();
+    if (visitsError) throw new Error("Failed to load visits.");
+    for (const visit of visits ?? []) if (!latestVisit.has(visit.contact_id)) latestVisit.set(visit.contact_id, visit);
+    const ids = [...latestVisit.keys()];
+    contacts = [];
+    for (let index = 0; index < ids.length; index += 300) {
+      const { data, error } = await filtered()
+        .in("id", ids.slice(index, index + 300))
+        .returns<ContactSummary[]>();
+      if (error) throw new Error("Failed to load guests.");
+      contacts.push(...(data ?? []));
     }
   } else {
-    const [visitsResult, addedResult] = await Promise.all([
-      supabase
-        .from("guest_visits")
-        .select("contact_id, visit_at, visit_type")
-        .gte("visit_at", fromIso)
-        .lte("visit_at", toIso)
-        .order("visit_at", { ascending: false })
-        .limit(2000)
-        .returns<Visit[]>(),
-      supabase.from("crm_contacts").select("id").gte("created_at", fromIso).lte("created_at", toIso).limit(2000),
-    ]);
-    if (visitsResult.error || addedResult.error) throw new Error("Failed to load guests.");
+    const visitsResult = await supabase
+      .from("guest_visits")
+      .select("contact_id, visit_at, visit_type")
+      .gte("visit_at", fromIso)
+      .lte("visit_at", toIso)
+      .order("visit_at", { ascending: false })
+      .limit(2000)
+      .returns<Visit[]>();
+    if (visitsResult.error) throw new Error("Failed to load guests.");
     for (const visit of visitsResult.data ?? []) if (!latestVisit.has(visit.contact_id)) latestVisit.set(visit.contact_id, visit);
-    const ids = [...new Set([...latestVisit.keys(), ...(addedResult.data ?? []).map((row) => row.id)])];
+    const ids = [...latestVisit.keys()];
     if (ids.length === 0) {
       contacts = [];
     } else {
@@ -187,18 +184,14 @@ export default async function GuestsPage({
         contact,
         signedInAt: visit?.visit_at ?? null,
         activityAt: visit?.visit_at ?? contact.created_at,
-        type: visit
-          ? (VISIT_TYPE_LABELS[visit.visit_type] ?? visit.visit_type)
-          : contact.status === "lead"
-            ? "Lead added"
-            : "No visit yet",
+        type: visit ? (VISIT_TYPE_LABELS[visit.visit_type] ?? visit.visit_type) : contact.status === "lead" ? "Lead added" : "No visit yet",
       };
     })
     .sort((a, b) => b.activityAt.localeCompare(a.activityAt))
     .slice(0, ROW_LIMIT);
 
   const contactIds = [...new Set(rows.map((row) => row.contact.id))];
-  const [signaturesResult, pendingResult, staffResult, photoUrls, sourcesResult, unreadResult, activity] = await Promise.all([
+  const [signaturesResult, pendingResult, staffResult, photoUrls, unreadResult, activity] = await Promise.all([
     contactIds.length
       ? supabase.from("waiver_signatures").select("contact_id").in("contact_id", contactIds)
       : Promise.resolve({ data: [] as { contact_id: string }[], error: null }),
@@ -217,14 +210,8 @@ export default async function GuestsPage({
       supabase,
       rows.map((row) => row.contact.photo_path),
     ),
-    supabase.from("crm_marketing_sources").select("label").eq("active", true).order("sort_order"),
     contactIds.length
-      ? supabase
-          .from("crm_messages")
-          .select("contact_id")
-          .in("contact_id", contactIds)
-          .eq("direction", "inbound")
-          .is("read_at", null)
+      ? supabase.from("crm_messages").select("contact_id").in("contact_id", contactIds).eq("direction", "inbound").is("read_at", null)
       : Promise.resolve({ data: [] as { contact_id: string }[], error: null }),
     loadLeadActivity(supabase, contactIds),
   ]);
@@ -262,7 +249,7 @@ export default async function GuestsPage({
   return (
     <DashboardShell
       title="Guests"
-      description="Guests who checked in at the kiosk, and leads your team added."
+      description="People who have been in the club: kiosk check-ins, guest visits, trials and appointments. Every lead, visited or not, is on Lead Status."
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           {kiosks.length > 0 ? (
@@ -273,7 +260,6 @@ export default async function GuestsPage({
                 .map((member) => ({ id: member.id, name: member.display_name as string }))}
             />
           ) : null}
-          <AddLeadButton sources={(sourcesResult.data ?? []).map((row) => row.label)} />
         </div>
       }
     >
@@ -288,10 +274,7 @@ export default async function GuestsPage({
             </CardHeader>
             <CardContent className="space-y-3">
               {pending.map((match) => (
-                <div
-                  key={match.id}
-                  className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
-                >
+                <div key={match.id} className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 text-sm">
                     <p className="font-medium">
                       {match.submitted ? (
@@ -332,9 +315,7 @@ export default async function GuestsPage({
             status={status}
             salespeople={ownOnly ? null : salespeople}
           />
-          <span className="text-sm text-muted-foreground">
-            {rows.length === 1 ? "1 guest" : `${rows.length} guests`}
-          </span>
+          <span className="text-sm text-muted-foreground">{rows.length === 1 ? "1 guest" : `${rows.length} guests`}</span>
         </div>
 
         <Card className="py-0">
@@ -389,10 +370,7 @@ export default async function GuestsPage({
                       </TableCell>
                       <TableCell className="font-medium">
                         {unread.has(contact.id) ? (
-                          <span
-                            className="mr-1.5 inline-block h-2 w-2 rounded-full bg-primary align-middle"
-                            title="New message"
-                          />
+                          <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-primary align-middle" title="New message" />
                         ) : null}
                         <Link href={`/dashboard/guests/${contact.id}`} className="hover:underline">
                           {contact.first_name} {contact.last_name}
@@ -445,9 +423,7 @@ export default async function GuestsPage({
             </TableBody>
           </Table>
         </Card>
-        {rows.length === ROW_LIMIT ? (
-          <p className="text-sm text-muted-foreground">Showing the most recent {ROW_LIMIT}.</p>
-        ) : null}
+        {rows.length === ROW_LIMIT ? <p className="text-sm text-muted-foreground">Showing the most recent {ROW_LIMIT}.</p> : null}
       </div>
     </DashboardShell>
   );
