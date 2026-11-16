@@ -1,4 +1,5 @@
 {
+  "regions": ["pdx1"],
   "crons": [
     { "path": "/api/sync/classes", "schedule": "59 4 * * *" },
     { "path": "/api/sync/classes", "schedule": "59 5 * * *" },
