@@ -4,19 +4,21 @@ import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 // Lead follow-ups. Nothing is stored as a task: the next follow-up is worked
 // out from what already happened, in the club's timezone, by calendar day.
 //
-//   Not visited yet (lead queue), day 0 = created
-//     A follow-up is due every day (the day after the last contact) for the
-//     first 7 days, then every 3 days. A no-show or canceled appointment
-//     starts the daily week again from then.
-//   Visited (visited queue), day 0 = first visit
-//     Due 2 days after the last visit or contact for the first 14 days after
-//     the first visit, then every 3 days.
+// Contact attempts (the studio's cadence; default, same for every lead):
+//   Each outbound text, email or logged call (from anyone, not failed) is an
+//   attempt. Attempt 1 is due the day after they come in (within 48 hours);
+//   the first `dailyAttempts` attempts are a day apart, then every
+//   `everyDays` days, up to `attempts` attempts. Default: day 0, 1, 4, 7, 10,
+//   13, 16.
+//   A reply (text, email, website form), a visit, or a missed / canceled
+//   appointment resets the count; attempts start over from then.
+//   No reply `poolAfterDays` days after the last attempt: the lead moves to
+//   the warm lead pool (no more follow-ups; newsletter + promotions later).
 //   Paused while an appointment is coming up.
 //   Stopped once they enroll, are marked not interested, or reply STOP.
 //
-// A text, email or logged call (from anyone, not failed) completes the
-// follow-up that's due; the next one counts from then. A salesperson can
-// reschedule to a date instead, which holds until the next contact or visit.
+// A salesperson can reschedule to a date instead, which holds until the next
+// contact, reply or visit (and pulls a lead back out of the warm pool).
 // Overdue means the due day has passed with no contact.
 //
 // First contact: the first text, email or call after they came in (their
@@ -24,8 +26,37 @@ import type { ScopedSupabaseClient } from "@/lib/supabase/scoped";
 // should be within 48 hours.
 
 export const FIRST_CONTACT_HOURS = 48;
-const LEAD_DAILY_DAYS = 7;
-const VISITED_EVERY_TWO_DAYS = 14;
+
+export type FollowUpCadence = { dailyAttempts: number; everyDays: number; attempts: number; poolAfterDays: number };
+export const DEFAULT_CADENCE: FollowUpCadence = { dailyAttempts: 2, everyDays: 3, attempts: 7, poolAfterDays: 2 };
+export const CADENCE_LIMITS: Record<keyof FollowUpCadence, [number, number]> = {
+  dailyAttempts: [1, 10],
+  everyDays: [1, 30],
+  attempts: [1, 30],
+  poolAfterDays: [0, 30],
+};
+
+// A stored cadence (organizations.follow_up_cadence), anything missing or out
+// of range falling back to the default.
+export function cadenceFrom(value: unknown): FollowUpCadence {
+  const stored = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
+  const result = { ...DEFAULT_CADENCE };
+  for (const key of Object.keys(DEFAULT_CADENCE) as (keyof FollowUpCadence)[]) {
+    const number = Number(stored[key]);
+    const [min, max] = CADENCE_LIMITS[key];
+    if (Number.isInteger(number) && number >= min && number <= max) result[key] = number;
+  }
+  return result;
+}
+
+// The day (after coming in) of each attempt, for showing the schedule.
+export function cadenceDays(cadence: FollowUpCadence): number[] {
+  const days = [0];
+  for (let attempt = 1; attempt < cadence.attempts; attempt += 1) {
+    days.push(days[attempt - 1] + (attempt < cadence.dailyAttempts ? 1 : cadence.everyDays));
+  }
+  return days;
+}
 
 export const FOLLOW_UP_CONTACT_FIELDS =
   "id, created_at, status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, assigned_staff_id, import_batch_id, last_message_at";
@@ -56,6 +87,8 @@ export type LeadActivity = {
   nextAppointmentAt: string | null;
   // Latest no-show, cancellation, or past appointment nobody marked.
   lastMissedAppointmentAt: string | null;
+  // Latest text / email / website form from them.
+  lastReplyAt: string | null;
 };
 
 const EMPTY_ACTIVITY: LeadActivity = {
@@ -67,6 +100,7 @@ const EMPTY_ACTIVITY: LeadActivity = {
   emails: 0,
   nextAppointmentAt: null,
   lastMissedAppointmentAt: null,
+  lastReplyAt: null,
 };
 
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
@@ -91,9 +125,8 @@ export async function loadLeadActivity(supabase: ScopedSupabaseClient, contactId
       supabase.from("guest_visits").select("contact_id, visit_at").in("contact_id", chunk).order("visit_at"),
       supabase
         .from("crm_messages")
-        .select("contact_id, channel, created_at")
+        .select("contact_id, channel, created_at, direction")
         .in("contact_id", chunk)
-        .eq("direction", "outbound")
         .neq("status", "failed")
         .order("created_at"),
       supabase.from("crm_appointments").select("contact_id, scheduled_at, status, updated_at").in("contact_id", chunk),
@@ -109,6 +142,10 @@ export async function loadLeadActivity(supabase: ScopedSupabaseClient, contactId
     }
     for (const message of messages.data ?? []) {
       const row = get(message.contact_id);
+      if (message.direction === "inbound") {
+        row.lastReplyAt = later(row.lastReplyAt, message.created_at);
+        continue;
+      }
       row.contactTimes.push(message.created_at);
       if (message.channel === "call") row.calls += 1;
       else if (message.channel === "sms") row.texts += 1;
@@ -154,6 +191,7 @@ export function combinedActivity(activity: Map<string, LeadActivity>, contactIds
       emails: total.emails + row.emails,
       nextAppointmentAt: earlier(total.nextAppointmentAt, row.nextAppointmentAt),
       lastMissedAppointmentAt: later(total.lastMissedAppointmentAt, row.lastMissedAppointmentAt),
+      lastReplyAt: later(total.lastReplyAt, row.lastReplyAt),
     };
   }, EMPTY_ACTIVITY);
 }
@@ -197,6 +235,10 @@ export type FollowUpQueue = "lead" | "visited";
 export type FollowUp =
   | { kind: "stopped"; reason: "enrolled" | "not_interested" | "opted_out" | "imported" }
   | { kind: "appointment"; at: string }
+  // All attempts made, no reply yet; moves to the warm pool on poolOn.
+  | { kind: "waiting"; poolOn: string; attempts: number }
+  // In the warm lead pool since `since` (ISO date).
+  | { kind: "pool"; since: string; attempts: number }
   | {
       kind: "due";
       queue: FollowUpQueue;
@@ -205,9 +247,18 @@ export type FollowUp =
       rescheduled: boolean;
       // Negative = days until due; 0 = due today; positive = days overdue.
       daysOverdue: number;
+      // Which attempt this is (1-based) and how many the cadence makes.
+      attempt: number;
+      of: number;
     };
 
-export function followUpFor(contact: FollowUpContact, activity: LeadActivity, timezone: string, now = DateTime.now()): FollowUp {
+export function followUpFor(
+  contact: FollowUpContact,
+  activity: LeadActivity,
+  timezone: string,
+  now = DateTime.now(),
+  cadence: FollowUpCadence = DEFAULT_CADENCE,
+): FollowUp {
   if (contact.closed_at || contact.status === "member") return { kind: "stopped", reason: "enrolled" };
   if (contact.status === "not_interested") return { kind: "stopped", reason: "not_interested" };
   if (contact.sms_opted_out_at) return { kind: "stopped", reason: "opted_out" };
@@ -219,30 +270,35 @@ export function followUpFor(contact: FollowUpContact, activity: LeadActivity, ti
   const lastContactAt = activity.contactTimes.at(-1) ?? null;
   const queue: FollowUpQueue = activity.firstVisitAt ? "visited" : "lead";
 
-  let due: DateTime;
-  let rescheduled = false;
-  const lastTouch = later(lastContactAt, activity.lastVisitAt);
-  if (contact.follow_up_on && contact.follow_up_set_at && (!lastTouch || lastTouch < contact.follow_up_set_at)) {
-    due = DateTime.fromISO(contact.follow_up_on, { zone: timezone }).startOf("day");
-    rescheduled = true;
-  } else if (activity.firstVisitAt) {
-    const anchor = day(later(later(activity.lastVisitAt, lastContactAt), activity.lastMissedAppointmentAt)!);
-    const sinceVisit = anchor.diff(day(activity.firstVisitAt), "days").days;
-    due = anchor.plus({ days: sinceVisit < VISITED_EVERY_TWO_DAYS ? 2 : 3 });
-  } else {
-    const start = later(contact.created_at, activity.lastMissedAppointmentAt)!;
-    const anchor = day(later(start, lastContactAt)!);
-    const sinceStart = anchor.diff(day(start), "days").days;
-    due = anchor.plus({ days: sinceStart < LEAD_DAILY_DAYS ? 1 : 3 });
-  }
+  // Attempts since the last reset (came in, replied, visited, missed an
+  // appointment).
+  const resetAt = [activity.lastReplyAt, activity.lastVisitAt, activity.lastMissedAppointmentAt].reduce(later, contact.created_at)!;
+  const attempts = activity.contactTimes.filter((at) => at > resetAt);
+  const made = attempts.length;
+  const lastAttemptAt = attempts.at(-1) ?? null;
 
-  return {
+  const result = (due: DateTime, rescheduled: boolean): FollowUp => ({
     kind: "due",
     queue,
     dueOn: due.toISODate()!,
     rescheduled,
     daysOverdue: Math.round(today.diff(due, "days").days),
-  };
+    attempt: Math.min(made + 1, cadence.attempts),
+    of: cadence.attempts,
+  });
+
+  const lastTouch = [lastContactAt, activity.lastVisitAt, activity.lastReplyAt].reduce(later, null);
+  if (contact.follow_up_on && contact.follow_up_set_at && (!lastTouch || lastTouch < contact.follow_up_set_at)) {
+    return result(DateTime.fromISO(contact.follow_up_on, { zone: timezone }).startOf("day"), true);
+  }
+  if (!lastAttemptAt) return result(day(resetAt).plus({ days: 1 }), false);
+  if (made < cadence.attempts) {
+    return result(day(lastAttemptAt).plus({ days: made < cadence.dailyAttempts ? 1 : cadence.everyDays }), false);
+  }
+  const poolOn = day(lastAttemptAt).plus({ days: cadence.poolAfterDays });
+  return today >= poolOn
+    ? { kind: "pool", since: poolOn.toISODate()!, attempts: made }
+    : { kind: "waiting", poolOn: poolOn.toISODate()!, attempts: made };
 }
 
 // Open leads whose follow-ups are worked out: not deleted or merged, not
@@ -282,6 +338,7 @@ export async function overdueBySeller(
   supabase: ScopedSupabaseClient,
   timezone: string,
   staffId: string | null = null,
+  cadence: FollowUpCadence = DEFAULT_CADENCE,
 ): Promise<{ overdue: Map<string, number>; dueToday: Map<string, number> }> {
   const contacts = await loadOpenFollowUpContacts<FollowUpContact>(supabase, FOLLOW_UP_CONTACT_FIELDS, staffId);
   const activity = await loadLeadActivity(
@@ -292,7 +349,7 @@ export async function overdueBySeller(
   const dueToday = new Map<string, number>();
   const now = DateTime.now();
   for (const contact of contacts) {
-    const followUp = followUpFor(contact, activityFor(activity, contact.id), timezone, now);
+    const followUp = followUpFor(contact, activityFor(activity, contact.id), timezone, now, cadence);
     if (followUp.kind !== "due" || followUp.daysOverdue < 0) continue;
     const key = contact.assigned_staff_id ?? "";
     const counts = followUp.daysOverdue > 0 ? overdue : dueToday;

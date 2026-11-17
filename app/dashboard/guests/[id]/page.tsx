@@ -250,7 +250,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
   const mindbodyPending = contact.mindbody_sync_status === "pending";
   // Leads only: members who joined in Mindbody have trainers, not follow-ups.
   const activity = combinedActivity(leadActivity, contactIds);
-  const followUp = contact.source === "member" ? null : followUpFor(contact, activity, org.timezone);
+  const followUp = contact.source === "member" ? null : followUpFor(contact, activity, org.timezone, undefined, org.cadence);
   const firstContact = contact.source === "member" ? null : firstContactFor(contact, activity);
 
   // Messages: opening the guest marks their unread texts/emails as read.
@@ -591,11 +591,11 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
                     <FirstContactBadge firstContact={firstContact} />
                   </Item>
                 </dl>
-                {followUp.kind === "due" ? (
+                {followUp.kind === "due" || followUp.kind === "waiting" || followUp.kind === "pool" ? (
                   <RescheduleFollowUp
                     contactId={contact.id}
                     today={DateTime.now().setZone(org.timezone).toISODate()!}
-                    current={followUp.rescheduled ? followUp.dueOn : null}
+                    current={followUp.kind === "due" && followUp.rescheduled ? followUp.dueOn : null}
                   />
                 ) : null}
               </CardContent>

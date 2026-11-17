@@ -60,11 +60,15 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
   (every lead still being worked, follow-ups due first), Replied (7 days).
   Add lead lives here. Sales see only their own leads.
 - **Lead Follow-ups**: who's due today / overdue.
-- **Follow-up rules** (current): first contact within 48 hours of coming in;
-  leads who haven't visited: daily for the first 7 days, then every 3 days;
-  visited guests: every 2 days for the first 14 days, then every 3 days. A
-  follow-up date you set wins. Imported Gym Sales leads nobody has worked yet
-  show "Imported, not worked yet" until worked.
+- **Follow-up rules**: the same for every lead, visited or not. Each text,
+  email or logged call is a contact attempt; the list shows "attempt 3 of 7".
+  Default: 7 attempts on day 0 (within 48 hours), 1, 4, 7, 10, 13, 16. A reply,
+  visit or missed appointment starts the attempts over. No reply 2 days after
+  the 7th attempt: the lead moves to the **warm lead pool** (Lead Status ->
+  Warm pool) and leaves the follow-up lists; they'll get the newsletter and
+  quarterly promotions (coming). Setting a follow-up date always wins and
+  pulls a lead out of the pool. Imported Gym Sales leads nobody has worked
+  yet show "Imported, not worked yet" until worked.
 - **Texting and email from SynqIQ**: guests see "<your first name> at The
   Preserve"; replies come back into the guest's thread and notify their
   salesperson. Opt-outs are respected.
@@ -100,6 +104,9 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
   default; session rates; commission plans and who's on them; payroll by pay
   period with export.
 - **Ratings settings**: who gets rating emails (testers / everyone / off).
+- **Follow-up timing** (Settings -> CRM): number of attempts, how many are a
+  day apart, spacing after that, days before the warm pool; shows the
+  resulting schedule; "Back to SynqIQ default".
 - **CRM settings**: kiosk iPads (Check-in home-screen app, pair once from the
   icon), website forms, website form spam (Not spam to release), waiver,
   how-did-you-hear options, who sells.
@@ -112,7 +119,9 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
   switch.
 - **Lead Status**: "Came in" = first visit, or when added if they haven't
   visited. Time to first contact = came in -> first text/email/logged call
-  after it (goal 48 h). Open leads = not a member, not marked not interested.
+  after it (goal 48 h). Open leads = not a member, not marked not interested,
+  not in the warm pool. Warm pool = every attempt made with no reply since
+  the last reply / visit / missed appointment (updated nightly at ~4:30 AM).
 - **Sales Dashboard**: walk-ins / guests of members = new guests in the period
   by visit type; closed = enrolled in the period; returning = visited again or
   bought in the period after first coming in earlier.
@@ -125,6 +134,7 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 
 ## Change log (newest first)
 
+- 2026-11-16: Follow-up cadence (7 attempts, adjustable) + warm lead pool.
 - 2026-11-16: Cancel class button (Club Admins, Sales Leads).
 - 2026-11-15: Team boards (Sales, Trainers), admin post delete; menu
   reorganized (Class Dashboard, Fitness section); Lead Status views; lead

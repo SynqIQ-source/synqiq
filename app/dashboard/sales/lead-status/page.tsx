@@ -111,9 +111,11 @@ export default async function LeadStatusPage({
     .filter((member) => !member.archived_at && member.can_sell)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
 
-  // Three views: the date-range report; every open lead (the working list,
-  // any date, paged); and leads who replied (text, email or form) lately.
-  const view = params.view === "open" || params.view === "replied" ? params.view : "period";
+  // Four views: the date-range report; every open lead (the working list,
+  // any date, paged); leads who replied (text, email or form) lately; and the
+  // warm lead pool (all attempts made, no reply; paged).
+  const view = params.view === "open" || params.view === "replied" || params.view === "pool" ? params.view : "period";
+  const paged = view === "open" || view === "pool";
   const page = Math.max(1, Math.floor(Number(params.page) || 1));
   let openTotal = 0;
   const lastReply = new Map<string, string>();
@@ -132,9 +134,10 @@ export default async function LeadStatusPage({
         ...(visitedResult.data ?? []).map((row) => row.contact_id as string),
       ]),
     ];
-  } else if (view === "open") {
-    // Still being worked: not a member, not marked not interested. Follow-ups
-    // due first, then the most recently active.
+  } else if (view === "open" || view === "pool") {
+    // Open: still being worked (not a member, not marked not interested, not
+    // in the warm pool); follow-ups due first, then the most recently active.
+    // Warm pool: newest to the pool first. (The pool flag is set nightly.)
     let query = supabase
       .from("crm_contacts")
       .select("id", { count: "exact" })
@@ -142,7 +145,9 @@ export default async function LeadStatusPage({
       .is("deleted_at", null)
       .is("merged_into_id", null)
       .neq("source", "member");
+    query = view === "pool" ? query.not("warm_pool_at", "is", null) : query.is("warm_pool_at", null);
     if (staffId) query = query.eq("assigned_staff_id", staffId);
+    if (view === "pool") query = query.order("warm_pool_at", { ascending: false });
     const { data, count, error } = await query
       .order("follow_up_on", { ascending: true, nullsFirst: false })
       .order("last_message_at", { ascending: false, nullsFirst: false })
@@ -198,14 +203,14 @@ export default async function LeadStatusPage({
         cameInAt: firstContact.cameInAt,
         visited: Boolean(contactActivity.firstVisitAt),
         firstContact,
-        followUp: followUpFor(contact, contactActivity, org.timezone, now),
+        followUp: followUpFor(contact, contactActivity, org.timezone, now, org.cadence),
       };
     })
     .filter((row) => view !== "period" || (row.cameInAt >= fromIso && row.cameInAt <= toIso))
     .sort((a, b) =>
       view === "replied"
         ? (b.lastReplyAt ?? "").localeCompare(a.lastReplyAt ?? "")
-        : view === "open"
+        : paged
           ? candidateIds.indexOf(a.contact.id) - candidateIds.indexOf(b.contact.id)
           : b.cameInAt.localeCompare(a.cameInAt),
     );
@@ -213,12 +218,11 @@ export default async function LeadStatusPage({
   // Grouped by day came in (report), day of the reply (replied), or one list (open).
   const byDay = new Map<string, Row[]>();
   for (const row of rows) {
-    const key =
-      view === "open"
-        ? "open"
-        : DateTime.fromISO(view === "replied" ? (row.lastReplyAt as string) : row.cameInAt)
-            .setZone(org.timezone)
-            .toISODate()!;
+    const key = paged
+      ? "open"
+      : DateTime.fromISO(view === "replied" ? (row.lastReplyAt as string) : row.cameInAt)
+          .setZone(org.timezone)
+          .toISODate()!;
     byDay.set(key, [...(byDay.get(key) ?? []), row]);
   }
 
@@ -243,7 +247,7 @@ export default async function LeadStatusPage({
     if (name !== "period") query.set("view", name);
     return `/dashboard/sales/lead-status${query.toString() ? `?${query.toString()}` : ""}`;
   };
-  const pageHref = (target: number) => `${viewHref("open")}&page=${target}`;
+  const pageHref = (target: number) => `${viewHref(view)}${view === "period" ? "?" : "&"}page=${target}`;
   const pages = Math.max(1, Math.ceil(openTotal / PAGE_SIZE));
 
   return (
@@ -252,9 +256,11 @@ export default async function LeadStatusPage({
       description={`${who}${typeLabel ? ` · ${typeLabel} leads` : ""} · ${
         view === "open"
           ? "every open lead, any date"
-          : view === "replied"
-            ? `replied in the last ${REPLY_DAYS} days`
-            : `${period.from.toFormat("LLL d")} – ${period.to.toFormat("LLL d, yyyy")}`
+          : view === "pool"
+            ? "warm lead pool"
+            : view === "replied"
+              ? `replied in the last ${REPLY_DAYS} days`
+              : `${period.from.toFormat("LLL d")} – ${period.to.toFormat("LLL d, yyyy")}`
       }`}
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -279,6 +285,7 @@ export default async function LeadStatusPage({
                 ["period", "By date range"],
                 ["open", "Open leads"],
                 ["replied", `Replied (${REPLY_DAYS} days)`],
+                ["pool", "Warm pool"],
               ] as const
             ).map(([name, label]) => (
               <Link
@@ -290,9 +297,9 @@ export default async function LeadStatusPage({
               </Link>
             ))}
           </div>
-          {view === "open" ? (
+          {paged ? (
             <span className="text-sm text-muted-foreground">
-              {openTotal} open leads · page {page} of {pages}
+              {openTotal} {view === "pool" ? "in the warm pool (all attempts made, no reply)" : "open leads"} · page {page} of {pages}
               {page > 1 ? (
                 <Link href={pageHref(page - 1)} className="ml-3 underline">
                   Previous
@@ -311,9 +318,12 @@ export default async function LeadStatusPage({
           )}
         </div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label={view === "open" ? "Open leads" : "Leads"} value={String(view === "open" ? openTotal : rows.length)} />
-          {/* Open leads is paged, so per-page rates would mislead: the count only. */}
-          {view === "open" ? null : (
+          <Stat
+            label={view === "open" ? "Open leads" : view === "pool" ? "Warm pool" : "Leads"}
+            value={String(paged ? openTotal : rows.length)}
+          />
+          {/* Open leads and the pool are paged, so per-page rates would mislead: the count only. */}
+          {paged ? null : (
             <>
               <Stat
                 label={`Contacted ≤ ${FIRST_CONTACT_HOURS}h`}
@@ -358,7 +368,9 @@ export default async function LeadStatusPage({
                       ? `Nobody replied in the last ${REPLY_DAYS} days.`
                       : view === "open"
                         ? "No open leads."
-                        : "No leads came in during this period."}
+                        : view === "pool"
+                          ? "Nobody is in the warm pool yet."
+                          : "No leads came in during this period."}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -367,7 +379,9 @@ export default async function LeadStatusPage({
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
                       <TableCell colSpan={10} className="py-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                         {day === "open"
-                          ? "Follow-ups due first, then most recently active"
+                          ? view === "pool"
+                            ? "Newest to the pool first"
+                            : "Follow-ups due first, then most recently active"
                           : DateTime.fromISO(day, { zone: org.timezone }).toFormat("cccc, LLL d")}{" "}
                         · {dayRows.length} {dayRows.length === 1 ? "lead" : "leads"}
                       </TableCell>
@@ -390,7 +404,7 @@ export default async function LeadStatusPage({
                         <TableCell className="whitespace-nowrap text-muted-foreground">
                           {view === "replied" && row.lastReplyAt
                             ? local(row.lastReplyAt, "h:mm a")
-                            : local(row.cameInAt, view === "open" ? "LLL d, yyyy" : "h:mm a")}
+                            : local(row.cameInAt, paged ? "LLL d, yyyy" : "h:mm a")}
                           <span className="ml-1 text-xs">{view === "replied" ? "reply" : row.visited ? "visit" : "added"}</span>
                         </TableCell>
                         <TableCell>

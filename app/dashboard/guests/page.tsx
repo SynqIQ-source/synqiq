@@ -408,7 +408,10 @@ export default async function GuestsPage({
                         <FirstContactBadge firstContact={firstContactFor(contact, contactActivity)} />
                       </TableCell>
                       <TableCell>
-                        <NextFollowUp followUp={followUpFor(contact, contactActivity, org.timezone)} timezone={org.timezone} />
+                        <NextFollowUp
+                          followUp={followUpFor(contact, contactActivity, org.timezone, undefined, org.cadence)}
+                          timezone={org.timezone}
+                        />
                       </TableCell>
                       <TableCell
                         className={cn(

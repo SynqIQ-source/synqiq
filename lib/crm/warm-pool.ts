@@ -1,0 +1,83 @@
+import { DateTime } from "luxon";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getCrmOrg } from "@/lib/crm/org";
+import { FOLLOW_UP_CONTACT_FIELDS, activityFor, followUpFor, loadLeadActivity, type FollowUpContact } from "@/lib/crm/follow-ups";
+
+// Nightly: flag open leads that have had every contact attempt with no reply
+// (crm_contacts.warm_pool_at, the date they entered the pool) and unflag
+// anyone who has since replied, visited, booked, been given a follow-up date,
+// joined or been marked not interested. The follow-up lists work this out
+// live; the flag is what Lead Status' Warm pool view and (later) marketing
+// audiences read.
+export async function runWarmPool(organizationId: string) {
+  const admin = createSupabaseAdminClient();
+  const org = await getCrmOrg(organizationId);
+
+  const contacts: (FollowUpContact & { warm_pool_at: string | null })[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from("crm_contacts")
+      .select(`${FOLLOW_UP_CONTACT_FIELDS}, warm_pool_at`)
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .is("merged_into_id", null)
+      .is("closed_at", null)
+      .is("sms_opted_out_at", null)
+      .neq("source", "member")
+      .not("status", "in", "(member,not_interested)")
+      .or("import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null")
+      .order("created_at")
+      .range(from, from + 999)
+      .returns<(FollowUpContact & { warm_pool_at: string | null })[]>();
+    if (error) throw error;
+    contacts.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+
+  const activity = await loadLeadActivity(
+    admin,
+    contacts.map((contact) => contact.id),
+  );
+  const now = DateTime.now();
+  const enter = new Map<string, string>();
+  const pooled = new Set<string>();
+  for (const contact of contacts) {
+    const followUp = followUpFor(contact, activityFor(activity, contact.id), org.timezone, now, org.cadence);
+    if (followUp.kind !== "pool") continue;
+    pooled.add(contact.id);
+    if (!contact.warm_pool_at) enter.set(contact.id, DateTime.fromISO(followUp.since, { zone: org.timezone }).toUTC().toISO()!);
+  }
+
+  // Into the pool, grouped by entry date.
+  const byDate = new Map<string, string[]>();
+  for (const [id, at] of enter) byDate.set(at, [...(byDate.get(at) ?? []), id]);
+  for (const [at, ids] of byDate) {
+    for (let index = 0; index < ids.length; index += 200) {
+      const { error } = await admin
+        .from("crm_contacts")
+        .update({ warm_pool_at: at })
+        .eq("organization_id", organizationId)
+        .in("id", ids.slice(index, index + 200));
+      if (error) throw error;
+    }
+  }
+
+  // Out of the pool: flagged but no longer pooled (or no longer open).
+  const { data: flagged, error: flaggedError } = await admin
+    .from("crm_contacts")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .not("warm_pool_at", "is", null)
+    .limit(20000);
+  if (flaggedError) throw flaggedError;
+  const leave = (flagged ?? []).map((row) => row.id as string).filter((id) => !pooled.has(id));
+  for (let index = 0; index < leave.length; index += 200) {
+    const { error } = await admin
+      .from("crm_contacts")
+      .update({ warm_pool_at: null })
+      .eq("organization_id", organizationId)
+      .in("id", leave.slice(index, index + 200));
+    if (error) throw error;
+  }
+  return { checked: contacts.length, inPool: pooled.size, entered: enter.size, left: leave.length };
+}

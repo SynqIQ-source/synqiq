@@ -48,10 +48,7 @@ export default async function FollowUpsPage({
   const queue = params.queue === "lead" || params.queue === "visited" ? params.queue : "all";
   const sellerParam = isAdmin ? (params.seller ?? "all") : staff.id;
 
-  const { data: staffRows } = await supabase
-    .from("staff")
-    .select("id, display_name, can_sell, role, archived_at")
-    .order("display_name");
+  const { data: staffRows } = await supabase.from("staff").select("id, display_name, can_sell, role, archived_at").order("display_name");
   const staffNames = new Map((staffRows ?? []).map((member) => [member.id, member.display_name as string]));
   const salespeople = (staffRows ?? [])
     .filter((member) => !member.archived_at && member.can_sell)
@@ -75,7 +72,7 @@ export default async function FollowUpsPage({
     return {
       contact,
       lastContactAt: contactActivity.contactTimes.at(-1) ?? null,
-      followUp: followUpFor(contact, contactActivity, org.timezone, now),
+      followUp: followUpFor(contact, contactActivity, org.timezone, now, org.cadence),
     };
   });
 
@@ -93,7 +90,7 @@ export default async function FollowUpsPage({
     .sort((a, b) => b.overdue - a.overdue || b.today - a.today || a.name.localeCompare(b.name));
 
   const inView = (followUp: FollowUp) => {
-    if (followUp.kind === "stopped") return false;
+    if (followUp.kind === "stopped" || followUp.kind === "pool" || followUp.kind === "waiting") return false;
     if (view === "all") return true;
     if (followUp.kind === "appointment") return view === "upcoming";
     if (view === "overdue") return followUp.daysOverdue > 0;
@@ -117,9 +114,7 @@ export default async function FollowUpsPage({
     <DashboardShell
       title="Follow-ups"
       description={`${totalOverdue} overdue · ${totalToday} due today${isAdmin ? " across the club" : ""}`}
-      actions={
-        <FollowUpFilters view={view} queue={queue} seller={sellerParam} salespeople={isAdmin ? salespeople : null} />
-      }
+      actions={<FollowUpFilters view={view} queue={queue} seller={sellerParam} salespeople={isAdmin ? salespeople : null} />}
     >
       <div className="space-y-6">
         {isAdmin && sellerSummary.length > 0 ? (
@@ -141,14 +136,13 @@ export default async function FollowUpsPage({
                 {sellerSummary.map((row) => (
                   <TableRow key={row.id || "unassigned"}>
                     <TableCell className="font-medium">
-                      <Link
-                        href={`/dashboard/sales/follow-ups?seller=${row.id || "unassigned"}`}
-                        className="hover:underline"
-                      >
+                      <Link href={`/dashboard/sales/follow-ups?seller=${row.id || "unassigned"}`} className="hover:underline">
                         {row.name}
                       </Link>
                     </TableCell>
-                    <TableCell className={row.overdue ? "text-right font-semibold text-destructive tabular-nums" : "text-right tabular-nums"}>
+                    <TableCell
+                      className={row.overdue ? "text-right font-semibold text-destructive tabular-nums" : "text-right tabular-nums"}
+                    >
                       {row.overdue}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{row.today}</TableCell>
@@ -189,9 +183,7 @@ export default async function FollowUpsPage({
                     </TableCell>
                     <TableCell>{row.followUp.kind === "due" ? QUEUE_LABELS[row.followUp.queue] : "—"}</TableCell>
                     <TableCell>
-                      {row.contact.assigned_staff_id
-                        ? (staffNames.get(row.contact.assigned_staff_id) ?? "—")
-                        : "Unassigned"}
+                      {row.contact.assigned_staff_id ? (staffNames.get(row.contact.assigned_staff_id) ?? "—") : "Unassigned"}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {row.lastContactAt ? local(row.lastContactAt) : "Never"}
@@ -216,10 +208,10 @@ export default async function FollowUpsPage({
           </Table>
         </Card>
         <p className="text-xs text-muted-foreground">
-          Before a first visit, a follow-up is due every day for the first week after a guest is added (paused while an
-          appointment is booked; a no-show or cancellation starts the week again), then every 3 days. After a visit,
-          it&apos;s every 2 days for the first 14 days, then every 3 days. A text, email or logged call completes the
-          follow-up; follow-ups stop when a guest enrolls, is marked not interested, or replies STOP.
+          Before a first visit, a follow-up is due every day for the first week after a guest is added (paused while an appointment is
+          booked; a no-show or cancellation starts the week again), then every 3 days. After a visit, it&apos;s every 2 days for the first
+          14 days, then every 3 days. A text, email or logged call completes the follow-up; follow-ups stop when a guest enrolls, is marked
+          not interested, or replies STOP.
         </p>
       </div>
     </DashboardShell>

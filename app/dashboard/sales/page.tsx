@@ -179,7 +179,7 @@ export default async function SalesDashboardPage({
   const [funnel, followUps] = await Promise.all([
     computeFunnel(supabase, { fromIso, toIso, staffId, leadType }),
     // Follow-ups are a right-now count, not tied to the period.
-    overdueBySeller(supabase, org.timezone, staffId),
+    overdueBySeller(supabase, org.timezone, staffId, org.cadence),
   ]);
   const sum = (counts: Map<string, number>) => [...counts.values()].reduce((total, value) => total + value, 0);
 

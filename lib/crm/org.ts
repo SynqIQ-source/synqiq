@@ -1,7 +1,8 @@
 import { cache } from "react";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { cadenceFrom, type FollowUpCadence } from "@/lib/crm/follow-ups";
 
-export type CrmOrg = { id: string; name: string; timezone: string };
+export type CrmOrg = { id: string; name: string; timezone: string; cadence: FollowUpCadence };
 
 // Name + time zone for the org a kiosk device or staff member belongs to.
 // Ages are calculated in this time zone (requirement 5c).
@@ -9,9 +10,14 @@ export const getCrmOrg = cache(async function getCrmOrg(organizationId: string):
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
     .from("organizations")
-    .select("id, name, timezone")
+    .select("id, name, timezone, follow_up_cadence")
     .eq("id", organizationId)
     .single();
   if (error || !data) throw error ?? new Error("organization not found");
-  return { id: data.id, name: data.name, timezone: data.timezone ?? "America/Chicago" };
+  return {
+    id: data.id,
+    name: data.name,
+    timezone: data.timezone ?? "America/Chicago",
+    cadence: cadenceFrom(data.follow_up_cadence),
+  };
 });

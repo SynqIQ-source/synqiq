@@ -5,6 +5,8 @@ import { getCrmOrg } from "@/lib/crm/org";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { EmailCheckCard, KioskDevicesCard, LeadFormsCard, MarketingSourcesCard, SellersCard, WaiverCard } from "./crm-settings";
 import { SpamCard } from "./spam-card";
+import { FollowUpCadenceCard } from "./follow-up-cadence-card";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,11 @@ export default async function CrmSettingsPage() {
       .order("created_at", { ascending: false })
       .limit(200),
   ]);
+  const { data: storedCadence } = await createSupabaseAdminClient()
+    .from("organizations")
+    .select("follow_up_cadence")
+    .eq("id", staff.organizationId)
+    .maybeSingle();
   if (devices.error || waivers.error || sources.error || staffRows.error || leadForms.error) {
     throw new Error("Failed to load CRM settings.");
   }
@@ -42,6 +49,7 @@ export default async function CrmSettingsPage() {
   return (
     <DashboardShell title="CRM" description="Guest check-in kiosk, waiver, and sales team settings.">
       <div className="space-y-6">
+        <FollowUpCadenceCard cadence={org.cadence} isDefault={!storedCadence?.follow_up_cadence} />
         <KioskDevicesCard devices={devices.data ?? []} timezone={org.timezone} />
         <LeadFormsCard forms={leadForms.data ?? []} sources={sources.data ?? []} staff={staffRows.data ?? []} timezone={org.timezone} />
         <SpamCard
