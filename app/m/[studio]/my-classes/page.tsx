@@ -48,9 +48,14 @@ export default async function MyClassesPage({ params }: { params: Promise<{ stud
   return (
     <MemberShell studio={studio} title="My classes">
       <div className="mb-4 flex justify-between text-sm">
-        <Link href={`/m/${studio.siteId}`} className="underline underline-offset-4">
-          Book a class
-        </Link>
+        <span className="flex gap-3">
+          <Link href={`/m/${studio.siteId}`} className="underline underline-offset-4">
+            Book a class
+          </Link>
+          <Link href={`/m/${studio.siteId}/receipts`} className="underline underline-offset-4">
+            Receipts
+          </Link>
+        </span>
         <SignOutButton />
       </div>
       <h2 className="mb-2 text-sm font-semibold tracking-wide text-neutral-500 uppercase">Coming up</h2>

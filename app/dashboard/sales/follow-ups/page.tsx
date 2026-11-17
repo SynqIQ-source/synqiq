@@ -2,6 +2,7 @@ import { managesSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { LeadSearch } from "../../guests/lead-search";
 import { NextFollowUp } from "@/components/crm/follow-up-status";
 import { RescheduleFollowUp } from "@/components/crm/reschedule-follow-up";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,6 +119,7 @@ export default async function FollowUpsPage({
       actions={<FollowUpFilters view={view} queue={queue} seller={sellerParam} salespeople={isAdmin ? salespeople : null} />}
     >
       <div className="space-y-6">
+        <LeadSearch />
         {isAdmin && sellerSummary.length > 0 ? (
           <Card className="py-0">
             <CardHeader className="pt-6">

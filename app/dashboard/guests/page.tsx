@@ -1,4 +1,5 @@
-import { isClubAdmin, seesOnlyOwnSales } from "@/lib/permissions";
+import { isClubAdmin, managesSales, seesOnlyOwnSales } from "@/lib/permissions";
+import { SalespersonSelect } from "./[id]/profile-actions";
 import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -241,6 +242,7 @@ export default async function GuestsPage({
   const salespeople = staffRows
     .filter((member) => (!member.archived_at && member.can_sell) || member.id === seller)
     .map((member) => ({ id: member.id, name: member.display_name as string }));
+  const canReassign = managesSales(staff);
 
   const formatTime = (iso: string) => {
     const time = DateTime.fromISO(iso).setZone(org.timezone);
@@ -400,7 +402,27 @@ export default async function GuestsPage({
                           </Badge>
                         ) : null}
                       </TableCell>
-                      <TableCell>{contact.assigned_staff_id ? (staffNames.get(contact.assigned_staff_id) ?? "—") : "Unassigned"}</TableCell>
+                      <TableCell>
+                        {canReassign ? (
+                          // Club Admins and Sales Leads reassign right from the list.
+                          <SalespersonSelect
+                            contactId={contact.id}
+                            current={contact.assigned_staff_id}
+                            options={
+                              contact.assigned_staff_id && !salespeople.some((person) => person.id === contact.assigned_staff_id)
+                                ? [
+                                    ...salespeople,
+                                    { id: contact.assigned_staff_id, name: staffNames.get(contact.assigned_staff_id) ?? "Former staff" },
+                                  ]
+                                : salespeople
+                            }
+                          />
+                        ) : contact.assigned_staff_id ? (
+                          (staffNames.get(contact.assigned_staff_id) ?? "—")
+                        ) : (
+                          "Unassigned"
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={waiverSigned ? "secondary" : "outline"}>{waiverSigned ? "Signed" : "Not signed"}</Badge>
                       </TableCell>

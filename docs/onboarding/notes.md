@@ -10,6 +10,13 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 
 ---
 
+## Members (member app)
+
+- **Receipts** (link at the top of the member app): every purchase made
+  through SynqIQ (in club, and in the app once it sells) and each monthly
+  dues payment, newest first; tap one for a PDF receipt. Only the member
+  themselves can open their receipts.
+
 ## Everyone
 
 - **Signing in / home screen app**: synqiq.co; add to the phone's home screen
@@ -67,7 +74,7 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 - **Lead Status**: the working list. Views: By date range (report), Open leads
   (every lead still being worked, follow-ups due first), Replied (7 days).
   Add lead lives here. Sales see only their own leads.
-- **Lead Follow-ups**: who's due today / overdue.
+- **Lead Follow-ups**: who's due today / overdue. **Find a lead** search at the top, same as Lead Status.
 - **Follow-up rules**: the same for every lead, visited or not. Each text,
   email or logged call is a contact attempt; the list shows "attempt 3 of 7".
   Default: 7 attempts on day 0 (within 48 hours), 1, 4, 7, 10, 13, 16. A reply,
@@ -91,6 +98,8 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 ## Sales Lead
 
 - Everything in Sales, for the whole team (any salesperson's leads).
+- **Reassign from the Guests list**: the Salesperson column is a dropdown for
+  Club Admins and Sales Leads (no need to open the guest).
 - **Sales Dashboard**: guest messages from the last 7 days at the top, then
   walk-ins, guests of members, leads, appointments, closing rates by
   salesperson.
@@ -282,6 +291,8 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-17: Reassign from the Guests list; lead search on Lead Follow-ups;
+  member Receipts page with PDF receipts (purchases and monthly dues).
 - 2026-11-17: Club Overview dashboard (top of the menu, Club Admins).
 - 2026-11-17: Facility Tech tag (maintenance emails, runs reports, keeps
   equipment); class photos copied from Mindbody into SynqIQ storage, and
