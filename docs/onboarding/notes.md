@@ -77,6 +77,12 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
   quarterly promotions (coming). Setting a follow-up date always wins and
   pulls a lead out of the pool. Imported Gym Sales leads nobody has worked
   yet show "Imported, not worked yet" until worked.
+- **Gym Sales history**: a lead's page shows their calls (with notes), texts
+  both ways and emails from Gym Sales (May-Nov 2026), newest first. Those
+  calls/texts count toward the 7 attempts; their texts back count as replies.
+- **Warm pool after the switch from Gym Sales**: leads with no contact in the
+  last 30 days (and that came in more than 30 days ago) start in the warm
+  pool; contacting one, or setting a follow-up date, brings it back.
 - **Texting and email from SynqIQ**: guests see "<your first name> at The
   Preserve"; replies come back into the guest's thread and notify their
   salesperson. Opt-outs are respected.
@@ -232,6 +238,8 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-16: Gym Sales activity history imported; old leads sorted into the
+  warm pool.
 - 2026-11-16: Maintenance module (equipment, vendors, reports with photos/
   video, vendor email relay, visits, quotes/payments, reminders).
 - 2026-11-16: Add employee (Staff & Roles) with automatic login invite.
