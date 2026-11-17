@@ -48,7 +48,7 @@ describe("fillAgreement", () => {
     expect(filled).toContain("Membership Type: Associate Membership");
     expect(filled).toContain("Monthly Dues: $199.00, plus tax");
     expect(filled).toContain(
-      "The Preserve Gym LLC may increase the monthly membership rate by one percent (1%) to five percent (5%) per year.",
+      "The Preserve Gym LLC may increase the monthly membership rate by one percent (1%) to five percent (5%) per year. The Preserve Gym LLC will notify the member by email at least thirty (30) days before any increase takes effect.",
     );
     expect(filled).toContain("{{unknown}} —");
   });

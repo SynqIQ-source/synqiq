@@ -28,7 +28,7 @@ export const dollars = (cents: number) =>
 
 // The yearly rate-increase clause added to every membership agreement.
 export const RATE_INCREASE_CLAUSE =
-  "Annual Rate Increase: After the first year of membership, {{business_name}} may increase the monthly membership rate by one percent (1%) to five percent (5%) per year.";
+  "Annual Rate Increase: After the first year of membership, {{business_name}} may increase the monthly membership rate by one percent (1%) to five percent (5%) per year. {{business_name}} will notify the member by email at least thirty (30) days before any increase takes effect.";
 
 // Turns an agreement imported from Mindbody into a SynqIQ template: the
 // "Membership Type / Monthly Dues / First Payment Due" lines Mindbody filled
