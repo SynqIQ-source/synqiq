@@ -34,6 +34,8 @@ const instructorOrTrainer = (staff: CurrentStaff) => isInstructorAccess(staff) |
 // Grouped so the sidebar reads as "what I do every day" / "how the studio is
 // doing" / "setup", instead of one flat list of 16 links.
 const navigation: { label: string | null; items: NavEntry[] }[] = [
+  // The whole club at a glance (Club Admins), first thing in the menu.
+  { label: null, items: [{ href: "/dashboard/club", label: "Club Overview", who: isClubAdmin }] },
   {
     label: "Teaching",
     items: [

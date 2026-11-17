@@ -1,4 +1,5 @@
 import {
+  Activity,
   Banknote,
   Dumbbell,
   Star,
@@ -51,6 +52,7 @@ import {
 // imported by client components (a component function can't be passed from
 // a server component as a prop).
 export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
+  "/dashboard/club": Activity,
   "/dashboard": LayoutDashboard,
   "/dashboard/classes": BookOpen,
   "/dashboard/schedule": Calendar,
