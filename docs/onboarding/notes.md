@@ -18,8 +18,16 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
   payroll hours).
 - **Message Boards** (Teaching): Announcements (Club Admins post), department
   chats, coverage chats. Club Admins can delete any post.
-- **Menu sections**: Teaching, Sales, Fitness, Insights, Services & Pricing,
-  Admin. People only see what their role allows.
+- **Menu sections**: Teaching, Sales, Fitness, Operations, Insights, Services
+  & Pricing, Admin. People only see what their role allows.
+- **Report a maintenance issue** (Operations -> Maintenance -> Report an
+  issue): pick the equipment (or say where it is), what's wrong, details, and
+  add photos and up to 2 short videos (30 seconds total, different angles).
+  The equipment's owner and Club Admins are emailed right away; critical
+  equipment also sends a phone alert. Anyone can add notes and
+  troubleshooting steps on a report.
+- **Vendor expected today** shows at the top of Check-in when a maintenance
+  vendor is due, so the desk can let them in.
 
 ## Group Fitness (instructors)
 
@@ -110,6 +118,22 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 - **CRM settings**: kiosk iPads (Check-in home-screen app, pair once from the
   icon), website forms, website form spam (Not spam to release), waiver,
   how-did-you-hear options, who sells.
+
+- **Maintenance** (Operations -> Maintenance):
+  - *Equipment* tab: add each piece (name, area, model #, serial #, owner who
+    gets the alerts, usual vendor, notes) and switch on **Critical** for
+    pieces like the steam room. Click a piece for its repair history and
+    lifetime cost.
+  - *Vendors* tab: company, contact, email, phone, notes.
+  - On a report: **Approve and contact a vendor** (Club Admins only) -- the
+    first email includes the original report, model/serial, in-house
+    troubleshooting and photo/video links. The vendor's replies come back
+    into the report's timeline and everyone involved is emailed.
+  - **Schedule visit** (date/time), **Vendor is on site**, **Mark resolved**
+    (owner or Club Admin). **Quote / Paid** amounts (Club Admins) roll up into
+    the equipment's cost history.
+  - Reminders: the day before a visit; a critical issue with no vendor
+    reply after 24 hours; a visit date that passed with the issue still open.
 
 ### Step by step (Club Admin)
 
@@ -208,6 +232,8 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-16: Maintenance module (equipment, vendors, reports with photos/
+  video, vendor email relay, visits, quotes/payments, reminders).
 - 2026-11-16: Add employee (Staff & Roles) with automatic login invite.
 - 2026-11-16: Admin step-by-steps (employee, pay rates, classes); cancel email
   no longer includes the reason.

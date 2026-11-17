@@ -56,6 +56,20 @@ export default async function CheckInPage({ searchParams }: { searchParams: Prom
   const today = DateTime.now().setZone(timezone).toISODate()!;
   const date = params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) && params.date <= today ? params.date : today;
   const filter: Filter = params.show && params.show in FILTERS ? (params.show as Filter) : "all";
+  // Vendors due on site today (maintenance), so the desk can let them in.
+  const startOfToday = DateTime.now().setZone(timezone).startOf("day");
+  const { data: vendorVisits } = await supabase
+    .from("maintenance_issues")
+    .select("id, title, next_visit_at, vendor_id")
+    .eq("status", "visit_scheduled")
+    .gte("next_visit_at", startOfToday.toUTC().toISO()!)
+    .lt("next_visit_at", startOfToday.plus({ days: 1 }).toUTC().toISO()!)
+    .order("next_visit_at");
+  const visitVendorIds = [...new Set((vendorVisits ?? []).map((visit) => visit.vendor_id).filter((id): id is string => Boolean(id)))];
+  const { data: visitVendors } = visitVendorIds.length
+    ? await supabase.from("maintenance_vendors").select("id, name").in("id", visitVendorIds)
+    : { data: [] };
+  const visitVendorName = new Map((visitVendors ?? []).map((vendor) => [vendor.id as string, vendor.name as string]));
 
   const { data: rows } = await supabase
     .from("check_ins")
@@ -97,6 +111,20 @@ export default async function CheckInPage({ searchParams }: { searchParams: Prom
       description="Scan a key card or look someone up. Each visit is matched to the membership or pass that covers it."
     >
       <div className="space-y-6">
+        {(vendorVisits ?? []).length ? (
+          <div className="rounded-md border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-700 dark:bg-sky-950 dark:text-sky-100">
+            <span className="font-medium">Vendor expected today: </span>
+            {(vendorVisits ?? []).map((visit, index) => (
+              <span key={visit.id as string}>
+                {index ? "; " : ""}
+                <Link href={`/dashboard/maintenance/${visit.id}`} className="underline">
+                  {visit.vendor_id ? (visitVendorName.get(visit.vendor_id as string) ?? "Vendor") : "Vendor"} at{" "}
+                  {DateTime.fromISO(visit.next_visit_at as string).setZone(timezone).toFormat("h:mm a")} ({visit.title as string})
+                </Link>
+              </span>
+            ))}
+          </div>
+        ) : null}
         <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
           Until the switch, Mindbody still records arrivals. SynqIQ check-ins are its own record for the parallel run.
         </div>

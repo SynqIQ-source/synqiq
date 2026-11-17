@@ -4,6 +4,8 @@ import { verifyResendWebhook } from "@/lib/followup/verify-webhook";
 import { fetchReceivedEmail } from "@/lib/email/resend-inbound";
 import { handleInboundEmail } from "@/lib/followup/inbound";
 import { findGuestAlias, handleGuestEmailReply } from "@/lib/crm/inbound-email";
+import { findMaintenanceAlias } from "@/lib/maintenance/rules";
+import { handleMaintenanceReply } from "@/lib/maintenance/server";
 
 // crypto (webhook verification) + the Receiving API fetch + several
 // sequential Supabase round trips + a Resend send per inbound mail.
@@ -53,6 +55,20 @@ export async function POST(request: NextRequest) {
     // The fetch layer already logged why. 500 so Resend retries -- a
     // transient Receiving API failure shouldn't lose the message.
     return NextResponse.json({ error: "could not fetch email content" }, { status: 500 });
+  }
+
+  // A vendor replying about a maintenance issue (m-<token>@ alias).
+  const maintenanceAlias = findMaintenanceAlias(received.to, process.env.FOLLOWUP_RELAY_DOMAIN);
+  if (maintenanceAlias) {
+    const maintenanceResult = await handleMaintenanceReply({
+      alias: maintenanceAlias,
+      from: received.from,
+      subject: received.subject,
+      text: received.text,
+      messageId: received.messageId,
+    });
+    if (maintenanceResult.status === "dropped") console.warn(`[maintenance] vendor email dropped: ${maintenanceResult.reason}`);
+    return NextResponse.json(maintenanceResult);
   }
 
   // A guest replying to a CRM email (g-<token>@ alias) goes to their guest

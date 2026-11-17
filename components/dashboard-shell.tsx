@@ -74,6 +74,10 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     ],
   },
   {
+    label: "Operations",
+    items: [{ href: "/dashboard/maintenance", label: "Maintenance" }],
+  },
+  {
     label: "Insights",
     items: [
       { href: "/dashboard/heatmap", label: "Heat Map", who: isClubAdmin, modules: ["group_fitness"] },
