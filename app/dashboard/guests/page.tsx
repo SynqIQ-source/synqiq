@@ -244,6 +244,8 @@ export default async function GuestsPage({
     .map((member) => ({ id: member.id, name: member.display_name as string }));
   const canReassign = managesSales(staff);
 
+  const formatDay = (iso: string) => DateTime.fromISO(iso).setZone(org.timezone).toFormat("LLL d");
+  const formatClock = (iso: string) => DateTime.fromISO(iso).setZone(org.timezone).toFormat("h:mm a");
   const formatTime = (iso: string) => {
     const time = DateTime.fromISO(iso).setZone(org.timezone);
     return range === "today" ? time.toFormat("h:mm a") : time.toFormat("LLL d, h:mm a");
@@ -251,6 +253,7 @@ export default async function GuestsPage({
 
   return (
     <DashboardShell
+      fullWidth
       title="Guests"
       description="People who have been in the club: kiosk check-ins, guest visits, trials and appointments. Every lead, visited or not, is on Lead Status."
       actions={
@@ -331,7 +334,6 @@ export default async function GuestsPage({
                 <TableHead>Signed in</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Source</TableHead>
-                <TableHead>Referring member</TableHead>
                 <TableHead>Salesperson</TableHead>
                 <TableHead>Waiver</TableHead>
                 <TableHead>First contact</TableHead>
@@ -342,16 +344,13 @@ export default async function GuestsPage({
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
                     {range === "today" ? "No guests have checked in today yet." : "No guests in this period."}
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((row) => {
                   const contact = row.contact;
-                  const referrer = contact.referring_client
-                    ? `${contact.referring_client.first_name} ${contact.referring_client.last_name}`
-                    : contact.referrer_name_typed;
                   const waiverSigned = signed.has(contact.id);
                   const action = nextAction({
                     hasUnreadMessage: unread.has(contact.id),
@@ -372,7 +371,7 @@ export default async function GuestsPage({
                           lastName={contact.last_name}
                         />
                       </TableCell>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium whitespace-normal">
                         {unread.has(contact.id) ? (
                           <span className="mr-1.5 inline-block h-2 w-2 rounded-full bg-primary align-middle" title="New message" />
                         ) : null}
@@ -389,19 +388,22 @@ export default async function GuestsPage({
                           </Badge>
                         ) : null}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">
-                        {row.signedInAt ? formatTime(row.signedInAt) : "—"}
+                      <TableCell className="text-muted-foreground">
+                        {row.signedInAt ? (
+                          range === "today" ? (
+                            formatTime(row.signedInAt)
+                          ) : (
+                            <>
+                              <span className="block whitespace-nowrap">{formatDay(row.signedInAt)}</span>
+                              <span className="block text-xs whitespace-nowrap">{formatClock(row.signedInAt)}</span>
+                            </>
+                          )
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
-                      <TableCell>{row.type}</TableCell>
-                      <TableCell>{SOURCE_LABELS[contact.source] ?? contact.source}</TableCell>
-                      <TableCell>
-                        {referrer ?? "—"}
-                        {contact.referrer_unresolved ? (
-                          <Badge variant="destructive" className="ml-2">
-                            Unresolved
-                          </Badge>
-                        ) : null}
-                      </TableCell>
+                      <TableCell className="whitespace-normal">{row.type}</TableCell>
+                      <TableCell className="whitespace-normal">{SOURCE_LABELS[contact.source] ?? contact.source}</TableCell>
                       <TableCell>
                         {canReassign ? (
                           // Club Admins and Sales Leads reassign right from the list.
