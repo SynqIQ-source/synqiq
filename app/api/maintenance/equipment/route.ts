@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
+import { runsMaintenance } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { equipmentValues } from "@/lib/maintenance/catalog";
 import { checkOwnerAndVendor } from "./shared";
 
-// Club Admins add equipment to the register.
+// Club Admins and Facility Techs add equipment to the register.
 export async function POST(request: NextRequest) {
   const staff = await getCurrentStaff();
-  if (!staff || staff.role !== "admin")
-    return NextResponse.json({ success: false, error: "Only a Club Admin can do this." }, { status: 403 });
+  if (!staff || !runsMaintenance(staff))
+    return NextResponse.json({ success: false, error: "Only a Club Admin or Facility Tech can do this." }, { status: 403 });
   const parsed = equipmentValues((await request.json().catch(() => null)) as Record<string, unknown> | null);
   if (!parsed.ok) return NextResponse.json({ success: false, error: parsed.error }, { status: 400 });
   const admin = createSupabaseAdminClient();

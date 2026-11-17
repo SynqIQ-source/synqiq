@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { withRetry } from "@/lib/retry";
+import { copyClassImages } from "@/lib/classes/images";
 import { siteIdOr } from "@/lib/sync/sites";
 import {
   toClassTypeRow,
@@ -91,6 +92,14 @@ export async function syncClassCatalog(options: { siteId?: number } = {}): Promi
       })),
       "organization_id,mindbody_class_description_id",
     );
+    // Copy new or changed Mindbody class photos into SynqIQ's storage. A
+    // failed copy never fails the sync (the next run tries again).
+    try {
+      const images = await copyClassImages(org.id);
+      if (images.failed) console.warn(`[sync/class-catalog] class photos: ${images.failed} couldn't be copied`);
+    } catch (error) {
+      console.error("[sync/class-catalog] class photos:", error instanceof Error ? error.message : error);
+    }
 
     const schedules = await paged<MindbodyClassSchedule>(
       (offset) => mindbody.getClassSchedules(offset, accessToken) as Promise<Record<string, unknown>>,

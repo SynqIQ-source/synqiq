@@ -13,6 +13,9 @@
 //                              class follow-ups.
 //   Trainer tag                New Members (their own members), Trainer Health,
 //                              new-member follow-ups.
+//   Facility Tech tag          every maintenance email and critical alert; runs
+//                              every maintenance report; keeps the equipment
+//                              register. (Vendor contact, quote/paid: Club Admins.)
 //
 // Tags combine with any role and with each other. SynqIQ super admins are in
 // platform_admins (lib/platform/admin.ts) and are Club Admins of their own
@@ -32,7 +35,7 @@ export function isStaffRole(value: unknown): value is StaffRole {
   return typeof value === "string" && (STAFF_ROLES as readonly string[]).includes(value);
 }
 
-type Who = { role: StaffRole; canSell: boolean; isInstructor: boolean; isTrainer: boolean };
+type Who = { role: StaffRole; canSell: boolean; isInstructor: boolean; isTrainer: boolean; isFacilityTech?: boolean };
 
 export const isClubAdmin = (staff: Who) => staff.role === "admin";
 
@@ -47,6 +50,10 @@ export const seesOnlyOwnSales = (staff: Who) => canUseCrm(staff) && !managesSale
 
 export const isInstructorAccess = (staff: Who) => isClubAdmin(staff) || staff.isInstructor;
 export const isTrainerAccess = (staff: Who) => isClubAdmin(staff) || staff.isTrainer;
+
+// Maintenance: run any report and keep the equipment register.
+export const runsMaintenance = (staff: { role: string; isFacilityTech?: boolean }) =>
+  staff.role === "admin" || staff.isFacilityTech === true;
 
 // Front-desk check-in: sales staff (the front desk today), Club Admins and
 // trainers. Instructor-only staff don't check people in.

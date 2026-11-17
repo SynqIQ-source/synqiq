@@ -17,6 +17,8 @@ export type CurrentStaff = {
   // Teaching tags -- combine with any role.
   isInstructor: boolean;
   isTrainer: boolean;
+  // Facility Tech tag: maintenance emails, runs maintenance reports.
+  isFacilityTech: boolean;
   // Two-step sign-in state (lib/auth/mfa-policy.ts). Never "needs_code":
   // a session that still owes its code is not signed in at all.
   mfa: Exclude<MfaState, "needs_code">;
@@ -51,7 +53,7 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
   const adminSupabase = createSupabaseAdminClient();
   const { data: staff } = await adminSupabase
     .from("staff")
-    .select("id, display_name, role, organization_id, title, photo_url, can_sell, is_instructor, is_trainer")
+    .select("id, display_name, role, organization_id, title, photo_url, can_sell, is_instructor, is_trainer, is_facility_tech")
     .eq("auth_user_id", user.id)
     .maybeSingle();
 
@@ -79,6 +81,7 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
     canSell: staff.can_sell === true,
     isInstructor: staff.is_instructor === true,
     isTrainer: staff.is_trainer === true,
+    isFacilityTech: staff.is_facility_tech === true,
     mfa: mfa as Exclude<MfaState, "needs_code">,
   };
 });

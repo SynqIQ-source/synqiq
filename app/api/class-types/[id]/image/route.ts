@@ -30,7 +30,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return fail("Couldn't upload. Try again.", 500);
   }
   const url = admin.storage.from(BUCKET).getPublicUrl(key).data.publicUrl;
-  await admin.from("class_types").update({ image_url: url }).eq("id", id);
+  // SynqIQ's photo from now on: the Mindbody sync never replaces it.
+  await admin.from("class_types").update({ image_url: url, image_source: "synqiq" }).eq("id", id);
   await removeOld(admin, type.image_url as string | null);
   return NextResponse.json({ success: true, imageUrl: url });
 }
@@ -48,7 +49,8 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     .eq("organization_id", auth.currentStaff.organizationId)
     .maybeSingle();
   if (!type) return fail("Class not found.", 404);
-  await admin.from("class_types").update({ image_url: null }).eq("id", id);
+  // Removed in SynqIQ: Mindbody's photo doesn't come back either.
+  await admin.from("class_types").update({ image_url: null, image_source: "synqiq" }).eq("id", id);
   await removeOld(admin, type.image_url as string | null);
   return NextResponse.json({ success: true });
 }

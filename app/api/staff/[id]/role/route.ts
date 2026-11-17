@@ -19,10 +19,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const currentStaff = await getCurrentStaff();
 
     if (!currentStaff || !isClubAdmin(currentStaff)) {
-      return NextResponse.json(
-        { success: false, error: "Only a club admin can change staff roles." },
-        { status: 403 },
-      );
+      return NextResponse.json({ success: false, error: "Only a club admin can change staff roles." }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));
@@ -30,7 +27,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (role !== undefined && !isStaffRole(role)) {
       return NextResponse.json({ success: false, error: "Pick a role from the list." }, { status: 400 });
     }
-    for (const key of ["canSell", "isInstructor", "isTrainer"] as const) {
+    for (const key of ["canSell", "isInstructor", "isTrainer", "isFacilityTech"] as const) {
       if (body?.[key] !== undefined && typeof body[key] !== "boolean") {
         return NextResponse.json({ success: false, error: "Invalid request." }, { status: 400 });
       }
@@ -99,11 +96,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       update.teaching_roles_set_at = new Date().toISOString();
     }
 
+    if (typeof body?.isFacilityTech === "boolean") update.is_facility_tech = body.isFacilityTech;
+
     const { data: updated, error: updateError } = await admin
       .from("staff")
       .update(update)
       .eq("id", staffId)
-      .select("role, can_sell, is_instructor, is_trainer")
+      .select("role, can_sell, is_instructor, is_trainer, is_facility_tech")
       .single();
 
     if (updateError) {
@@ -116,11 +115,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       canSell: updated.can_sell,
       isInstructor: updated.is_instructor,
       isTrainer: updated.is_trainer,
+      isFacilityTech: updated.is_facility_tech,
     });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

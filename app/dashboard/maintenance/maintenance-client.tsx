@@ -479,11 +479,13 @@ export function EquipmentDialog({
   staff,
   vendors,
   trigger,
+  canRetire = true,
 }: {
   initial?: EquipmentForm;
   staff: StaffOption[];
   vendors: VendorOption[];
   trigger: React.ReactNode;
+  canRetire?: boolean;
 }) {
   const router = useRouter();
   const blank: EquipmentForm = {
@@ -575,7 +577,7 @@ export function EquipmentDialog({
         </div>
         <Message text={error} />
         <DialogFooter className="gap-2">
-          {initial?.id ? (
+          {initial?.id && canRetire ? (
             <Button variant="ghost" className="mr-auto text-destructive" disabled={busy} onClick={() => save({ archived: true })}>
               Retire
             </Button>

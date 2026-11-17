@@ -130,7 +130,8 @@ export function toClassTypeRow(organizationId: string, description: MindbodyClas
     name: (description.Name ?? "").trim() || `Class ${description.Id}`,
     description_html: description.Description ?? null,
     description_text: htmlToText(description.Description),
-    image_url: description.ImageURL ?? null,
+    // Mindbody's photo; SynqIQ copies it into its own storage (lib/classes/images.ts).
+    mindbody_image_url: description.ImageURL ?? null,
     level,
     notes: htmlToText(description.Notes),
     prerequisites: htmlToText(description.Prereq),

@@ -6,7 +6,7 @@ role needs to know here; before go-live this becomes the in-app Help section
 dashboard number comes from.
 
 Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
-(instructors)**. "Everyone" = all staff.
+(instructors)**, **Facility Tech**. "Everyone" = all staff.
 
 ---
 
@@ -98,12 +98,25 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
   members are released with no fee and get a short apology email).
 - Can void sales and waive late cancels.
 
+## Facility Tech
+
+- A tag on Staff & Roles (with any role), e.g. Andy Garcia.
+- Gets every maintenance email (new reports, vendor replies, visits,
+  reminders) and the phone alert for critical equipment.
+- On any report: notes and troubleshooting, **Schedule visit**, **Vendor is on
+  site**, **Mark resolved** / reopen.
+- **Equipment** tab: add pieces and edit them (model/serial #, owner, usual
+  vendor, notes). Retiring equipment, vendors, approving vendor contact and
+  quote/paid amounts stay with Club Admins.
+
 ## Club Admin
 
 - Everything above, plus Admin and Insights.
 - **Staff & Roles**: invite staff, set role (Club Admin / Sales Lead / Sales /
   Staff) and tags (Instructor, Trainer).
-- **Class Catalog**: class types (photo + description shown to members),
+- **Class Catalog**: class types (photo + description shown to members; the
+  photos from Mindbody are copied into SynqIQ, and a photo you upload or
+  remove in SynqIQ is never replaced by Mindbody's),
   weekly schedule, calendar (change or cancel a single date), booking rules
   by program, rooms and **room layouts** (pick-a-spot; a main layout per room
   plus layouts for specific class types, e.g. Beat on mats), appointment
@@ -246,6 +259,9 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-17: Facility Tech tag (maintenance emails, runs reports, keeps
+  equipment); class photos copied from Mindbody into SynqIQ storage, and
+  SynqIQ uploads no longer overwritten by the nightly sync.
 - 2026-11-17: Inventory on hand (PAR, reorder level, counts, deliveries);
   Products & Inventory remembers the category you're in (Back button works,
   breadcrumb from an item); Lead Status / Follow-ups fit without sideways

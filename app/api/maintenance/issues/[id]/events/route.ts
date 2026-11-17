@@ -10,7 +10,7 @@ type RouteParams = { params: Promise<{ id: string }> };
 // Updates on a report:
 //   note, troubleshooting       any staff
 //   visit (date + time), on_site, resolved, reopened
-//                               the equipment's owner or a Club Admin
+//                               the equipment's owner, a Facility Tech or a Club Admin
 //   quote, paid (amounts)       Club Admins
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const staff = await getCurrentStaff();
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: true });
   }
 
-  if (!runs) return deny("the equipment's owner or a Club Admin");
+  if (!runs) return deny("the equipment's owner, a Facility Tech or a Club Admin");
   const { data: org } = await admin.from("organizations").select("timezone").eq("id", issue.organization_id).single();
   const zone = (org?.timezone as string | null) ?? "America/Chicago";
   const ownerId = equipment?.owner_staff_id ?? null;

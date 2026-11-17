@@ -11,6 +11,7 @@ export type StaffLinkingRow = {
   can_sell: boolean;
   is_instructor: boolean;
   is_trainer: boolean;
+  is_facility_tech: boolean;
   email: string | null;
   mindbody_staff_id: number | null;
   auth_user_id: string | null;
@@ -40,13 +41,13 @@ type RowState = {
 };
 
 // What a club admin sets per person (see lib/permissions.ts).
-type Access = { role: string; canSell: boolean; isInstructor: boolean; isTrainer: boolean };
+type Access = { role: string; canSell: boolean; isInstructor: boolean; isTrainer: boolean; isFacilityTech: boolean };
 
 const ROLE_HELP: Record<string, string> = {
   admin: "Everything in the studio: settings, staff and roles, sub approvals, every dashboard.",
   sales_lead: "Every guest and lead, reassigning, marking sold, every salesperson's numbers.",
   sales: "Only the guests and leads assigned to them, and their own numbers.",
-  staff: "No management or sales access. Add Instructor or Trainer below.",
+  staff: "No management or sales access. Add Instructor, Trainer or Facility Tech below.",
 };
 
 function initialRowState(row: StaffLinkingRow): RowState {
@@ -58,7 +59,13 @@ function initialRowState(row: StaffLinkingRow): RowState {
     confirmingDelete: false,
     confirmingTwoStepReset: false,
     lifecycleStatus: "idle",
-    access: { role: row.role, canSell: row.can_sell, isInstructor: row.is_instructor, isTrainer: row.is_trainer },
+    access: {
+      role: row.role,
+      canSell: row.can_sell,
+      isInstructor: row.is_instructor,
+      isTrainer: row.is_trainer,
+      isFacilityTech: row.is_facility_tech === true,
+    },
     roleStatus: "idle",
   };
 }
@@ -71,7 +78,7 @@ const EMPTY_ROW_STATE: RowState = {
   confirmingDelete: false,
   confirmingTwoStepReset: false,
   lifecycleStatus: "idle",
-  access: { role: "staff", canSell: false, isInstructor: false, isTrainer: false },
+  access: { role: "staff", canSell: false, isInstructor: false, isTrainer: false, isFacilityTech: false },
   roleStatus: "idle",
 };
 
@@ -106,7 +113,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
   // since a role change can switch selling on or off with it.
   async function updateAccess(
     staffId: string,
-    patch: Partial<{ role: string; canSell: boolean; isInstructor: boolean; isTrainer: boolean }>,
+    patch: Partial<{ role: string; canSell: boolean; isInstructor: boolean; isTrainer: boolean; isFacilityTech: boolean }>,
   ) {
     const previous = (rowState[staffId] ?? EMPTY_ROW_STATE).access;
     patchRow(staffId, { access: { ...previous, ...patch }, roleStatus: "saving", roleError: undefined });
@@ -134,6 +141,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
           canSell: result.canSell,
           isInstructor: result.isInstructor,
           isTrainer: result.isTrainer,
+          isFacilityTech: result.isFacilityTech === true,
         },
         roleStatus: "idle",
       });
@@ -377,9 +385,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             {state.status === "sending" ? "Sending..." : "Send invite"}
           </button>
         )}
-        {state.status === "success" && (
-          <p className="mt-1.5 text-xs text-emerald-700">{state.message}</p>
-        )}
+        {state.status === "success" && <p className="mt-1.5 text-xs text-emerald-700">{state.message}</p>}
         {state.status === "error" && <p className="mt-1.5 text-xs text-red-600">{state.message}</p>}
       </div>
     );
@@ -428,9 +434,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               Delete permanently
             </button>
           )}
-          {state.lifecycleStatus === "error" && (
-            <p className="mt-1 text-xs text-red-600">{state.lifecycleError}</p>
-          )}
+          {state.lifecycleStatus === "error" && <p className="mt-1 text-xs text-red-600">{state.lifecycleError}</p>}
         </div>
       );
     }
@@ -498,9 +502,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
         )}
 
         {busy && <p className="mt-1 text-xs text-muted-foreground">Working...</p>}
-        {state.lifecycleStatus === "error" && (
-          <p className="mt-1 text-xs text-red-600">{state.lifecycleError}</p>
-        )}
+        {state.lifecycleStatus === "error" && <p className="mt-1 text-xs text-red-600">{state.lifecycleError}</p>}
       </div>
     );
   }
@@ -517,9 +519,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               which non-archived rows are actually separated/inactive and
               worth archiving, not a status this page otherwise acts on. */}
           {!row.active && !row.archived_at && (
-            <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">
-              Inactive in Mindbody
-            </span>
+            <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-normal text-muted-foreground">Inactive in Mindbody</span>
           )}
         </td>
         <td className="p-3">
@@ -542,6 +542,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               [
                 ["isInstructor", "Instructor"],
                 ["isTrainer", "Trainer"],
+                ["isFacilityTech", "Facility Tech"],
                 ["canSell", "Sells"],
               ] as const
             ).map(([key, label]) => {
@@ -560,28 +561,20 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               );
             })}
           </div>
-          {state.roleStatus === "error" && (
-            <p className="mt-1.5 max-w-48 text-xs text-red-600">{state.roleError}</p>
-          )}
+          {state.roleStatus === "error" && <p className="mt-1.5 max-w-48 text-xs text-red-600">{state.roleError}</p>}
         </td>
         <td className="p-3">
           {row.mindbody_staff_id != null ? (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
-              Synced
-            </span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">Synced</span>
           ) : (
             <span className="text-xs text-muted-foreground">Added in SynqIQ</span>
           )}
         </td>
         <td className="p-3">
           {row.auth_user_id ? (
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-              Linked
-            </span>
+            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Linked</span>
           ) : (
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
-              Not linked
-            </span>
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">Not linked</span>
           )}
         </td>
         <td className="p-3">
@@ -594,7 +587,9 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
             className="w-56 rounded-md border border-border px-2 py-1.5 text-sm disabled:bg-muted/50"
           />
         </td>
-        <td className="p-3">{row.archived_at ? <span className="text-xs text-muted-foreground">Archived</span> : renderActionCell(row, state, busy)}</td>
+        <td className="p-3">
+          {row.archived_at ? <span className="text-xs text-muted-foreground">Archived</span> : renderActionCell(row, state, busy)}
+        </td>
         <td className="p-3">{renderLifecycleCell(row, state)}</td>
       </tr>
     );
@@ -631,9 +626,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
 
       {archivedStaff.length > 0 && (
         <details className="rounded-lg border">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">
-            Archived ({archivedStaff.length})
-          </summary>
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">Archived ({archivedStaff.length})</summary>
           <div className="overflow-x-auto border-t">
             <table className="w-full text-sm">
               <thead>

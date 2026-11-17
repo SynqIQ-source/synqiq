@@ -1,3 +1,4 @@
+import { runsMaintenance } from "@/lib/permissions";
 import { randomBytes } from "node:crypto";
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -55,9 +56,12 @@ export type EquipmentRow = {
   is_critical: boolean;
 };
 
-// The equipment's owner (stakeholder) or a Club Admin runs the issue.
-export function canRunIssue(staff: { id: string; role: string }, equipment: { owner_staff_id: string | null } | null) {
-  return staff.role === "admin" || (equipment?.owner_staff_id != null && equipment.owner_staff_id === staff.id);
+// The equipment's owner (stakeholder), a Facility Tech or a Club Admin runs the issue.
+export function canRunIssue(
+  staff: { id: string; role: string; isFacilityTech?: boolean },
+  equipment: { owner_staff_id: string | null } | null,
+) {
+  return runsMaintenance(staff) || (equipment?.owner_staff_id != null && equipment.owner_staff_id === staff.id);
 }
 
 export async function addEvent(admin: Admin, row: Record<string, unknown> & { organization_id: string; issue_id: string; kind: string }) {
@@ -66,14 +70,14 @@ export async function addEvent(admin: Admin, row: Record<string, unknown> & { or
   await admin.from("maintenance_issues").update({ updated_at: new Date().toISOString() }).eq("id", row.issue_id);
 }
 
-// Club Admins plus the equipment's owner: who hears about an issue.
+// Club Admins, Facility Techs and the equipment's owner: who hears about an issue.
 async function stakeholders(admin: Admin, organizationId: string, ownerStaffId: string | null) {
   const { data } = await admin
     .from("staff")
     .select("id, display_name, email, role")
     .eq("organization_id", organizationId)
     .is("archived_at", null)
-    .or(`role.eq.admin${ownerStaffId ? `,id.eq.${ownerStaffId}` : ""}`);
+    .or(`role.eq.admin,is_facility_tech.eq.true${ownerStaffId ? `,id.eq.${ownerStaffId}` : ""}`);
   return (data ?? []) as { id: string; display_name: string; email: string | null; role: string }[];
 }
 
@@ -90,7 +94,7 @@ async function orgInfo(admin: Admin, organizationId: string) {
   return { name: (data?.name as string | null) ?? "Your studio", timezone: (data?.timezone as string | null) ?? "America/Chicago" };
 }
 
-// Tell the owner + Club Admins (email; push too when critical). Staff only.
+// Tell the owner, Facility Techs and Club Admins (email; push too when critical). Staff only.
 export async function notifyStakeholders(
   admin: Admin,
   issue: IssueRow,

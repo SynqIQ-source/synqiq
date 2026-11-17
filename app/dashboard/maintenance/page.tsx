@@ -1,3 +1,4 @@
+import { runsMaintenance } from "@/lib/permissions";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { DateTime } from "luxon";
@@ -19,14 +20,16 @@ const OPEN_ORDER: IssueStatus[] = ["reported", "troubleshooting", "vendor_contac
 
 // Maintenance: open issues (critical first), upcoming vendor visits,
 // recently resolved; the equipment register with what each piece has cost;
-// vendors. Every staff member sees it and can report; Club Admins manage
-// equipment and vendors.
+// vendors. Every staff member sees it and can report; Club Admins and
+// Facility Techs keep equipment; Club Admins manage vendors.
 export default async function MaintenancePage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const staff = await getCurrentStaff();
   if (!staff) redirect("/login");
   const params = await searchParams;
   const tab = params.tab === "equipment" || params.tab === "vendors" ? params.tab : "issues";
   const isAdmin = staff.role === "admin";
+  // Club Admins and Facility Techs keep the equipment register.
+  const keepsEquipment = runsMaintenance(staff);
   const supabase = await getScopedClient(staff);
   const { data: org } = await createSupabaseAdminClient().from("organizations").select("timezone").eq("id", staff.organizationId).single();
   const zone = (org?.timezone as string | null) ?? "America/Chicago";
@@ -227,7 +230,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams: 
                     Critical pieces send an urgent alert the day they&apos;re reported. Cost = payments recorded on its issues.
                   </CardDescription>
                 </div>
-                {isAdmin ? (
+                {keepsEquipment ? (
                   <EquipmentDialog
                     staff={staffOptions}
                     vendors={vendors.map((vendor) => ({ id: vendor.id, name: vendor.name, email: vendor.email }))}
@@ -245,14 +248,14 @@ export default async function MaintenancePage({ searchParams }: { searchParams: 
                   <TableHead>Usual vendor</TableHead>
                   <TableHead className="text-right">Issues</TableHead>
                   <TableHead className="text-right">Paid to date</TableHead>
-                  {isAdmin ? <TableHead /> : null}
+                  {keepsEquipment ? <TableHead /> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {activeEquipment.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                      No equipment yet.{isAdmin ? " Add the pieces you want to track, starting with the critical ones." : ""}
+                      No equipment yet.{keepsEquipment ? " Add the pieces you want to track, starting with the critical ones." : ""}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -286,7 +289,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams: 
                           </Link>
                         </TableCell>
                         <TableCell className="text-right">{costs.paidCents ? money(costs.paidCents) : "—"}</TableCell>
-                        {isAdmin ? (
+                        {keepsEquipment ? (
                           <TableCell className="text-right">
                             <EquipmentDialog
                               staff={staffOptions}
@@ -302,6 +305,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams: 
                                 defaultVendorId: item.default_vendor_id ?? "",
                                 notes: item.notes ?? "",
                               }}
+                              canRetire={isAdmin}
                               trigger={
                                 <Button size="sm" variant="ghost">
                                   Edit
