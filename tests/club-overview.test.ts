@@ -15,7 +15,8 @@ import {
 const schedule = (change: Partial<Schedule>): Schedule => ({
   id: Math.random().toString(36),
   clientId: "c1",
-  name: "Monthly",
+  name: "Pat Member",
+  membership: "Monthly",
   status: "active",
   startDate: "2026-10-01",
   endDate: null,
@@ -57,7 +58,7 @@ describe("change", () => {
 
 describe("membersOn", () => {
   it("counts people once, and frozen ones apart from active", () => {
-    const schedules = [schedule({ clientId: "a" }), schedule({ clientId: "a", name: "Add-on" }), schedule({ clientId: "b" })];
+    const schedules = [schedule({ clientId: "a" }), schedule({ clientId: "a", membership: "Add-on" }), schedule({ clientId: "b" })];
     const result = membersOn(schedules, [adjustment({ clientId: "b" })], "2026-11-17", false);
     expect([...result.active]).toEqual(["a"]);
     expect([...result.frozen]).toEqual(["b"]);

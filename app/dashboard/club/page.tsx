@@ -29,16 +29,16 @@ function Delta({
   format?: (n: number) => string;
   against: string;
 }) {
-  const tone = diff > 0 ? "text-emerald-700 dark:text-emerald-400" : diff < 0 ? "text-red-700 dark:text-red-400" : "text-muted-foreground";
-  const sign = diff > 0 ? "▲ " : diff < 0 ? "▼ " : "";
+  if (diff === 0) return <p className="text-xs text-muted-foreground">No change vs {against}</p>;
+  const tone = diff > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400";
   return (
     <p className="text-xs text-muted-foreground">
       <span className={cn("font-medium", tone)}>
-        {sign}
+        {diff > 0 ? "▲ " : "▼ "}
         {format(Math.abs(diff))}
-        {percent != null && diff !== 0 ? ` (${Math.abs(percent)}%)` : ""}
+        {percent != null ? ` (${Math.abs(percent)}%)` : ""}
       </span>{" "}
-      {diff === 0 ? "no change " : ""}vs {against}
+      vs {against}
     </p>
   );
 }

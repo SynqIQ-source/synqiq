@@ -43,7 +43,8 @@ const inRange = (day: string, from: string, to: string) => day >= from && day <=
 export type Schedule = {
   id: string;
   clientId: string;
-  name: string;
+  name: string; // the member's name on the membership ("" if unknown)
+  membership: string; // what was sold
   status: string; // practice | active | cancelled | voided
   startDate: string;
   endDate: string | null;

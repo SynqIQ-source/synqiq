@@ -102,6 +102,13 @@ export async function loadClubOverview(organizationId: string, options: { includ
   const today = membersOn(schedules, adjustments, periods.today, include);
   const before = membersOn(schedules, adjustments, periods.thirtyDaysAgo, include);
   const movement = memberMovement(schedules, adjustments, periods.mtdFrom, periods.mtdTo, include);
+  const names = await memberNames(admin, organizationId, schedules, [
+    ...movement.sold.map((s) => s.clientId),
+    ...movement.cancelled.map((a) => a.clientId),
+    ...movement.frozen.map((a) => a.clientId),
+    ...movement.unfrozen.map((a) => a.clientId),
+  ]);
+  const who = (clientId: string) => ({ client: clientId, person: names.get(clientId) ?? `Client ${clientId}` });
 
   // Sales
   const lines = sales.lines;
@@ -133,10 +140,13 @@ export async function loadClubOverview(organizationId: string, options: { includ
       frozen: today.frozen.size,
       vs30: change(today.active.size, before.active.size),
       movement: {
-        sold: movement.sold.map((s) => ({ client: s.clientId, name: s.name, day: s.createdDay })),
-        cancelled: movement.cancelled.map((a) => ({ client: a.clientId, day: a.createdDay, effective: a.startsOn })),
-        frozen: movement.frozen.map((a) => ({ client: a.clientId, from: a.startsOn, to: a.endsOn })),
-        unfrozen: movement.unfrozen.map((a) => ({ client: a.clientId, day: a.cancelledDay ?? a.endsOn })),
+        sold: movement.sold.map((s) => ({ ...who(s.clientId), membership: s.membership, day: s.createdDay })),
+        cancelled: movement.cancelled.map((a) => ({ ...who(a.clientId), day: a.createdDay, effective: a.startsOn })),
+        frozen: movement.frozen.map((a) => ({ ...who(a.clientId), from: a.startsOn, to: a.endsOn })),
+        unfrozen: movement.unfrozen.map((a) => ({
+          ...who(a.clientId),
+          day: a.cancelledDay ?? (a.endsOn ? DateTime.fromISO(a.endsOn).plus({ days: 1 }).toISODate()! : ""),
+        })),
         net: movement.net,
       },
     },
@@ -181,6 +191,27 @@ export async function loadClubOverview(organizationId: string, options: { includ
 
 export type ClubOverview = Awaited<ReturnType<typeof loadClubOverview>>;
 
+// Names for the people in the member lists: the name on their SynqIQ
+// membership, else their SynqIQ member profile.
+async function memberNames(admin: Admin, organizationId: string, schedules: Schedule[], clientIds: string[]) {
+  const names = new Map<string, string>();
+  for (const schedule of schedules) if (schedule.name) names.set(schedule.clientId, schedule.name);
+  const missing = [...new Set(clientIds)].filter((id) => !names.has(id));
+  for (let index = 0; index < missing.length; index += 200) {
+    const { data } = await admin
+      .from("member_personal")
+      .select("mindbody_client_id, mindbody")
+      .eq("organization_id", organizationId)
+      .in("mindbody_client_id", missing.slice(index, index + 200));
+    for (const row of data ?? []) {
+      const profile = (row.mindbody ?? {}) as { firstName?: string; lastName?: string };
+      const name = `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim();
+      if (name) names.set(row.mindbody_client_id as string, name);
+    }
+  }
+  return names;
+}
+
 async function loadSchedules(admin: Admin, organizationId: string, localDay: (iso: string) => string): Promise<Schedule[]> {
   const rows = await pageAll<{
     id: string;
@@ -203,7 +234,8 @@ async function loadSchedules(admin: Admin, organizationId: string, localDay: (is
   return rows.map((row) => ({
     id: row.id,
     clientId: row.mindbody_client_id,
-    name: row.client_name ? `${row.client_name} · ${row.name}` : row.name,
+    name: row.client_name ?? "",
+    membership: row.name,
     status: row.status,
     startDate: row.start_date,
     endDate: row.end_date,
