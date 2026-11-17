@@ -6,6 +6,13 @@ import { isTaxable } from "@/lib/pos/catalog";
 import { commissionEarnerIds } from "@/lib/payroll/commission-job";
 import { expandCartLines, monthlySchedule, parsePackageParts, type PricedPart } from "@/lib/pos/packages";
 import type { CurrentStaff } from "@/lib/current-staff";
+import {
+  agreementsForSale,
+  saveSignatures,
+  signatureProblem,
+  type AgreementSignatureRequest,
+  type AgreementToSign,
+} from "@/lib/agreements/sale";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -53,10 +60,23 @@ export async function findPromo(admin: Admin, organizationId: string, code: stri
 
 // Save a PRACTICE sale: prices, tax and promo are recomputed from the catalog
 // on the server; commission choices are required on commissionable lines.
+// Items with an agreement (memberships, personal training) need the buyer's
+// signature: `dryRun` checks the sale and returns the agreements to sign
+// (filled in with this sale's items and prices); the real save needs a
+// matching signature for each.
 export async function savePracticeSale(
   staff: CurrentStaff,
-  input: { clientId: string | null; clientName: string | null; lines: SaleLineRequest[]; promoCode: string | null; note: string | null },
-): Promise<{ error: string } | { saleId: string; saleNumber: number }> {
+  input: {
+    clientId: string | null;
+    clientName: string | null;
+    lines: SaleLineRequest[];
+    promoCode: string | null;
+    note: string | null;
+    agreements?: AgreementSignatureRequest[];
+    evidence?: { ip: string | null; userAgent: string | null };
+    dryRun?: boolean;
+  },
+): Promise<{ error: string } | { saleId: string; saleNumber: number } | { agreements: AgreementToSign[] }> {
   const admin = createSupabaseAdminClient();
   const org = staff.organizationId;
   if (input.lines.length === 0) return { error: "The cart is empty." };
@@ -84,7 +104,7 @@ export async function savePracticeSale(
     admin
       .from("pos_items")
       .select(
-        "id, name, kind, price_cents, revenue_category_id, taxable, active, package_parts, autopay_count, auto_renews, open_price, members_only, deleted_at",
+        "id, name, kind, price_cents, revenue_category_id, taxable, active, package_parts, autopay_count, auto_renews, open_price, members_only, deleted_at, sessions, agreement_template_id",
       )
       .eq("organization_id", org)
       .in(
@@ -201,6 +221,38 @@ export async function savePracticeSale(
 
   const cart = computeCart(expanded, taxRate, promo);
 
+  // Agreements the buyer signs for this sale.
+  const saleDate = DateTime.now().setZone(timezone).toISODate()!;
+  const toSign = await agreementsForSale(admin, org, {
+    memberName: input.clientName,
+    timezone,
+    lines: input.lines.map((request, lineIndex) => {
+      const item = itemBy.get(request.itemId)!;
+      const parts = partsBy.get(item.id as string);
+      const firstPaymentCents = cart.lines
+        .filter((_line, index) => Number(expanded[index].parentKey) === lineIndex)
+        .reduce((sum, line) => sum + line.netCents, 0);
+      return {
+        lineIndex,
+        itemId: item.id as string,
+        itemName: item.name as string,
+        templateId: (item.agreement_template_id as string | null) ?? null,
+        sessions: item.sessions == null ? null : Number(item.sessions),
+        quantity: request.quantity,
+        firstPaymentCents,
+        monthlyDuesCents: parts
+          ? (monthlySchedule(parts, taxRate, saleDate)?.subtotalCents ?? null)
+          : item.kind === "membership"
+            ? Number(item.price_cents)
+            : null,
+      };
+    }),
+  });
+  if (toSign.length && !input.clientName) return { error: `Pick the member first: ${toSign[0].itemName} needs their signature.` };
+  if (input.dryRun) return { agreements: toSign };
+  const unsigned = signatureProblem(toSign, input.agreements ?? []);
+  if (unsigned) return { error: unsigned };
+
   const { data: sale, error } = await admin
     .from("pos_sales")
     .insert({
@@ -260,7 +312,6 @@ export async function savePracticeSale(
     return { error: "Couldn't save the sale. Try again." };
   }
   // Membership packages: the monthly payments that follow (dues only).
-  const saleDate = DateTime.now().setZone(timezone).toISODate()!;
   const schedules = input.lines.flatMap((request) => {
     const item = itemBy.get(request.itemId)!;
     const parts = partsBy.get(item.id as string);
@@ -292,6 +343,33 @@ export async function savePracticeSale(
     if (scheduleError) {
       await admin.from("pos_sales").delete().eq("id", sale.id);
       return { error: "Couldn't save the sale. Try again." };
+    }
+  }
+  if (toSign.length) {
+    try {
+      await saveSignatures(
+        admin,
+        {
+          organizationId: org,
+          timezone,
+          saleId: sale.id as string,
+          saleNumber: Number(sale.sale_number),
+          mindbodyClientId,
+          crmContactId,
+          clientName: input.clientName?.slice(0, 200) ?? null,
+          staffId: staff.id,
+          staffName: staff.displayName ?? null,
+          ip: input.evidence?.ip ?? null,
+          userAgent: input.evidence?.userAgent ?? null,
+        },
+        toSign,
+        input.agreements ?? [],
+      );
+    } catch (signatureError) {
+      console.error("pos sale: saving agreements failed", signatureError);
+      await admin.from("member_billing_schedules").delete().eq("sale_id", sale.id);
+      await admin.from("pos_sales").delete().eq("id", sale.id);
+      return { error: "Couldn't save the signed agreement. Try again." };
     }
   }
   if (promo) {

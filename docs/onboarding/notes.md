@@ -69,6 +69,12 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 - **POS**: search a member, guest or lead; personal training and Pilates are
   members-only (needs an active membership or one bought in the same sale).
   Practice mode until payments go live (no card charged).
+- **Agreements at checkout**: selling a membership or personal training opens
+  a full-screen agreement for the member (iPad or touchscreen): they read it,
+  check the name, sign with a finger (or type their name and agree), then the
+  sale finishes. Hand the screen to the member; "Back to checkout" returns
+  without saving. Trainers selling PT get the same screen. The signed PDF is
+  on the member's profile and in their Receipts in the member app.
 - **Guests**: only people who have been in the club (kiosk, guest visits,
   trials, appointments). Find a lead box at the top.
 - **Lead Status**: the working list. Views: By date range (report), Open leads
@@ -121,6 +127,13 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 ## Club Admin
 
 - Everything above, plus Admin and Insights.
+- **Agreements** (Services menu): the text members sign at checkout. Edit or
+  upload (.txt) the text; {{item}}, {{monthly_dues}}, {{first_payment}},
+  {{sessions}}, {{business_name}} fill in with what's being sold, so the
+  agreement always names the item and prices actually sold. Business name on
+  agreements: The Preserve Gym LLC. Pick each item's agreement in Products &
+  Inventory (open the item → Agreement). Changing the text makes a new
+  version; signed agreements keep the exact text signed.
 - **Staff & Roles**: invite staff, set role (Club Admin / Sales Lead / Sales /
   Staff) and tags (Instructor, Trainer).
 - **Class Catalog**: class types (photo + description shown to members; the
@@ -312,6 +325,11 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-17: Agreements signed at checkout (membership and personal
+  training; finger signature or typed name), Agreements page, signed PDFs on
+  the profile and in member Receipts; membership agreements gained the 1-5%
+  yearly rate-increase clause. Premium PT packs (one-time packages, Premium
+  sub-category) replace the PT "memberships".
 - 2026-11-17: Fitness Dashboard cards (PT revenue, sessions, intros, goals
   and pace, average per trainer) with monthly PT goals.
 - 2026-11-17: Reassign from the Guests list; lead search on Lead Follow-ups;

@@ -36,7 +36,9 @@ export type CatalogItem = {
   autoRenews: boolean;
   openPrice: boolean;
   membersOnly: boolean;
+  agreementTemplateId: string;
 };
+export type AgreementOption = { id: string; name: string };
 
 const KIND_LABELS = { product: "Retail", service: "Pack / service", membership: "Membership" } as const;
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
@@ -66,10 +68,12 @@ export function CatalogEditor({
   lastSync,
   promos,
   stock,
+  agreements,
 }: {
   items: CatalogItem[];
   categories: CatalogCategory[];
   inventoryCategories: InventoryCategory[];
+  agreements: AgreementOption[];
   taxPercent: number;
   lastSync: string | null;
   promos: PromoRow[];
@@ -98,7 +102,13 @@ export function CatalogEditor({
         ))}
       </div>
       {tab === "items" ? (
-        <Items items={items} categories={categories} inventoryCategories={inventoryCategories} lastSync={lastSync} />
+        <Items
+          items={items}
+          categories={categories}
+          inventoryCategories={inventoryCategories}
+          agreements={agreements}
+          lastSync={lastSync}
+        />
       ) : null}
       {tab === "stock" ? <StockOnHand rows={stock} inventoryCategories={inventoryCategories} /> : null}
       {tab === "categories" ? <Categories categories={categories} items={items} taxPercent={taxPercent} /> : null}
@@ -139,11 +149,13 @@ function Items({
   items,
   categories,
   inventoryCategories,
+  agreements,
   lastSync,
 }: {
   items: CatalogItem[];
   categories: CatalogCategory[];
   inventoryCategories: InventoryCategory[];
+  agreements: AgreementOption[];
   lastSync: string | null;
 }) {
   const router = useRouter();
@@ -301,6 +313,7 @@ function Items({
             item={editing}
             categories={categories}
             inventoryCategories={inventoryCategories}
+            agreements={agreements}
             defaultInventoryCategoryId={openId && openId !== UNSORTED ? openId : ""}
             onClose={() => {
               if (openedHere.current) {
@@ -476,12 +489,14 @@ function ItemEditor({
   item,
   categories,
   inventoryCategories,
+  agreements,
   defaultInventoryCategoryId,
   onClose,
 }: {
   item: CatalogItem | null;
   categories: CatalogCategory[];
   inventoryCategories: InventoryCategory[];
+  agreements: AgreementOption[];
   defaultInventoryCategoryId: string;
   onClose: () => void;
 }) {
@@ -494,6 +509,7 @@ function ItemEditor({
   const [active, setActive] = useState(item?.active ?? true);
   const [openPrice, setOpenPrice] = useState(item?.openPrice ?? false);
   const [membersOnly, setMembersOnly] = useState(item?.membersOnly ?? false);
+  const [agreementId, setAgreementId] = useState(item?.agreementTemplateId ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? null);
@@ -530,6 +546,7 @@ function ItemEditor({
       inventoryCategoryId: inventoryCategoryId || null,
       openPrice,
       membersOnly,
+      agreementTemplateId: agreementId || null,
       packageParts: parts
         ? parts.map((part) => ({
             label: part.label,
@@ -697,6 +714,19 @@ function ItemEditor({
             <input type="checkbox" checked={membersOnly} onChange={(e) => setMembersOnly(e.target.checked)} />
             Members only (needs an active membership, or one bought in the same sale)
           </label>
+          {kind !== "product" ? (
+            <label className="text-sm">
+              Agreement the member signs at checkout
+              <select className={`${selectClass} w-full`} value={agreementId} onChange={(e) => setAgreementId(e.target.value)}>
+                <option value="">None</option>
+                {agreements.map((agreement) => (
+                  <option key={agreement.id} value={agreement.id}>
+                    {agreement.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {!parts ? (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={openPrice} onChange={(e) => setOpenPrice(e.target.checked)} />

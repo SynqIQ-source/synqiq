@@ -94,6 +94,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     items: [
       { href: "/dashboard/class-catalog", label: "Class Catalog", who: isClubAdmin },
       { href: "/dashboard/services/membership-plans", label: "Membership Plans", who: isClubAdmin },
+      { href: "/dashboard/services/agreements", label: "Agreements", who: isClubAdmin },
       { href: "/dashboard/memberships/price-increases", label: "Price Increases", who: isClubAdmin },
       { href: "/dashboard/services/packs", label: "Services & Packs", who: isClubAdmin },
       { href: "/dashboard/services/products", label: "Products & Inventory", who: isClubAdmin },

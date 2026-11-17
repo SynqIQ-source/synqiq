@@ -464,6 +464,14 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
   const sessionsLeft = packs.reduce((sum, service) => sum + (service.remaining ?? 0), 0);
   const lastVisit = (pastVisits ?? [])[0]?.start_local ?? null;
 
+  const { data: agreements } = await createSupabaseAdminClient()
+    .from("agreement_signatures")
+    .select("id, title, signer_name, method, signed_at")
+    .eq("organization_id", orgId)
+    .eq("mindbody_client_id", clientId)
+    .order("signed_at", { ascending: false })
+    .limit(50);
+
   return (
     <DashboardShell
       title={displayName}
@@ -1036,6 +1044,38 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                     </ul>
                   </div>
                 ) : null}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Signed agreements</CardTitle>
+                <CardDescription>Signed at SynqIQ checkout. Open one for the signed PDF.</CardDescription>
+              </CardHeader>
+              <CardContent className="text-sm">
+                {agreements?.length ? (
+                  <ul className="space-y-2">
+                    {agreements.map((agreement) => (
+                      <li key={agreement.id as string}>
+                        <a
+                          href={`/api/agreements/${agreement.id}/pdf`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium underline underline-offset-4"
+                        >
+                          {agreement.title as string}
+                        </a>
+                        <span className="block text-xs text-muted-foreground">
+                          {DateTime.fromISO(agreement.signed_at as string)
+                            .setZone(timezone)
+                            .toFormat("LLL d, yyyy, h:mm a")}{" "}
+                          · {agreement.method === "drawn" ? "signed" : "typed name"} by {agreement.signer_name as string}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-muted-foreground">None yet. Agreements signed in Mindbody stay in Mindbody.</p>
+                )}
               </CardContent>
             </Card>
           </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SignAgreements, type AgreementToSign, type SignedAgreement } from "./sign-agreements";
 import { ChevronLeft, ChevronRight, Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -89,6 +90,8 @@ export function Checkout({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [signing, setSigning] = useState<AgreementToSign[] | null>(null);
+  const [signError, setSignError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const itemBy = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
@@ -208,36 +211,67 @@ export function Checkout({
     setPromo(result.promo);
   }
 
-  async function save() {
+  // Complete sale: items with an agreement (memberships, personal training)
+  // open the signing screen first; the sale saves once everything is signed.
+  async function complete() {
     setSaving(true);
     setError(null);
     const response = await fetch("/api/pos/sales", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "sale",
-        clientId: member?.id ?? null,
-        clientName: member?.name ?? null,
-        promoCode: promo?.code ?? null,
-        lines: lines.map((line) => ({
-          itemId: line.itemId,
-          quantity: line.quantity,
-          priceCents: itemBy.get(line.itemId)?.openPrice ? Math.round(Number(line.price || 0) * 100) : null,
-          discount:
-            line.discount && Number(line.discount.value) > 0
-              ? {
-                  kind: line.discount.kind,
-                  value: line.discount.kind === "amount" ? Math.round(Number(line.discount.value) * 100) : Number(line.discount.value),
-                }
-              : null,
-          credits: line.none ? [] : line.credits.filter((credit) => credit.staffId),
-          none: line.none,
-        })),
-      }),
-    });
-    const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; saleNumber?: number };
+      body: JSON.stringify(salePayload("agreements")),
+    }).catch(() => null);
+    const result = (await response?.json().catch(() => ({}))) as { success?: boolean; error?: string; agreements?: AgreementToSign[] };
     setSaving(false);
-    if (!response.ok || !result.success) return setError(result.error ?? "Couldn't save. Try again.");
+    if (!response?.ok || !result?.success) return setError(result?.error ?? "Couldn't check the sale. Try again.");
+    if (result.agreements?.length) {
+      setSignError(null);
+      return setSigning(result.agreements);
+    }
+    await save([]);
+  }
+
+  function salePayload(action: "sale" | "agreements", agreements: SignedAgreement[] = []) {
+    return {
+      action,
+      agreements,
+      clientId: member?.id ?? null,
+      clientName: member?.name ?? null,
+      promoCode: promo?.code ?? null,
+      lines: lines.map((line) => ({
+        itemId: line.itemId,
+        quantity: line.quantity,
+        priceCents: itemBy.get(line.itemId)?.openPrice ? Math.round(Number(line.price || 0) * 100) : null,
+        discount:
+          line.discount && Number(line.discount.value) > 0
+            ? {
+                kind: line.discount.kind,
+                value: line.discount.kind === "amount" ? Math.round(Number(line.discount.value) * 100) : Number(line.discount.value),
+              }
+            : null,
+        credits: line.none ? [] : line.credits.filter((credit) => credit.staffId),
+        none: line.none,
+      })),
+    };
+  }
+
+  async function save(agreements: SignedAgreement[]) {
+    setSaving(true);
+    setError(null);
+    setSignError(null);
+    const response = await fetch("/api/pos/sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(salePayload("sale", agreements)),
+    }).catch(() => null);
+    const result = (await response?.json().catch(() => ({}))) as { success?: boolean; error?: string; saleNumber?: number };
+    setSaving(false);
+    if (!response?.ok || !result?.success) {
+      const message = result?.error ?? "Couldn't save. Try again.";
+      if (signing) return setSignError(message);
+      return setError(message);
+    }
+    setSigning(null);
     setReceipt({
       saleNumber: result.saleNumber ?? 0,
       member: member?.name ?? "Walk-in",
@@ -280,6 +314,16 @@ export function Checkout({
 
   return (
     <div className="space-y-3">
+      {signing ? (
+        <SignAgreements
+          agreements={signing}
+          memberName={member?.name ?? ""}
+          saving={saving}
+          error={signError}
+          onCancel={() => setSigning(null)}
+          onDone={(signed) => save(signed)}
+        />
+      ) : null}
       <p className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
         <span className="font-medium">Practice mode.</span> Sales are saved so you can check the screen, tax and commission. No card is
         charged and nothing changes in Mindbody.
@@ -642,7 +686,7 @@ export function Checkout({
                 <Button
                   className="w-full"
                   disabled={saving || lines.length === 0 || packageNeedsMember || missingAmount || membersOnlyBlocked}
-                  onClick={save}
+                  onClick={complete}
                 >
                   {saving ? "Saving…" : "Save practice sale"}
                 </Button>

@@ -32,11 +32,11 @@ const LINE = 13;
 // the ellipsis -- those are kept so the PDF shows exactly the signed text.
 // Anything outside WinAnsi becomes "?" so a stray character can't make PDF
 // generation throw.
-function toWinAnsi(text: string): string {
+export function toWinAnsi(text: string): string {
   return text.replace(/[^\t\n\r\x20-\x7E\xA0-\xFF\u2013\u2014\u2018\u2019\u201C\u201D\u2026\u2022\u20AC]/g, "?");
 }
 
-function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+export function wrap(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = [];
   for (const paragraph of text.split("\n")) {
     if (paragraph.trim() === "") {

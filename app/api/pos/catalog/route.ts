@@ -121,8 +121,22 @@ export async function POST(request: NextRequest) {
         body.autopayCount === null || body.autopayCount === "" || body.autopayCount === undefined ? null : Number(body.autopayCount);
       if (autopayCount != null && (!Number.isInteger(autopayCount) || autopayCount < 0 || autopayCount > 120))
         return fail("Monthly payments must be a whole number up to 120, or blank for until cancelled.");
+      let agreementTemplateId: string | null = null;
+      if (body.agreementTemplateId) {
+        if (!isUuid(body.agreementTemplateId)) return fail("Pick an agreement.");
+        const { data: found } = await admin
+          .from("agreement_templates")
+          .select("id")
+          .eq("id", body.agreementTemplateId)
+          .eq("organization_id", org)
+          .eq("active", true)
+          .maybeSingle();
+        if (!found) return fail("Pick an agreement.");
+        agreementTemplateId = found.id as string;
+      }
       const values = {
         inventory_category_id: inventoryCategoryId,
+        agreement_template_id: kindNow === "product" ? null : agreementTemplateId,
         ...(kindNow === "membership"
           ? {
               package_parts: packageParts,

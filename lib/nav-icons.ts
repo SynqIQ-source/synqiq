@@ -1,5 +1,6 @@
 import {
   Activity,
+  FileSignature,
   Banknote,
   Dumbbell,
   Star,
@@ -70,6 +71,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/substitutions": ClipboardList,
   "/dashboard/follow-up-activity": Mails,
   "/dashboard/settings": Settings,
+  "/dashboard/services/agreements": FileSignature,
   "/dashboard/timesheets": Timer,
   "/dashboard/payroll": Wallet,
   "/dashboard/pay-rates": Banknote,
