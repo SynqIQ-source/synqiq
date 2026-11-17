@@ -185,6 +185,19 @@ async function syncStaff(mindbody: MindbodyClient, supabase: SupabaseAdminClient
       member.Name ??
       ([member.FirstName, member.LastName].filter(Boolean).join(" ") || "Unknown");
 
+    // Added in SynqIQ first, then in Mindbody: link that row by email
+    // rather than creating a second person.
+    if (member.Email) {
+      const { data: linked } = await supabase
+        .from("staff")
+        .update({ mindbody_staff_id: member.Id })
+        .eq("organization_id", organizationId)
+        .is("mindbody_staff_id", null)
+        .ilike("email", member.Email.trim().replace(/[\\%_]/g, (c: string) => "\\" + c))
+        .select("id");
+      if (linked && linked.length > 1) console.error("[staff sync] more than one SynqIQ staff row matched", member.Id);
+    }
+
     const { data, error } = await supabase
       .from("staff")
       .upsert(

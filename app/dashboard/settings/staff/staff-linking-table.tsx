@@ -570,7 +570,7 @@ export function StaffLinkingTable({ staff }: { staff: StaffLinkingRow[] }) {
               Synced
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground">Software only</span>
+            <span className="text-xs text-muted-foreground">Added in SynqIQ</span>
           )}
         </td>
         <td className="p-3">

@@ -114,16 +114,21 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 ### Step by step (Club Admin)
 
 **1. Add an employee and give them a login**
-1. Admin -> **Staff & Roles**. (Today staff appear here from Mindbody;
-   **"Add employee" in SynqIQ is not built yet** -- see build list below.)
-2. Find the person. Under **Role & access**, choose **Manage** and set the
-   role: Club Admin, Sales Lead, Sales or Staff.
-3. Turn on the tags for what they do: **Instructor** (teaches classes),
-   **Trainer** (personal training), **Sells** (shows in the kiosk and gets
-   leads).
-4. Check their **email**, then **Send invite**. They get a link to set a
-   password. (Club Admins must also set up two-step sign-in.)
-5. Next, set their pay (step 2).
+1. Admin -> **Staff & Roles** -> **Add employee**.
+2. Enter first and last name, **email** (their login invite goes here),
+   **mobile**, **role** (Staff, Sales, Sales Lead, Club Admin), optional start
+   date, and switch on **Trainer** and/or **Sells** (kiosk + leads).
+3. **Add and send invite.** They're emailed right away with a link to log in
+   to SynqIQ and set their password. (Club Admins must also set up two-step
+   sign-in.) If the email fails, use **Send invite** on their row.
+4. They show in the list as "Added in SynqIQ". If they're later added in
+   Mindbody with the same email, SynqIQ links the two automatically.
+5. Existing staff (from Mindbody): find them, **Manage** under **Role &
+   access** to change role/tags, then **Send invite**.
+6. Instructors who teach classes: until the Mindbody switch, add them in
+   Mindbody (classes still use Mindbody's instructor list); after the switch,
+   add them here like anyone else.
+7. Next, set their pay (step 2).
 
 **2. Set pay rates (one person can have several)**
 
@@ -203,6 +208,7 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-16: Add employee (Staff & Roles) with automatic login invite.
 - 2026-11-16: Admin step-by-steps (employee, pay rates, classes); cancel email
   no longer includes the reason.
 - 2026-11-16: Follow-up cadence (7 attempts, adjustable) + warm lead pool.

@@ -3,6 +3,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { StaffLinkingTable, type StaffLinkingRow } from "./staff-linking-table";
+import { AddEmployeeDialog } from "./add-employee-dialog";
 
 export default async function StaffSettingsPage() {
   const currentStaff = await getCurrentStaff();
@@ -29,6 +30,7 @@ export default async function StaffSettingsPage() {
     <DashboardShell
       title="Staff & Roles"
       description="Set each person's role and what they do (Instructor, Trainer, Sells), and send their SynqIQ login. Staff join by invite only."
+      actions={<AddEmployeeDialog />}
     >
       <StaffLinkingTable staff={staff ?? []} />
     </DashboardShell>
