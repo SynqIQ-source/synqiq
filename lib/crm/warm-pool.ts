@@ -77,15 +77,34 @@ export async function runWarmPool(organizationId: string) {
     }
   }
 
-  // Out of the pool: flagged but no longer pooled (or no longer open).
-  const { data: flagged, error: flaggedError } = await admin
-    .from("crm_contacts")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .not("warm_pool_at", "is", null)
-    .limit(20000);
-  if (flaggedError) throw flaggedError;
-  const leave = (flagged ?? []).map((row) => row.id as string).filter((id) => !pooled.has(id));
+  // Out of the pool: flagged leads that were checked and aren't pooled any
+  // more (they replied, visited, booked, were contacted or given a date), or
+  // that joined / were marked not interested / were removed. A lead who only
+  // opted out of texts stays in the pool (email newsletters are separate).
+  const checked = new Set(contacts.map((contact) => contact.id));
+  const leave: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: flagged, error: flaggedError } = await admin
+      .from("crm_contacts")
+      .select("id, status, closed_at, deleted_at, merged_into_id, source")
+      .eq("organization_id", organizationId)
+      .not("warm_pool_at", "is", null)
+      .order("id")
+      .range(from, from + 999);
+    if (flaggedError) throw flaggedError;
+    for (const row of flagged ?? []) {
+      const id = row.id as string;
+      const closed =
+        row.closed_at ||
+        row.deleted_at ||
+        row.merged_into_id ||
+        row.source === "member" ||
+        row.status === "member" ||
+        row.status === "not_interested";
+      if (closed || (checked.has(id) && !pooled.has(id))) leave.push(id);
+    }
+    if (!flagged || flagged.length < 1000) break;
+  }
   for (let index = 0; index < leave.length; index += 200) {
     const { error } = await admin
       .from("crm_contacts")
