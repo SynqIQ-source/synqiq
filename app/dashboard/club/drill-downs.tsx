@@ -266,10 +266,10 @@ function Guests({ data }: { data: ClubOverview }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto">
-        <table className="w-full min-w-[28rem] border-separate border-spacing-1 text-xs">
+        <table className="w-full min-w-[28rem] table-fixed border-separate border-spacing-1 text-xs">
           <thead>
             <tr>
-              <th className="w-14" />
+              <th className="w-16" />
               {HEAT_DAYS.map((label) => (
                 <th key={label} className="font-medium text-muted-foreground">
                   {label}

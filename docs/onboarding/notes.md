@@ -238,6 +238,29 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ### Numbers explained (to expand before go-live)
 
+- **Club Overview** (top of the menu, Club Admins). Month to date, from
+  SynqIQ's own records only (not Mindbody). Small text compares to the same
+  days last month (members: to 30 days ago). Until payments go live most
+  sales still happen in Mindbody, so the numbers are small; "Include practice
+  data" counts practice sales, memberships and autopays for trying it out.
+  - *Active members*: people with a SynqIQ membership in force today that
+    isn't frozen or cancelled (someone with two memberships counts once).
+    Frozen members are shown apart and not counted. Drill-down: sold this
+    month, cancelled (by the day the cancellation was ENTERED, not the day it
+    ends), frozen (freezes starting this month), unfrozen (back this month),
+    net = sold - cancelled - frozen + unfrozen.
+  - *Sales MTD*: SynqIQ checkout sales, voids excluded. Drill-down: total per
+    revenue category (membership packages split into registration, dues,
+    etc.), then today's transactions.
+  - *Check-ins MTD*: front-desk and kiosk check-ins (two in one day count
+    twice); classes, pool lanes and PT don't count. Drill-down: by day.
+  - *Today's revenue*: checkout sales today + autopays charged today.
+  - *Guests MTD*: every guest visit (kiosk, walk-in, trial, appointment).
+    Drill-down: heat map, day of week across, 6 AM-9 PM down.
+  - *Maintenance*: Down / new = open reports nobody has acted on; Down / in
+    progress = open with notes, vendor contacted or a visit scheduled; Avg
+    days down = average days the open reports have been open.
+
 - **Class Dashboard**: classes held (Mindbody classes in the period), average
   class size (checked-in clients per class), fill rate (checked in / capacity),
   attendance (checked in / booked). Source: synced Mindbody classes until the
@@ -259,6 +282,7 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-17: Club Overview dashboard (top of the menu, Club Admins).
 - 2026-11-17: Facility Tech tag (maintenance emails, runs reports, keeps
   equipment); class photos copied from Mindbody into SynqIQ storage, and
   SynqIQ uploads no longer overwritten by the nightly sync.
