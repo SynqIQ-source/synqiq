@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAccess } from "@/lib/require-access";
 import { requireModule } from "@/lib/modules";
-import { canCheckIn, isClubAdmin } from "@/lib/permissions";
+import { canCheckIn, isClubAdmin, managesSales } from "@/lib/permissions";
+import { CancelClassButton } from "./cancel-class-button";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { asOccurrenceId } from "@/lib/mindbody/types";
@@ -246,7 +247,14 @@ export default async function ClassPage({ params }: { params: Params }) {
               Late cancel inside {context.rules.cancelWindowMinutes ?? 0} min{feeLabel ? ` · ${feeLabel} fee` : ""}
             </span>
             {!context.session.active ? <Badge variant="destructive">Cancelled</Badge> : null}
+            {!context.session.active && context.session.note ? <span>· {context.session.note}</span> : null}
           </div>
+        ) : null}
+        {context && context.session.active && managesSales(staff) && Date.parse(context.session.endsAt) > Date.now() ? (
+          <CancelClassButton
+            sessionId={context.session.id}
+            booked={context.bookings.filter((booking) => booking.status === "booked" || booking.status === "waitlisted").length}
+          />
         ) : null}
 
         {manage && context && window ? (

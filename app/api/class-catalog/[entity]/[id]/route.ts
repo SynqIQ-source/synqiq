@@ -4,6 +4,7 @@ import { isClubAdmin } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { CATALOG_TABLES, applyCatalogEdit, isCatalogEntity } from "@/lib/classes/catalog-edits";
 import { buildClassCalendar } from "@/lib/sync/class-calendar";
+import { releaseCancelledClass } from "@/lib/booking/cancel-class";
 
 type RouteParams = { params: Promise<{ entity: string; id: string }> };
 
@@ -70,6 +71,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     edited_by_staff_id: currentStaff.id,
   });
   if (logError) console.error("[catalog-edit] change log failed:", logError.message);
+  // A single date switched off: release SynqIQ bookings and email them, the
+  // same as Cancel class on the class page.
+  if (entity === "class_session" && result.changes.active && result.changes.active.to === false) {
+    const note = typeof result.edits.note === "string" ? result.edits.note : "";
+    await releaseCancelledClass(admin, { organizationId: orgId, sessionId: id, staffId: currentStaff.id, reason: note });
+  }
   // Class types and class times feed SynqIQ's calendar.
   if (entity === "class_type" || entity === "class_schedule") {
     const rebuilt = await buildClassCalendar(orgId);
