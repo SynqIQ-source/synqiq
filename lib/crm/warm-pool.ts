@@ -30,7 +30,7 @@ export async function runWarmPool(organizationId: string) {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await admin
       .from("crm_contacts")
-      .select(`${FOLLOW_UP_CONTACT_FIELDS}, warm_pool_at`)
+      .select(FOLLOW_UP_CONTACT_FIELDS)
       .eq("organization_id", organizationId)
       .is("deleted_at", null)
       .is("merged_into_id", null)
@@ -38,7 +38,9 @@ export async function runWarmPool(organizationId: string) {
       .is("sms_opted_out_at", null)
       .neq("source", "member")
       .not("status", "in", "(member,not_interested)")
-      .or("import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null")
+      .or(
+        "import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null,imported_activity_at.not.is.null,warm_pool_at.not.is.null",
+      )
       .order("created_at")
       .range(from, from + 999)
       .returns<(FollowUpContact & { warm_pool_at: string | null })[]>();

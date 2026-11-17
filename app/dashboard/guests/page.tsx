@@ -48,7 +48,7 @@ type ContactSummary = {
 };
 
 const CONTACT_COLUMNS =
-  "id, first_name, last_name, status, source, photo_path, assigned_staff_id, referrer_name_typed, referrer_unresolved, email_check_status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, created_at, referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name )";
+  "id, first_name, last_name, status, source, photo_path, assigned_staff_id, referrer_name_typed, referrer_unresolved, email_check_status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, created_at, import_batch_id, last_message_at, warm_pool_at, imported_activity_at, referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name )";
 
 type Row = {
   key: string;

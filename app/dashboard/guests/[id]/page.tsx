@@ -45,6 +45,7 @@ import { TrainerSelect } from "./trainer-select";
 import { ConsentControl } from "./consent-control";
 import { FirstContactBadge, NextFollowUp } from "@/components/crm/follow-up-status";
 import { RescheduleFollowUp } from "@/components/crm/reschedule-follow-up";
+import { GymSalesHistory } from "@/components/crm/gymsales-history";
 import { combinedActivity, firstContactFor, followUpFor, loadLeadActivity } from "@/lib/crm/follow-ups";
 
 export const dynamic = "force-dynamic";
@@ -127,7 +128,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       `id, first_name, last_name, date_of_birth, email, phone_e164, address_line1, city, state, postal_code,
        status, source, how_heard, referrer_name_typed, referrer_unresolved, photo_path, assigned_staff_id,
        email_consent, email_consent_at, sms_consent, sms_consent_at, photo_consent, photo_consent_at,
-       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, follow_up_on, follow_up_set_at, close_source, merged_into_id, created_at, import_batch_id, last_message_at,
+       email_check_status, email_check_result, mindbody_client_id, mindbody_sync_status, mindbody_sync_error, mindbody_synced_at, email_normalized, referrer_set_at, referrer_set_by_staff_id, deleted_at, sms_opted_out_at, closed_at, follow_up_on, follow_up_set_at, close_source, merged_into_id, created_at, import_batch_id, last_message_at, warm_pool_at, imported_activity_at,
        member_enrolled_at, membership_name, membership_sold_by_staff_id, enrollment_status, trainer_staff_id, trainer_assigned_at, intro_declined_at, intro_declined_reason,
        referring_client:clients!crm_contacts_referring_client_id_fkey ( first_name, last_name, mindbody_unique_id, status )`,
     )
@@ -601,6 +602,8 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
               </CardContent>
             </Card>
           ) : null}
+
+          {full ? <GymSalesHistory supabase={supabase} contactIds={contactIds} timezone={org.timezone} /> : null}
 
           <Card>
             <CardHeader>

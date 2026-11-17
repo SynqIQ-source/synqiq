@@ -94,3 +94,18 @@ describe("follow-up cadence (default: 7 attempts, day 0, 1, then every 3 days)",
     expect(cadenceFrom({ attempts: 0, everyDays: "x", poolAfterDays: 4 })).toEqual({ ...DEFAULT_CADENCE, poolAfterDays: 4 });
   });
 });
+
+describe("warm pool flag and imported history", () => {
+  it("a lead put in the pool stays there until something new happens", () => {
+    const pooled = contact({ import_batch_id: "b1", warm_pool_at: at(30) });
+    const old = activity({ contactTimes: contacts([2, 5]) });
+    expect(followUpFor(pooled, old, TZ, now(40))).toMatchObject({ kind: "pool", since: "2026-12-01" });
+    const replied = activity({ contactTimes: contacts([2, 5]), lastReplyAt: at(35) });
+    expect(followUpFor(pooled, replied, TZ, now(36))).toMatchObject({ kind: "due", attempt: 1 });
+  });
+
+  it("an imported lead with no history in the pool is in the pool, not 'not worked yet'", () => {
+    expect(followUpFor(contact({ import_batch_id: "b1", warm_pool_at: at(1) }), activity(), TZ, now(2))).toMatchObject({ kind: "pool" });
+    expect(followUpFor(contact({ import_batch_id: "b1" }), activity(), TZ, now(2))).toMatchObject({ kind: "stopped", reason: "imported" });
+  });
+});

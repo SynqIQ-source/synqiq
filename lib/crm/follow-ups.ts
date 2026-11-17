@@ -59,7 +59,7 @@ export function cadenceDays(cadence: FollowUpCadence): number[] {
 }
 
 export const FOLLOW_UP_CONTACT_FIELDS =
-  "id, created_at, status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, assigned_staff_id, import_batch_id, last_message_at";
+  "id, created_at, status, closed_at, sms_opted_out_at, follow_up_on, follow_up_set_at, assigned_staff_id, import_batch_id, last_message_at, warm_pool_at, imported_activity_at";
 
 export type FollowUpContact = {
   id: string;
@@ -74,6 +74,12 @@ export type FollowUpContact = {
   // someone works the lead in SynqIQ or they reply or visit.
   import_batch_id?: string | null;
   last_message_at?: string | null;
+  // In the warm lead pool since then (nightly job, or the Gym Sales history
+  // import); holds until they reply, visit, book, are contacted or given a
+  // follow-up date after it.
+  warm_pool_at?: string | null;
+  // Latest Gym Sales activity imported for them.
+  imported_activity_at?: string | null;
 };
 
 export type LeadActivity = {
@@ -121,7 +127,7 @@ export async function loadLeadActivity(supabase: ScopedSupabaseClient, contactId
 
   for (let index = 0; index < contactIds.length; index += 200) {
     const chunk = contactIds.slice(index, index + 200);
-    const [visits, messages, appointments] = await Promise.all([
+    const [visits, messages, appointments, imported] = await Promise.all([
       supabase.from("guest_visits").select("contact_id, visit_at").in("contact_id", chunk).order("visit_at"),
       supabase
         .from("crm_messages")
@@ -130,7 +136,22 @@ export async function loadLeadActivity(supabase: ScopedSupabaseClient, contactId
         .neq("status", "failed")
         .order("created_at"),
       supabase.from("crm_appointments").select("contact_id, scheduled_at, status, updated_at").in("contact_id", chunk),
+      // Gym Sales history (calls, texts, emails before SynqIQ) counts too.
+      supabase.from("crm_imported_activity").select("contact_id, kind, direction, occurred_at").in("contact_id", chunk),
     ]);
+    if (imported.error) throw imported.error;
+    for (const item of imported.data ?? []) {
+      const row = get(item.contact_id as string);
+      const at = item.occurred_at as string;
+      if (item.direction === "inbound") {
+        row.lastReplyAt = later(row.lastReplyAt, at);
+        continue;
+      }
+      row.contactTimes.push(at);
+      if (item.kind === "call") row.calls += 1;
+      else if (item.kind === "sms") row.texts += 1;
+      else if (item.kind === "email") row.emails += 1;
+    }
     if (visits.error) throw visits.error;
     if (messages.error) throw messages.error;
     if (appointments.error) throw appointments.error;
@@ -170,6 +191,7 @@ export async function loadLeadActivity(supabase: ScopedSupabaseClient, contactId
       }
     }
   }
+  for (const row of activity.values()) row.contactTimes.sort();
   return activity;
 }
 
@@ -262,8 +284,26 @@ export function followUpFor(
   if (contact.closed_at || contact.status === "member") return { kind: "stopped", reason: "enrolled" };
   if (contact.status === "not_interested") return { kind: "stopped", reason: "not_interested" };
   if (contact.sms_opted_out_at) return { kind: "stopped", reason: "opted_out" };
-  if (isDormantImport(contact, activity)) return { kind: "stopped", reason: "imported" };
   if (activity.nextAppointmentAt) return { kind: "appointment", at: activity.nextAppointmentAt };
+  // In the warm pool, with nothing new since: stays there.
+  if (contact.warm_pool_at) {
+    const since = contact.warm_pool_at;
+    const newer = [
+      activity.contactTimes.at(-1) ?? null,
+      activity.lastReplyAt,
+      activity.lastVisitAt,
+      activity.lastMissedAppointmentAt,
+      contact.follow_up_set_at,
+    ].some((at) => at != null && at > since);
+    if (!newer) {
+      return {
+        kind: "pool",
+        since: DateTime.fromISO(since).setZone(timezone).toISODate()!,
+        attempts: activity.contactTimes.filter((at) => at > (activity.lastReplyAt ?? "")).length,
+      };
+    }
+  }
+  if (isDormantImport(contact, activity)) return { kind: "stopped", reason: "imported" };
 
   const day = (iso: string) => DateTime.fromISO(iso).setZone(timezone).startOf("day");
   const today = now.setZone(timezone).startOf("day");
@@ -320,7 +360,9 @@ export async function loadOpenFollowUpContacts<T extends FollowUpContact>(
       .is("sms_opted_out_at", null)
       .neq("source", "member")
       .not("status", "in", "(member,not_interested)")
-      .or("import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null");
+      .or(
+        "import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null,imported_activity_at.not.is.null,warm_pool_at.not.is.null",
+      );
     if (staffId === "unassigned") query = query.is("assigned_staff_id", null);
     else if (staffId) query = query.eq("assigned_staff_id", staffId);
     const { data, error } = await query
