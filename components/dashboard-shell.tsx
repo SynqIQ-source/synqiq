@@ -148,6 +148,8 @@ type DashboardShellProps = {
   actions?: React.ReactNode;
   // Use the whole screen: the desktop sidebar starts hidden behind a Menu button (POS).
   fullWidth?: boolean;
+  // Use the whole width for wide tables, keeping the sidebar (Guests).
+  wide?: boolean;
 };
 
 function Logo() {
@@ -160,7 +162,8 @@ function Logo() {
   );
 }
 
-export async function DashboardShell({ children, title, description, actions, fullWidth }: DashboardShellProps) {
+export async function DashboardShell({ children, title, description, actions, fullWidth, wide }: DashboardShellProps) {
+  const unbounded = fullWidth || wide;
   // Self-resolved rather than threaded through as a prop, matching this
   // app's convention of each component resolving what it needs
   // independently; getCurrentStaff() is React-cache()d per request.
@@ -228,7 +231,7 @@ export async function DashboardShell({ children, title, description, actions, fu
         }
       >
         <header className="sticky top-0 z-30 border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-          <div className={`mx-auto flex items-center justify-between gap-4 px-4 py-4 sm:px-6 ${fullWidth ? "max-w-none" : "max-w-6xl"}`}>
+          <div className={`mx-auto flex items-center justify-between gap-4 px-4 py-4 sm:px-6 ${unbounded ? "max-w-none" : "max-w-6xl"}`}>
             <div className="min-w-0 flex-1">
               <div className="mb-3 md:hidden">
                 <Logo />
@@ -256,7 +259,7 @@ export async function DashboardShell({ children, title, description, actions, fu
           </div>
         </header>
 
-        <main className={`mx-auto px-4 pt-6 pb-24 sm:px-6 md:pb-10 ${fullWidth ? "max-w-none" : "max-w-6xl"}`}>
+        <main className={`mx-auto px-4 pt-6 pb-24 sm:px-6 md:pb-10 ${unbounded ? "max-w-none" : "max-w-6xl"}`}>
           {currentStaff && currentStaff.mfa !== "ok" ? (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
               <span>

@@ -253,7 +253,7 @@ export default async function GuestsPage({
 
   return (
     <DashboardShell
-      fullWidth
+      wide
       title="Guests"
       description="People who have been in the club: kiosk check-ins, guest visits, trials and appointments. Every lead, visited or not, is on Lead Status."
       actions={
