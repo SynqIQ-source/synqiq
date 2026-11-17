@@ -31,16 +31,21 @@ export function FirstContactBadge({ firstContact }: { firstContact: FirstContact
   return null;
 }
 
-// The next follow-up, or the appointment it's waiting on.
+// The next follow-up, or the appointment it's waiting on: the headline
+// (badge or date) with the details on a second line, so table columns stay
+// narrow enough to fit without scrolling sideways.
+const STACK = "inline-flex flex-col items-start gap-0.5";
+const DETAIL = "text-xs whitespace-nowrap text-muted-foreground";
+
 export function NextFollowUp({ followUp, timezone }: { followUp: FollowUp; timezone: string }) {
   if (followUp.kind === "stopped") {
     return <span className="text-muted-foreground">{STOPPED_LABELS[followUp.reason]}</span>;
   }
   if (followUp.kind === "pool") {
     return (
-      <span className="whitespace-nowrap">
+      <span className={STACK}>
         <Badge variant="secondary">Warm lead pool</Badge>
-        <span className="ml-1.5 text-xs text-muted-foreground">
+        <span className={DETAIL}>
           since {DateTime.fromISO(followUp.since, { zone: timezone }).toFormat("LLL d")} · {followUp.attempts} attempts, no reply
         </span>
       </span>
@@ -48,37 +53,37 @@ export function NextFollowUp({ followUp, timezone }: { followUp: FollowUp; timez
   }
   if (followUp.kind === "waiting") {
     return (
-      <span className="whitespace-nowrap">
+      <span className={STACK}>
         <Badge variant="outline">All {followUp.attempts} attempts made</Badge>
-        <span className="ml-1.5 text-xs text-muted-foreground">
-          warm pool {DateTime.fromISO(followUp.poolOn, { zone: timezone }).toFormat("ccc LLL d")} if no reply
-        </span>
+        <span className={DETAIL}>warm pool {DateTime.fromISO(followUp.poolOn, { zone: timezone }).toFormat("ccc LLL d")} if no reply</span>
       </span>
     );
   }
   if (followUp.kind === "appointment") {
     return (
-      <span className="whitespace-nowrap">Appointment {DateTime.fromISO(followUp.at).setZone(timezone).toFormat("ccc LLL d, h:mm a")}</span>
+      <span className={STACK}>
+        <span className="whitespace-nowrap">Appointment</span>
+        <span className={DETAIL}>{DateTime.fromISO(followUp.at).setZone(timezone).toFormat("ccc LLL d, h:mm a")}</span>
+      </span>
     );
   }
   const date = DateTime.fromISO(followUp.dueOn, { zone: timezone }).toFormat("ccc LLL d");
+  const detail = [
+    followUp.daysOverdue >= 0 ? date : null,
+    followUp.rescheduled ? "rescheduled" : `attempt ${followUp.attempt} of ${followUp.of}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <span className="whitespace-nowrap">
+    <span className={STACK}>
       {followUp.daysOverdue > 0 ? (
         <Badge variant="destructive">{followUp.daysOverdue === 1 ? "1 day overdue" : `${followUp.daysOverdue} days overdue`}</Badge>
       ) : followUp.daysOverdue === 0 ? (
         <Badge>Due today</Badge>
       ) : (
-        date
+        <span className="whitespace-nowrap">{date}</span>
       )}
-      {followUp.daysOverdue >= 0 ? <span className="ml-1.5 text-xs text-muted-foreground">{date}</span> : null}
-      {followUp.rescheduled ? (
-        <span className="ml-1.5 text-xs text-muted-foreground">(rescheduled)</span>
-      ) : (
-        <span className="ml-1.5 text-xs text-muted-foreground">
-          attempt {followUp.attempt} of {followUp.of}
-        </span>
-      )}
+      <span className={DETAIL}>{detail}</span>
     </span>
   );
 }

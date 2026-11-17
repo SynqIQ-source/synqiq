@@ -8,6 +8,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   activityFor,
+  cadenceDays,
   FOLLOW_UP_CONTACT_FIELDS,
   followUpFor,
   loadLeadActivity,
@@ -108,7 +109,7 @@ export default async function FollowUpsPage({
 
   const totalOverdue = sellerSummary.reduce((sum, row) => sum + row.overdue, 0);
   const totalToday = sellerSummary.reduce((sum, row) => sum + row.today, 0);
-  const local = (iso: string) => DateTime.fromISO(iso).setZone(org.timezone).toFormat("LLL d, h:mm a");
+  const local = (iso: string, format: string) => DateTime.fromISO(iso).setZone(org.timezone).toFormat(format);
 
   return (
     <DashboardShell
@@ -176,17 +177,24 @@ export default async function FollowUpsPage({
               ) : (
                 rows.map((row) => (
                   <TableRow key={row.contact.id}>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium whitespace-normal">
                       <Link href={`/dashboard/guests/${row.contact.id}`} className="hover:underline">
                         {row.contact.first_name} {row.contact.last_name}
                       </Link>
                     </TableCell>
                     <TableCell>{row.followUp.kind === "due" ? QUEUE_LABELS[row.followUp.queue] : "—"}</TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-normal">
                       {row.contact.assigned_staff_id ? (staffNames.get(row.contact.assigned_staff_id) ?? "—") : "Unassigned"}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {row.lastContactAt ? local(row.lastContactAt) : "Never"}
+                    <TableCell className="text-muted-foreground">
+                      {row.lastContactAt ? (
+                        <>
+                          <span className="block whitespace-nowrap">{local(row.lastContactAt, "LLL d")}</span>
+                          <span className="block text-xs whitespace-nowrap">{local(row.lastContactAt, "h:mm a")}</span>
+                        </>
+                      ) : (
+                        "Never"
+                      )}
                     </TableCell>
                     <TableCell>
                       <NextFollowUp followUp={row.followUp} timezone={org.timezone} />
@@ -208,10 +216,10 @@ export default async function FollowUpsPage({
           </Table>
         </Card>
         <p className="text-xs text-muted-foreground">
-          Before a first visit, a follow-up is due every day for the first week after a guest is added (paused while an appointment is
-          booked; a no-show or cancellation starts the week again), then every 3 days. After a visit, it&apos;s every 2 days for the first
-          14 days, then every 3 days. A text, email or logged call completes the follow-up; follow-ups stop when a guest enrolls, is marked
-          not interested, or replies STOP.
+          Every lead gets {org.cadence.attempts} contact attempts, on days {cadenceDays(org.cadence).join(", ")}. A text, email or logged
+          call is an attempt; a reply, visit or missed appointment starts them over. No reply {org.cadence.poolAfterDays} days after the
+          last attempt moves the lead to the warm lead pool. A follow-up date you set always wins. Follow-ups stop when a guest enrolls, is
+          marked not interested, or replies STOP.
         </p>
       </div>
     </DashboardShell>

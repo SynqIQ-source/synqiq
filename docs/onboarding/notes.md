@@ -111,6 +111,14 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 - **Products & Inventory**: categories -> sub-categories -> items; prices,
   revenue category (tax/accounting), members-only switch, membership packages
   (registration fee + dues, monthly schedule).
+- **Inventory on hand** (Products & Inventory -> Inventory on hand tab): every
+  retail product with **PAR** (stock back up to), **Reorder at** (order when on
+  hand falls to it) and **On hand**. Filter by category / sub-category or
+  "Needs reorder only". **Update** on a row: *Starting inventory / Counted on
+  the shelf* sets on hand; *Delivery received* adds to it. On hand = last count
+  + received since - sold since (completed SynqIQ sales only; practice sales
+  and sales still rung up in Mindbody don't change it). "Reorder" shows with
+  how many to order to get back to PAR.
 - **Members (profile)**: memberships, Billing tab (upcoming charges with
   Change per charge, billing edits: credit / discount / freeze / cancellation,
   billing test with practice renewals), visits, purchases, personal info.
@@ -238,6 +246,10 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-17: Inventory on hand (PAR, reorder level, counts, deliveries);
+  Products & Inventory remembers the category you're in (Back button works,
+  breadcrumb from an item); Lead Status / Follow-ups fit without sideways
+  scrolling.
 - 2026-11-16: Gym Sales activity history imported; old leads sorted into the
   warm pool.
 - 2026-11-16: Maintenance module (equipment, vendors, reports with photos/

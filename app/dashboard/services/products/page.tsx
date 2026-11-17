@@ -5,11 +5,14 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { ensureRevenueCategories } from "@/lib/pos/catalog";
 import { CatalogEditor, type CatalogCategory, type CatalogItem, type InventoryCategory } from "./catalog-editor";
 import { parsePackageParts } from "@/lib/pos/packages";
+import { computeOnHand, loadStockActivity } from "@/lib/pos/inventory";
+import type { StockRow } from "./stock-on-hand";
 
 // Services & Pricing -> Products & Inventory: everything the checkout sells
 // (retail products, packs and services, memberships), each in a revenue
 // category that decides tax, with a picture for its checkout card. Imported
-// from Mindbody (active items only); stock counts come closer to the switch.
+// from Mindbody (active items only). Inventory on hand: PAR, reorder level
+// and counts/deliveries for retail products (lib/pos/inventory.ts).
 export default async function ProductsPage() {
   const staff = await requireAccess(isClubAdmin);
   const admin = createSupabaseAdminClient();
@@ -24,7 +27,7 @@ export default async function ProductsPage() {
     admin
       .from("pos_items")
       .select(
-        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at, inventory_category_id, package_parts, autopay_count, auto_renews, open_price, members_only",
+        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at, inventory_category_id, package_parts, autopay_count, auto_renews, open_price, members_only, par_level, reorder_level",
       )
       .eq("organization_id", staff.organizationId)
       .is("deleted_at", null)
@@ -75,6 +78,44 @@ export default async function ProductsPage() {
     openPrice: Boolean(row.open_price),
     membersOnly: Boolean(row.members_only),
   }));
+  // Inventory on hand: active retail products.
+  const stockActivity = await loadStockActivity(admin, staff.organizationId);
+  const staffIds = [
+    ...new Set(
+      [...stockActivity.movements.values()]
+        .flat()
+        .map((m) => m.staffId)
+        .filter(Boolean),
+    ),
+  ] as string[];
+  const { data: staffRows } = staffIds.length
+    ? await admin.from("staff").select("id, first_name, last_name").in("id", staffIds)
+    : { data: [] as { id: string; first_name: string | null; last_name: string | null }[] };
+  const staffName = new Map((staffRows ?? []).map((row) => [row.id as string, `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim()]));
+  const stock: StockRow[] = (items ?? [])
+    .filter((row) => row.kind === "product" && row.active)
+    .map((row) => {
+      const movements = stockActivity.movements.get(row.id as string) ?? [];
+      const onHand = computeOnHand(movements, stockActivity.sales.get(row.id as string) ?? []);
+      return {
+        id: row.id as string,
+        name: row.name as string,
+        inventoryCategoryId: (row.inventory_category_id as string | null) ?? null,
+        parLevel: row.par_level == null ? null : Number(row.par_level),
+        reorderLevel: row.reorder_level == null ? null : Number(row.reorder_level),
+        ...onHand,
+        history: movements
+          .slice(-6)
+          .reverse()
+          .map((m) => ({
+            kind: m.kind,
+            quantity: m.quantity,
+            at: m.at,
+            note: m.note,
+            by: m.staffId ? (staffName.get(m.staffId) ?? null) : null,
+          })),
+      };
+    });
   const lastSync =
     (items ?? [])
       .map((row) => row.synced_at as string | null)
@@ -92,6 +133,7 @@ export default async function ProductsPage() {
         inventoryCategories={inventoryCategories}
         taxPercent={Math.round(Number(org?.sales_tax_rate ?? 0.0825) * 1_000_000) / 10_000}
         lastSync={lastSync}
+        stock={stock}
         promos={(promos ?? []).map((row) => ({
           id: row.id as string,
           code: row.code as string,

@@ -1,14 +1,15 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, ChevronRight, ImageIcon, Pencil, Plus, RefreshCw, ScanBarcode, Trash2 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowDown, ArrowLeft, ArrowUp, ChevronRight, ImageIcon, Pencil, Plus, RefreshCw, ScanBarcode, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PromoCodes, type PromoRow } from "./promo-codes";
+import { StockOnHand, type StockRow } from "./stock-on-hand";
 
 export type CatalogCategory = { id: string; key: string; name: string; taxable: boolean; glAccount: string; active: boolean };
 export type InventoryCategory = { id: string; parentId: string | null; name: string; sort: number };
@@ -64,6 +65,7 @@ export function CatalogEditor({
   taxPercent,
   lastSync,
   promos,
+  stock,
 }: {
   items: CatalogItem[];
   categories: CatalogCategory[];
@@ -71,14 +73,16 @@ export function CatalogEditor({
   taxPercent: number;
   lastSync: string | null;
   promos: PromoRow[];
+  stock: StockRow[];
 }) {
-  const [tab, setTab] = useState<"items" | "categories" | "promos">("items");
+  const { tab, go } = useCatalogUrl();
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1 border-b">
         {(
           [
             ["items", "Items"],
+            ["stock", "Inventory on hand"],
             ["categories", "Revenue categories & tax"],
             ["promos", "Promo codes"],
           ] as const
@@ -86,7 +90,7 @@ export function CatalogEditor({
           <button
             key={key}
             type="button"
-            onClick={() => setTab(key)}
+            onClick={() => go({ tab: key === "items" ? null : key, cat: null, item: null })}
             className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === key ? "border-primary font-medium" : "border-transparent text-muted-foreground"}`}
           >
             {label}
@@ -96,6 +100,7 @@ export function CatalogEditor({
       {tab === "items" ? (
         <Items items={items} categories={categories} inventoryCategories={inventoryCategories} lastSync={lastSync} />
       ) : null}
+      {tab === "stock" ? <StockOnHand rows={stock} inventoryCategories={inventoryCategories} /> : null}
       {tab === "categories" ? <Categories categories={categories} items={items} taxPercent={taxPercent} /> : null}
       {tab === "promos" ? <PromoCodes promos={promos} categories={categories} /> : null}
     </div>
@@ -103,6 +108,32 @@ export function CatalogEditor({
 }
 
 const UNSORTED = "__unsorted";
+const TABS = ["items", "stock", "categories", "promos"] as const;
+type CatalogTab = (typeof TABS)[number];
+
+// Where you are (tab, category folder, open item) lives in the address, so
+// the browser's Back button steps back through categories and items instead
+// of leaving Products & Inventory.
+function useCatalogUrl() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const rawTab = params.get("tab");
+  const tab: CatalogTab = (TABS as readonly string[]).includes(rawTab ?? "") ? (rawTab as CatalogTab) : "items";
+  const go = (change: { tab?: string | null; cat?: string | null; item?: string | null }, mode: "push" | "replace" = "push") => {
+    const next = new URLSearchParams(params.toString());
+    for (const [key, value] of Object.entries(change)) {
+      if (value === undefined) continue;
+      if (value === null) next.delete(key);
+      else next.set(key, value);
+    }
+    const query = next.toString();
+    const url = query ? `${pathname}?${query}` : pathname;
+    if (mode === "replace") router.replace(url, { scroll: false });
+    else router.push(url, { scroll: false });
+  };
+  return { tab, cat: params.get("cat"), item: params.get("item"), go, back: () => router.back() };
+}
 
 function Items({
   items,
@@ -116,15 +147,27 @@ function Items({
   lastSync: string | null;
 }) {
   const router = useRouter();
+  const url = useCatalogUrl();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [kind, setKind] = useState<string>("all");
   const [showInactive, setShowInactive] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const selected = url.item; // open item ("new" = adding one)
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null); // inventory category being browsed
+  const openId = url.cat; // inventory category being browsed
   const [managing, setManaging] = useState(false);
+  // Opened from this page: Close steps back. Opened from a link: Close goes
+  // to the item's category.
+  const openedHere = useRef(false);
+  const setOpenId = (id: string | null) => {
+    setManaging(false);
+    url.go({ cat: id, item: null });
+  };
+  const setSelected = (id: string | null) => {
+    openedHere.current = true;
+    url.go({ item: id });
+  };
   const searchRef = useRef<HTMLInputElement>(null);
   const categoryName = new Map(categories.map((c) => [c.id, c]));
   const uncategorized = items.filter((item) => item.active && !item.categoryId).length;
@@ -240,20 +283,40 @@ function Items({
       ) : null}
 
       {selected ? (
-        <ItemEditor
-          key={selected}
-          item={editing}
-          categories={categories}
-          inventoryCategories={inventoryCategories}
-          defaultInventoryCategoryId={openId && openId !== UNSORTED ? openId : ""}
-          onClose={() => {
-            setSelected(null);
-            searchRef.current?.focus();
-          }}
-        />
+        <>
+          <ItemTrail
+            item={editing}
+            fallbackCategoryId={openId && openId !== UNSORTED ? openId : null}
+            invBy={invBy}
+            onCategory={(id) => {
+              setSearch("");
+              setCategory("all");
+              setKind("all");
+              openedHere.current = false;
+              setOpenId(id);
+            }}
+          />
+          <ItemEditor
+            key={selected}
+            item={editing}
+            categories={categories}
+            inventoryCategories={inventoryCategories}
+            defaultInventoryCategoryId={openId && openId !== UNSORTED ? openId : ""}
+            onClose={() => {
+              if (openedHere.current) {
+                openedHere.current = false;
+                url.back();
+              } else {
+                const home = editing?.inventoryCategoryId && invBy.has(editing.inventoryCategoryId) ? editing.inventoryCategoryId : openId;
+                url.go({ cat: home ?? null, item: null }, "replace");
+              }
+              searchRef.current?.focus();
+            }}
+          />
+        </>
       ) : null}
 
-      {browsing ? (
+      {selected ? null : browsing ? (
         <div className="flex flex-wrap items-center gap-1 text-sm">
           <button type="button" className={openId ? "text-primary underline" : "font-medium"} onClick={() => setOpenId(null)}>
             All categories
@@ -279,8 +342,8 @@ function Items({
           ) : null}
         </div>
       ) : null}
-      {browsing && managing ? <CategoryManager level={level} parent={open} onDone={() => setManaging(false)} /> : null}
-      {cards.length || (browsing && !openId && !managing && unsortedCount) ? (
+      {!selected && browsing && managing ? <CategoryManager level={level} parent={open} onDone={() => setManaging(false)} /> : null}
+      {!selected && (cards.length || (browsing && !openId && !managing && unsortedCount)) ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {[...cards, ...(!openId && unsortedCount ? [{ id: UNSORTED, parentId: null, name: "Not in a category", sort: 0 }] : [])].map(
             (c) => {
@@ -312,7 +375,7 @@ function Items({
       ) : null}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        {itemsHere.map((item) => {
+        {(selected ? [] : itemsHere).map((item) => {
           const cat = categoryName.get(item.categoryId);
           return (
             <button
@@ -358,9 +421,53 @@ function Items({
           );
         })}
       </div>
-      {(!browsing || openId) && itemsHere.length === 0 && cards.length === 0 && !managing ? (
+      {!selected && (!browsing || openId) && itemsHere.length === 0 && cards.length === 0 && !managing ? (
         <p className="text-sm text-muted-foreground">{browsing ? "Nothing here yet." : "Nothing matches."}</p>
       ) : null}
+    </div>
+  );
+}
+
+// All categories › Category › Sub-category › the open item; each step goes
+// back to that folder.
+function ItemTrail({
+  item,
+  fallbackCategoryId,
+  invBy,
+  onCategory,
+}: {
+  item: CatalogItem | null;
+  fallbackCategoryId: string | null;
+  invBy: Map<string, InventoryCategory>;
+  onCategory: (id: string | null) => void;
+}) {
+  const homeId = item
+    ? item.inventoryCategoryId && invBy.has(item.inventoryCategoryId)
+      ? item.inventoryCategoryId
+      : null
+    : fallbackCategoryId;
+  const home = homeId ? (invBy.get(homeId) ?? null) : null;
+  const parent = home?.parentId ? (invBy.get(home.parentId) ?? null) : null;
+  const steps: { id: string | null; name: string }[] = [
+    { id: null, name: "All categories" },
+    ...(parent ? [{ id: parent.id, name: parent.name }] : []),
+    ...(home ? [{ id: home.id, name: home.name }] : item ? [{ id: UNSORTED, name: "Not in a category" }] : []),
+  ];
+  const backTo = steps[steps.length - 1];
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-sm">
+      {steps.map((step) => (
+        <span key={step.id ?? "all"} className="flex items-center gap-1">
+          <button type="button" className="text-primary underline" onClick={() => onCategory(step.id)}>
+            {step.name}
+          </button>
+          <ChevronRight className="size-3 text-muted-foreground" />
+        </span>
+      ))}
+      <span className="font-medium">{item ? item.name : "New item"}</span>
+      <Button size="sm" variant="outline" className="ml-auto" onClick={() => onCategory(backTo.id)}>
+        <ArrowLeft /> Back to {backTo.name}
+      </Button>
     </div>
   );
 }

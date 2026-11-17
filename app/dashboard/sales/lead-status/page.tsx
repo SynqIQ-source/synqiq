@@ -1,6 +1,7 @@
 import { managesSales } from "@/lib/permissions";
 import Link from "next/link";
 import { DateTime } from "luxon";
+import { Mail, MessageSquare, Phone } from "lucide-react";
 import { Fragment } from "react";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { AddLeadButton } from "../../guests/add-lead-button";
@@ -353,17 +354,17 @@ export default async function LeadStatusPage({
                 <TableHead>Source</TableHead>
                 <TableHead>{view === "replied" ? "Replied" : "Came in"}</TableHead>
                 <TableHead>Salesperson</TableHead>
-                <TableHead>Time to first contact</TableHead>
-                <TableHead className="text-right">Calls</TableHead>
-                <TableHead className="text-right">Texts</TableHead>
-                <TableHead className="text-right">Emails</TableHead>
+                <TableHead>First contact</TableHead>
+                <TableHead>
+                  <span title="Calls · texts · emails">Contacts</span>
+                </TableHead>
                 <TableHead>Next follow-up</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                     {view === "replied"
                       ? `Nobody replied in the last ${REPLY_DAYS} days.`
                       : view === "open"
@@ -377,7 +378,7 @@ export default async function LeadStatusPage({
                 [...byDay.entries()].map(([day, dayRows]) => (
                   <Fragment key={day}>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
-                      <TableCell colSpan={10} className="py-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                      <TableCell colSpan={8} className="py-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
                         {day === "open"
                           ? view === "pool"
                             ? "Newest to the pool first"
@@ -388,7 +389,7 @@ export default async function LeadStatusPage({
                     </TableRow>
                     {dayRows.map((row) => (
                       <TableRow key={row.contact.id}>
-                        <TableCell className="font-medium">
+                        <TableCell className="font-medium whitespace-normal">
                           <Link href={`/dashboard/guests/${row.contact.id}`} className="hover:underline">
                             {row.contact.first_name} {row.contact.last_name}
                           </Link>
@@ -400,22 +401,22 @@ export default async function LeadStatusPage({
                             (STATUS_LABELS[row.contact.status] ?? row.contact.status)
                           )}
                         </TableCell>
-                        <TableCell>{SOURCE_LABELS[row.contact.source] ?? row.contact.source}</TableCell>
+                        <TableCell className="whitespace-normal">{SOURCE_LABELS[row.contact.source] ?? row.contact.source}</TableCell>
                         <TableCell className="whitespace-nowrap text-muted-foreground">
                           {view === "replied" && row.lastReplyAt
                             ? local(row.lastReplyAt, "h:mm a")
                             : local(row.cameInAt, paged ? "LLL d, yyyy" : "h:mm a")}
-                          <span className="ml-1 text-xs">{view === "replied" ? "reply" : row.visited ? "visit" : "added"}</span>
+                          <span className="block text-xs">{view === "replied" ? "reply" : row.visited ? "visit" : "added"}</span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="whitespace-normal">
                           {row.contact.assigned_staff_id ? (staffNames.get(row.contact.assigned_staff_id) ?? "—") : "Unassigned"}
                         </TableCell>
                         <TableCell>
                           <FirstContactBadge firstContact={row.firstContact} />
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">{row.activity.calls}</TableCell>
-                        <TableCell className="text-right tabular-nums">{row.activity.texts}</TableCell>
-                        <TableCell className="text-right tabular-nums">{row.activity.emails}</TableCell>
+                        <TableCell>
+                          <ContactCounts calls={row.activity.calls} texts={row.activity.texts} emails={row.activity.emails} />
+                        </TableCell>
                         <TableCell>
                           <NextFollowUp followUp={row.followUp} timezone={org.timezone} />
                         </TableCell>
@@ -436,5 +437,23 @@ export default async function LeadStatusPage({
         </Card>
       </div>
     </DashboardShell>
+  );
+}
+
+// Calls, texts and emails in one narrow cell.
+function ContactCounts({ calls, texts, emails }: { calls: number; texts: number; emails: number }) {
+  const part = (Icon: typeof Phone, count: number, label: string) => (
+    <span className={`inline-flex items-center gap-0.5 ${count ? "" : "text-muted-foreground/60"}`} title={label}>
+      <Icon className="size-3.5" aria-hidden />
+      <span className="tabular-nums">{count}</span>
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-2">
+      {part(Phone, calls, "calls")}
+      {part(MessageSquare, texts, "texts")}
+      {part(Mail, emails, "emails")}
+    </span>
   );
 }

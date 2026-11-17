@@ -3,8 +3,32 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { dollarsToCents, fail, isUuid, requireClubAdminApi } from "@/lib/payroll/api";
 import { ensureRevenueCategories, importCatalogFromMindbody } from "@/lib/pos/catalog";
 import { packageProblem, parsePackageParts } from "@/lib/pos/packages";
+import { STOCK_MAX } from "@/lib/pos/stock";
 
 export const maxDuration = 300;
+
+type Admin = ReturnType<typeof createSupabaseAdminClient>;
+
+// One of the studio's retail products (stock is only kept for those).
+async function retailProduct(admin: Admin, org: string, id: unknown) {
+  if (!isUuid(id)) return null;
+  const { data } = await admin
+    .from("pos_items")
+    .select("id")
+    .eq("id", id)
+    .eq("organization_id", org)
+    .eq("kind", "product")
+    .is("deleted_at", null)
+    .maybeSingle();
+  return data as { id: string } | null;
+}
+
+// "" / null -> null (not set); a whole number in range -> it; anything else -> undefined.
+function wholeNumber(value: unknown): number | null | undefined {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= STOCK_MAX ? n : undefined;
+}
 
 // Products & Inventory (Club Admin). By `action`:
 //   import    pull Mindbody's active catalog (read-only)
@@ -15,6 +39,8 @@ export const maxDuration = 300;
 //   inventoryCategoryDelete { id }                     (its items become uncategorized)
 //   category  { id, name, taxable, glAccount, active }
 //   taxRate   { percent }  studio sales tax rate
+//   stockLevels { id, parLevel, reorderLevel }      retail product's PAR / reorder level ("" clears)
+//   stockMove   { id, kind: "count"|"received", quantity, note? }  a count (starting / recount) or a delivery
 export async function POST(request: NextRequest) {
   const auth = await requireClubAdminApi();
   if ("error" in auth) return auth.error;
@@ -201,6 +227,42 @@ export async function POST(request: NextRequest) {
     case "ensureCategories": {
       await ensureRevenueCategories(admin, org);
       return NextResponse.json({ success: true });
+    }
+    case "stockLevels": {
+      const product = await retailProduct(admin, org, body.id);
+      if (!product) return fail("Pick a retail product.");
+      const par = wholeNumber(body.parLevel);
+      const reorderAt = wholeNumber(body.reorderLevel);
+      if (par === undefined || reorderAt === undefined) return fail(`Enter whole numbers from 0 to ${STOCK_MAX.toLocaleString()}.`);
+      if (par != null && reorderAt != null && reorderAt >= par) return fail("The reorder level should be below PAR.");
+      const { error } = await admin
+        .from("pos_items")
+        .update({ par_level: par, reorder_level: reorderAt, updated_at: now })
+        .eq("id", product.id)
+        .eq("organization_id", org);
+      return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true });
+    }
+    case "stockMove": {
+      const product = await retailProduct(admin, org, body.id);
+      if (!product) return fail("Pick a retail product.");
+      const kind = body.kind === "count" ? "count" : body.kind === "received" ? "received" : null;
+      if (!kind) return fail("Pick received or counted.");
+      const quantity = wholeNumber(body.quantity);
+      if (quantity == null) return fail(`Enter a whole number from 0 to ${STOCK_MAX.toLocaleString()}.`);
+      if (kind === "received" && quantity === 0) return fail("Enter how many came in.");
+      const note =
+        String(body.note ?? "")
+          .trim()
+          .slice(0, 500) || null;
+      const { error } = await admin.from("inventory_movements").insert({
+        organization_id: org,
+        pos_item_id: product.id,
+        kind,
+        quantity,
+        note,
+        staff_id: currentStaff.id,
+      });
+      return error ? fail("Couldn't save. Try again.", 500) : NextResponse.json({ success: true });
     }
     default:
       return fail("Unknown action.");
