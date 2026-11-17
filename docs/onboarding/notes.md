@@ -270,6 +270,27 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
     progress = open with notes, vendor contacted or a visit scheduled; Avg
     days down = average days the open reports have been open.
 
+- **Fitness Dashboard** (Fitness section; cards for Club Admins, trainers
+  see the page links). Month to date, from SynqIQ's own records only: trainer
+  sessions booked in SynqIQ and personal training sold at SynqIQ checkout.
+  "Include practice data" counts practice PT sales.
+  - *PT revenue MTD*: PT sold at checkout (revenue category "Personal
+    Training"), before tax. Avg session rate sold = revenue / sessions sold
+    (pack sessions, or the number in a monthly PT membership's name; free
+    intros left out). Drill-down: trainers vs sales team (Sales and Sales
+    Leads count as sales team), by person, then every line sold. Credit goes
+    to the commission split picked at checkout, else whoever rang it up.
+  - *Sessions MTD*: scheduled = every session on the books except ones
+    cancelled ahead (no-shows and late cancels count as scheduled); completed
+    = marked completed. Drill-down: day by day.
+  - *Intro workouts, next 7 days*: booked intro sessions (the club's intro
+    session type) today through 6 days out, with member and trainer.
+  - *Goals and pace*: sessions serviced and PT sales vs this month's goals
+    (Club Admins set them in the drill-down; they carry forward). Projection
+    = month to date / days gone (today counts) x days in the month.
+  - *Average per trainer*: mean sessions serviced and PT sales across the
+    trainers with sessions or PT sales credited this month.
+
 - **Class Dashboard**: classes held (Mindbody classes in the period), average
   class size (checked-in clients per class), fill rate (checked in / capacity),
   attendance (checked in / booked). Source: synced Mindbody classes until the
@@ -291,6 +312,8 @@ an **hourly** rate (time clock), a **class rate** and a **session rate**.
 
 ## Change log (newest first)
 
+- 2026-11-17: Fitness Dashboard cards (PT revenue, sessions, intros, goals
+  and pace, average per trainer) with monthly PT goals.
 - 2026-11-17: Reassign from the Guests list; lead search on Lead Follow-ups;
   member Receipts page with PDF receipts (purchases and monthly dues).
 - 2026-11-17: Club Overview dashboard (top of the menu, Club Admins).
