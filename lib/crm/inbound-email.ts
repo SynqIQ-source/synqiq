@@ -1,11 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { extractReplyText } from "@/lib/email/reply-parser";
 import { GUEST_ALIAS_PREFIX, recordInbound } from "@/lib/crm/messages";
-
-function bareEmail(address: string): string {
-  const angle = address.match(/<([^>]+)>/);
-  return (angle ? angle[1]! : address).trim().toLowerCase();
-}
+import { bareEmail, otherSender } from "@/lib/crm/email-sender";
 
 // The guest-thread alias among the recipients, if any (g-<token>@relay domain).
 export function findGuestAlias(recipients: string[]): string | null {
@@ -18,9 +14,12 @@ export function findGuestAlias(recipients: string[]): string | null {
   return null;
 }
 
-// A guest replied to an email from SynqIQ: record it in their thread. Only
-// accepted from the guest's own address on file, so nobody else can post
-// into a thread by guessing an alias.
+// A reply to a guest's email from SynqIQ: record it in their thread. Any
+// sender is accepted -- the alias is a long random code only the guest's
+// emails carry, and guests often answer from another address (work vs
+// personal). A sender other than the email on file is kept on the message
+// (from_address) so the thread shows who wrote it.
+
 export async function handleGuestEmailReply(email: {
   alias: string;
   from: string;
@@ -35,9 +34,6 @@ export async function handleGuestEmailReply(email: {
     .eq("email_alias", email.alias)
     .maybeSingle();
   if (!contact) return { status: "dropped", reason: "unknown guest alias" };
-  if (bareEmail(email.from) !== contact.email_normalized) {
-    return { status: "dropped", reason: "sender isn't the guest's email on file" };
-  }
 
   const body = extractReplyText(email.text).trim();
   if (!body) return { status: "dropped", reason: "empty body after quote stripping" };
@@ -50,6 +46,7 @@ export async function handleGuestEmailReply(email: {
     body,
     subject: email.subject,
     providerMessageId: email.messageId,
+    fromAddress: otherSender(email.from, contact.email_normalized as string | null),
   });
   return { status: "recorded" };
 }

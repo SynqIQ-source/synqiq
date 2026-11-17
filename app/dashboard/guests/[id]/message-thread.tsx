@@ -14,6 +14,8 @@ export type ThreadMessage = {
   direction: "outbound" | "inbound";
   body: string;
   subject: string | null;
+  // An email reply from an address other than the guest's on file.
+  fromAddress?: string | null;
   // Date and time in the studio's time zone, e.g. "Oct 29, 2026, 2:14 PM".
   at: string;
   sender: string;
@@ -90,13 +92,7 @@ export function MessageThread({
           messages.map((message) => {
             const outbound = message.direction === "outbound";
             const Icon =
-              message.channel === "sms"
-                ? MessageSquare
-                : message.channel === "call"
-                  ? Phone
-                  : message.channel === "web"
-                    ? Globe
-                    : Mail;
+              message.channel === "sms" ? MessageSquare : message.channel === "call" ? Phone : message.channel === "web" ? Globe : Mail;
             return (
               <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
                 <div
@@ -105,13 +101,12 @@ export function MessageThread({
                     outbound ? "bg-primary text-primary-foreground" : "border bg-card text-foreground",
                   )}
                 >
-                  {message.subject && message.channel === "email" ? (
-                    <p className="text-xs font-semibold">{message.subject}</p>
+                  {message.subject && message.channel === "email" ? <p className="text-xs font-semibold">{message.subject}</p> : null}
+                  {message.fromAddress ? (
+                    <p className="text-xs text-muted-foreground">From {message.fromAddress} (not the email on file)</p>
                   ) : null}
                   {message.channel === "call" ? <p className="text-xs font-semibold">Call logged</p> : null}
-                  {message.channel === "web" ? (
-                    <p className="text-xs font-semibold">{message.subject ?? "Website form"}</p>
-                  ) : null}
+                  {message.channel === "web" ? <p className="text-xs font-semibold">{message.subject ?? "Website form"}</p> : null}
                   <p className="whitespace-pre-wrap">{message.body}</p>
                   <p
                     className={cn(
@@ -136,28 +131,13 @@ export function MessageThread({
 
       <form onSubmit={send} className="space-y-2">
         <div className="flex gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={channel === "sms" ? "default" : "outline"}
-            onClick={() => setChannel("sms")}
-          >
+          <Button type="button" size="sm" variant={channel === "sms" ? "default" : "outline"} onClick={() => setChannel("sms")}>
             <MessageSquare /> Text
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={channel === "email" ? "default" : "outline"}
-            onClick={() => setChannel("email")}
-          >
+          <Button type="button" size="sm" variant={channel === "email" ? "default" : "outline"} onClick={() => setChannel("email")}>
             <Mail /> Email
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={channel === "call" ? "default" : "outline"}
-            onClick={() => setChannel("call")}
-          >
+          <Button type="button" size="sm" variant={channel === "call" ? "default" : "outline"} onClick={() => setChannel("call")}>
             <Phone /> Log call
           </Button>
         </div>
@@ -176,9 +156,7 @@ export function MessageThread({
             <Textarea
               value={text}
               maxLength={channel === "sms" ? 1000 : 20000}
-              placeholder={
-                channel === "sms" ? "Write a text…" : channel === "email" ? "Write an email…" : "What happened on the call?"
-              }
+              placeholder={channel === "sms" ? "Write a text…" : channel === "email" ? "Write an email…" : "What happened on the call?"}
               className="min-h-20"
               onChange={(event) => setText(event.target.value)}
             />

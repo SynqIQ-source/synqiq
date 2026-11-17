@@ -48,3 +48,17 @@ describe("classImagesToCopy", () => {
     expect(classImageKey(mb)).toBeNull();
   });
 });
+
+describe("otherSender (guest email replies)", () => {
+  it("is null when the guest wrote from their email on file", async () => {
+    const { otherSender } = await import("@/lib/crm/email-sender");
+    expect(otherSender("Adam Horak <ahorak@thepreservehouston.com>", "ahorak@thepreservehouston.com")).toBeNull();
+    expect(otherSender("AHorak@ThePreserveHouston.com", "ahorak@thepreservehouston.com")).toBeNull();
+  });
+
+  it("keeps any other sender's address", async () => {
+    const { otherSender } = await import("@/lib/crm/email-sender");
+    expect(otherSender("Adam <adam@thepreservehouston.com>", "ahorak@thepreservehouston.com")).toBe("adam@thepreservehouston.com");
+    expect(otherSender("someone@example.com", null)).toBe("someone@example.com");
+  });
+});

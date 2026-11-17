@@ -60,7 +60,9 @@ export async function sendGuestMessage(
 ) {
   const { data: contact, error } = await admin
     .from("crm_contacts")
-    .select("id, organization_id, first_name, email_normalized, phone_e164, sms_consent, sms_opted_out_at, email_alias, merged_into_id, deleted_at")
+    .select(
+      "id, organization_id, first_name, email_normalized, phone_e164, sms_consent, sms_opted_out_at, email_alias, merged_into_id, deleted_at",
+    )
     .eq("id", params.contactId)
     .eq("organization_id", params.organizationId)
     .maybeSingle();
@@ -201,6 +203,8 @@ export async function recordInbound(
     subject?: string | null;
     providerMessageId?: string | null;
     isNewLead?: boolean;
+    // Email from an address other than the guest's on file.
+    fromAddress?: string | null;
   },
 ) {
   const now = new Date().toISOString();
@@ -221,11 +225,10 @@ export async function recordInbound(
     subject: params.subject ?? null,
     status: "received",
     provider_message_id: params.providerMessageId ?? null,
+    from_address: params.fromAddress ?? null,
     created_at: now,
   });
   if (error) throw error;
   await admin.from("crm_contacts").update({ last_message_at: now }).eq("id", params.contactId);
-  await notifyStaff(admin, params.organizationId, params.contactId, params.channel, params.isNewLead).catch(
-    () => undefined,
-  );
+  await notifyStaff(admin, params.organizationId, params.contactId, params.channel, params.isNewLead).catch(() => undefined);
 }

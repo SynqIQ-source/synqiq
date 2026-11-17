@@ -194,7 +194,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
       .order("created_at", { ascending: false }),
     supabase
       .from("crm_messages")
-      .select("id, channel, direction, body, subject, sent_by_staff_id, status, error, read_at, created_at")
+      .select("id, channel, direction, body, subject, sent_by_staff_id, status, error, read_at, created_at, from_address")
       .in("contact_id", contactIds)
       .order("created_at", { ascending: true })
       .limit(500),
@@ -270,6 +270,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
     direction: m.direction as "outbound" | "inbound",
     body: m.body,
     subject: m.subject,
+    fromAddress: (m.from_address as string | null) ?? null,
     at: DateTime.fromISO(m.created_at).setZone(org.timezone).toFormat("LLL d, yyyy, h:mm a"),
     sender: m.direction === "inbound" ? contact.first_name : m.sent_by_staff_id ? (staffNames.get(m.sent_by_staff_id) ?? "Staff") : "Staff",
     status: m.status,
