@@ -106,6 +106,8 @@ describe("warm pool flag and imported history", () => {
 
   it("an imported lead with no history in the pool is in the pool, not 'not worked yet'", () => {
     expect(followUpFor(contact({ import_batch_id: "b1", warm_pool_at: at(1) }), activity(), TZ, now(2))).toMatchObject({ kind: "pool" });
-    expect(followUpFor(contact({ import_batch_id: "b1" }), activity(), TZ, now(2))).toMatchObject({ kind: "stopped", reason: "imported" });
+    expect(followUpFor(contact({ import_batch_id: "b1" }), activity(), TZ, now(40))).toMatchObject({ kind: "stopped", reason: "imported" });
+    // A new imported lead (came in within 30 days) goes on the follow-up lists.
+    expect(followUpFor(contact({ import_batch_id: "b1" }), activity(), TZ, now(2))).toMatchObject({ kind: "due", attempt: 1 });
   });
 });

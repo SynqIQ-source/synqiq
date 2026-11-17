@@ -2,6 +2,7 @@ import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import {
   FOLLOW_UP_CONTACT_FIELDS,
+  NEW_LEAD_DAYS,
   activityFor,
   cadenceFrom,
   followUpFor,
@@ -39,7 +40,7 @@ export async function runWarmPool(organizationId: string) {
       .neq("source", "member")
       .not("status", "in", "(member,not_interested)")
       .or(
-        "import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null,imported_activity_at.not.is.null,warm_pool_at.not.is.null",
+        `import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null,imported_activity_at.not.is.null,warm_pool_at.not.is.null,created_at.gte."${DateTime.now().minus({ days: NEW_LEAD_DAYS }).toUTC().toISO()}"`,
       )
       .order("created_at")
       .range(from, from + 999)

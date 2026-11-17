@@ -303,7 +303,7 @@ export function followUpFor(
       };
     }
   }
-  if (isDormantImport(contact, activity)) return { kind: "stopped", reason: "imported" };
+  if (isDormantImport(contact, activity, now)) return { kind: "stopped", reason: "imported" };
 
   const day = (iso: string) => DateTime.fromISO(iso).setZone(timezone).startOf("day");
   const today = now.setZone(timezone).startOf("day");
@@ -361,7 +361,7 @@ export async function loadOpenFollowUpContacts<T extends FollowUpContact>(
       .neq("source", "member")
       .not("status", "in", "(member,not_interested)")
       .or(
-        "import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null,imported_activity_at.not.is.null,warm_pool_at.not.is.null",
+        `import_batch_id.is.null,last_message_at.not.is.null,follow_up_on.not.is.null,imported_activity_at.not.is.null,warm_pool_at.not.is.null,created_at.gte."${DateTime.now().minus({ days: NEW_LEAD_DAYS }).toUTC().toISO()}"`,
       );
     if (staffId === "unassigned") query = query.is("assigned_staff_id", null);
     else if (staffId) query = query.eq("assigned_staff_id", staffId);
@@ -405,11 +405,16 @@ export const QUEUE_LABELS: Record<FollowUpQueue, string> = {
   visited: "Visited",
 };
 
-// An imported lead nobody has worked in SynqIQ yet: no texts/emails/calls,
-// no visit or appointment, no follow-up date set.
-export function isDormantImport(contact: FollowUpContact, activity: LeadActivity): boolean {
+// Leads that came in this recently are always worked, imported or not.
+export const NEW_LEAD_DAYS = 30;
+
+// An older imported lead nobody has worked in SynqIQ yet: no texts/emails/
+// calls, no visit or appointment, no follow-up date set. (One that came in
+// within NEW_LEAD_DAYS is a new lead and goes on the follow-up lists.)
+export function isDormantImport(contact: FollowUpContact, activity: LeadActivity, now = DateTime.now()): boolean {
   return Boolean(
     contact.import_batch_id &&
+    contact.created_at < now.minus({ days: NEW_LEAD_DAYS }).toUTC().toISO()! &&
     !contact.follow_up_on &&
     !contact.last_message_at &&
     activity.contactTimes.length === 0 &&

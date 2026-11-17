@@ -19,6 +19,7 @@ type Contact = MatchableContact & {
   warm_pool_at: string | null;
   last_message_at: string | null;
   follow_up_set_at: string | null;
+  created_at: string;
 };
 
 async function loadContacts(admin: Admin, organizationId: string) {
@@ -26,7 +27,9 @@ async function loadContacts(admin: Admin, organizationId: string) {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await admin
       .from("crm_contacts")
-      .select("id, first_name, last_name, status, source, closed_at, import_batch_id, warm_pool_at, last_message_at, follow_up_set_at")
+      .select(
+        "id, first_name, last_name, status, source, closed_at, import_batch_id, warm_pool_at, last_message_at, follow_up_set_at, created_at",
+      )
       .eq("organization_id", organizationId)
       .is("deleted_at", null)
       .is("merged_into_id", null)
@@ -79,8 +82,9 @@ export async function importGymSalesActivity(input: {
     if ((latest.get(activity.contactId) ?? "") < activity.at) latest.set(activity.contactId, activity.at);
   }
 
-  // Who stays active: open imported leads with Gym Sales activity, or a
-  // SynqIQ message or follow-up date, in the last activeDays days.
+  // Who stays active: open imported leads that came in, had Gym Sales
+  // activity, or a SynqIQ message or follow-up date, in the last activeDays
+  // days.
   const cutoff = DateTime.now().minus({ days: input.activeDays }).toUTC().toISO()!;
   const openImported = contacts.filter(
     (contact) =>
@@ -90,7 +94,10 @@ export async function importGymSalesActivity(input: {
       contact.source !== "member",
   );
   const recent = (contact: Contact) =>
-    (latest.get(contact.id) ?? "") >= cutoff || (contact.last_message_at ?? "") >= cutoff || (contact.follow_up_set_at ?? "") >= cutoff;
+    contact.created_at >= cutoff ||
+    (latest.get(contact.id) ?? "") >= cutoff ||
+    (contact.last_message_at ?? "") >= cutoff ||
+    (contact.follow_up_set_at ?? "") >= cutoff;
   const toPool = openImported.filter((contact) => !contact.warm_pool_at && !recent(contact)).map((contact) => contact.id);
   const activeLeads = openImported.filter(recent).length;
 
