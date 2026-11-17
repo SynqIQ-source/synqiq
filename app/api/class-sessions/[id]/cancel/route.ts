@@ -17,7 +17,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ success: false, error: "Class not found." }, { status: 404 });
   const body = (await request.json().catch(() => null)) as { reason?: unknown } | null;
   const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 300) : "";
-  if (!reason) return NextResponse.json({ success: false, error: "Add a reason (members see it in the email)." }, { status: 400 });
+  if (!reason) return NextResponse.json({ success: false, error: "Add a reason (kept for staff; members don't see it)." }, { status: 400 });
   const result = await cancelClassSession({ organizationId: staff.organizationId, sessionId: id, staffId: staff.id, reason });
   if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: 400 });
   return NextResponse.json({ success: true, cancelledBookings: result.cancelledBookings, emailed: result.emailed });

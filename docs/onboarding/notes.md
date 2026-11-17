@@ -80,8 +80,8 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 - **Sales Dashboard**: guest messages from the last 7 days at the top, then
   walk-ins, guests of members, leads, appointments, closing rates by
   salesperson.
-- **Cancel class** on a class page (with a reason; booked SynqIQ members are
-  released with no fee and emailed).
+- **Cancel class** on a class page (reason is staff-only; booked SynqIQ
+  members are released with no fee and get a short apology email).
 - Can void sales and waive late cancels.
 
 ## Club Admin
@@ -111,6 +111,75 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
   icon), website forms, website form spam (Not spam to release), waiver,
   how-did-you-hear options, who sells.
 
+### Step by step (Club Admin)
+
+**1. Add an employee and give them a login**
+1. Admin -> **Staff & Roles**. (Today staff appear here from Mindbody;
+   **"Add employee" in SynqIQ is not built yet** -- see build list below.)
+2. Find the person. Under **Role & access**, choose **Manage** and set the
+   role: Club Admin, Sales Lead, Sales or Staff.
+3. Turn on the tags for what they do: **Instructor** (teaches classes),
+   **Trainer** (personal training), **Sells** (shows in the kiosk and gets
+   leads).
+4. Check their **email**, then **Send invite**. They get a link to set a
+   password. (Club Admins must also set up two-step sign-in.)
+5. Next, set their pay (step 2).
+
+**2. Set pay rates (one person can have several)**
+
+Each person can have up to three kinds of pay at once, plus exceptions:
+an **hourly** rate (time clock), a **class rate** and a **session rate**.
+
+*First, create the rates the studio uses* (Admin -> **Pay Rates** -> Rates):
+1. Under the rates table, fill in a name (e.g. "Peak Incentive", "Pilates
+   Group", "Trainer 50%").
+2. **For**: Classes or Sessions.
+3. **How**:
+   - Classes: **Base + per person** (base, amount per person, number of
+     people included in the base, optional cap) or **Flat per class**.
+     Optional **If nobody comes** amount.
+   - Sessions: **% of session value** (pack price / sessions in the pack x
+     percent) or **Flat per session**.
+4. Save. Rates can be reused by many people.
+
+*Then, who is paid what* (same page, lower card; search the person):
+- **Group fitness instructor**: pick their standard **Classes** rate. For
+  classes that pay differently, open **Exceptions** -> add one for a
+  **class type** (e.g. all Group Reformer -> Pilates rate) or a single
+  **class time** (e.g. Tue 6:00 AM Cycle -> Per Class $50). Which wins: class
+  time, then class type, then standard rate. Subs are paid their own rate.
+- **Trainer**: pick a **Sessions** rate (e.g. 50% of session value). Add an
+  **Hourly** rate too if they work paid floor/desk hours, and a Classes rate
+  if they also teach. Different rates for some session types -> Exceptions.
+- **Sales / front desk**: enter the **Hourly** rate (paid from the time
+  clock). Commission is set separately: Admin -> **Commissions** -> **Add
+  a plan** (what earns, what it pays), then choose who is on it ("Plan for
+  their role" or per person).
+- Click **Save** on each person's row.
+- Check it: Admin -> **Payroll** for a pay period shows each line and the
+  rate used.
+
+**3. Create a class and put it on the schedule**
+1. Services & Pricing -> **Class Catalog** -> **Class types** -> **New class type**: name,
+   **Program** (sets booking rules and whether membership covers it),
+   description (members see it), level, category. Add a photo on the class
+   type card.
+2. **Weekly schedule** tab -> **Add class time**:
+   - **Class** (the class type), **Days** (any days of the week),
+     **Starts / Ends**, **Room**, **Spots**, **Instructor**.
+   - **First date**: when it starts.
+   - **Last date (optional)**: leave empty to repeat every week with no end;
+     set a date for a series that stops (e.g. a 6-week program).
+3. Save. The class appears on the calendar, the website widget and the
+   member app (bookable up to 3 weeks ahead, per the program's booking rules).
+4. Change one date only: **Calendar** tab -> open the date (change time,
+   instructor, or switch off **Happening** to cancel). Change every week:
+   edit the class time on **Weekly schedule**. End it: set a **Last date**,
+   or switch off **On the schedule**.
+5. Cancel a single class from its class page: **Cancel class** (Club Admins
+   and Sales Leads). The reason you type is for staff only; booked members
+   get a short apology email without it.
+
 ### Numbers explained (to expand before go-live)
 
 - **Class Dashboard**: classes held (Mindbody classes in the period), average
@@ -134,6 +203,8 @@ Roles: **Club Admin**, **Sales Lead**, **Sales**, **Trainer**, **Group Fitness
 
 ## Change log (newest first)
 
+- 2026-11-16: Admin step-by-steps (employee, pay rates, classes); cancel email
+  no longer includes the reason.
 - 2026-11-16: Follow-up cadence (7 attempts, adjustable) + warm lead pool.
 - 2026-11-16: Cancel class button (Club Admins, Sales Leads).
 - 2026-11-15: Team boards (Sales, Trainers), admin post delete; menu

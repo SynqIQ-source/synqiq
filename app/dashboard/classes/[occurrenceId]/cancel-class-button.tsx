@@ -32,10 +32,15 @@ export function CancelClassButton({ sessionId, booked }: { sessionId: string; bo
       <p className="text-muted-foreground">
         It stops being bookable.{" "}
         {booked > 0 ? `The ${booked} ${booked === 1 ? "person" : "people"} booked or waitlisted in SynqIQ` : "Anyone booked in SynqIQ"}{" "}
-        {booked === 1 ? "is" : "are"} released with no late cancel or fee and emailed. People booked in Mindbody are handled in Mindbody
-        until the switch.
+        {booked === 1 ? "is" : "are"} released with no late cancel or fee and emailed a short apology (the reason is not included; it is kept
+        for staff). People booked in Mindbody are handled in Mindbody until the switch.
       </p>
-      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason, e.g. Instructor out sick" maxLength={300} />
+      <Input
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason (staff only), e.g. Instructor out sick"
+        maxLength={300}
+      />
       <div className="flex gap-2">
         <Button
           variant="destructive"

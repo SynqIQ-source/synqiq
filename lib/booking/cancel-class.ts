@@ -6,7 +6,8 @@ import { sendEmailToRecipients } from "@/lib/email/send";
 import { getOptionalEnv } from "@/lib/env";
 
 // Cancelling one class date in SynqIQ: the date is marked not happening
-// (with the reason, in the catalog change log), everyone booked or on the
+// (with the reason, for staff only: catalog change log + class page; never
+// in the member email), everyone booked or on the
 // waitlist in SynqIQ has their spot cancelled -- never a late cancel or a
 // fee -- and is emailed. During the parallel run only members with access to
 // SynqIQ's booking (testers) are emailed; Mindbody's own bookings for the
@@ -109,7 +110,6 @@ export async function releaseCancelledClass(
         firstName: (client.first_name as string | null) ?? "",
         className: (session?.class_name as string | null)?.trim() ?? "Your class",
         when,
-        reason: input.reason,
         bookUrl: `${siteUrl}/m/${studio.siteId}`,
       }),
     });
@@ -122,23 +122,19 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 }
 
-export function cancelledClassEmail(input: {
-  studioName: string;
-  firstName: string;
-  className: string;
-  when: string;
-  reason: string;
-  bookUrl: string;
-}) {
+// Informative and mildly apologetic. No reason: that's for staff only.
+export function cancelledClassEmail(input: { studioName: string; firstName: string; className: string; when: string; bookUrl: string }) {
+  const className = escapeHtml(input.className);
+  const when = input.when ? ` on ${escapeHtml(input.when)}` : "";
   return {
-    subject: `Cancelled: ${input.className}${input.when ? `, ${input.when}` : ""}`,
+    subject: `Class cancelled: ${input.className}${input.when ? `, ${input.when}` : ""}`,
     html: `
       <p>Hi ${escapeHtml(input.firstName || "there")},</p>
-      <p>We're sorry: <strong>${escapeHtml(input.className)}</strong>${input.when ? ` on ${escapeHtml(input.when)}` : ""} has been cancelled.</p>
-      ${input.reason ? `<p>${escapeHtml(input.reason)}</p>` : ""}
-      <p>Your spot has been released. It doesn't count as a late cancel and there's no fee.</p>
-      <p><a href="${escapeHtml(input.bookUrl)}">Book another class</a></p>
-      <p style="color:#666;font-size:13px">${escapeHtml(input.studioName)}</p>
+      <p>We're sorry to let you know that <strong>${className}</strong>${when} has been cancelled. We apologize for the inconvenience.</p>
+      <p>You don't need to do anything: your spot has been released, and it won't count as a late cancel or cost you anything.</p>
+      <p>We'd love to see you in another class this week.</p>
+      <p><a href="${escapeHtml(input.bookUrl)}">See the schedule and book</a></p>
+      <p>Thank you for understanding,<br>${escapeHtml(input.studioName)}</p>
     `,
   };
 }
