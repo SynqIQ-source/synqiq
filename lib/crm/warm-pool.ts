@@ -1,7 +1,13 @@
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { getCrmOrg } from "@/lib/crm/org";
-import { FOLLOW_UP_CONTACT_FIELDS, activityFor, followUpFor, loadLeadActivity, type FollowUpContact } from "@/lib/crm/follow-ups";
+import {
+  FOLLOW_UP_CONTACT_FIELDS,
+  activityFor,
+  cadenceFrom,
+  followUpFor,
+  loadLeadActivity,
+  type FollowUpContact,
+} from "@/lib/crm/follow-ups";
 
 // Nightly: flag open leads that have had every contact attempt with no reply
 // (crm_contacts.warm_pool_at, the date they entered the pool) and unflag
@@ -11,7 +17,14 @@ import { FOLLOW_UP_CONTACT_FIELDS, activityFor, followUpFor, loadLeadActivity, t
 // audiences read.
 export async function runWarmPool(organizationId: string) {
   const admin = createSupabaseAdminClient();
-  const org = await getCrmOrg(organizationId);
+  // Read directly (not getCrmOrg): this runs from a cron, outside React.
+  const { data: orgRow, error: orgError } = await admin
+    .from("organizations")
+    .select("timezone, follow_up_cadence")
+    .eq("id", organizationId)
+    .single();
+  if (orgError || !orgRow) throw orgError ?? new Error("organization not found");
+  const org = { timezone: (orgRow.timezone as string | null) ?? "America/Chicago", cadence: cadenceFrom(orgRow.follow_up_cadence) };
 
   const contacts: (FollowUpContact & { warm_pool_at: string | null })[] = [];
   for (let from = 0; ; from += 1000) {
