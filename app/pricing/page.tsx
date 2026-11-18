@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingHeader } from "@/components/marketing-header";
 import { SiteFooter } from "@/components/site-footer";
-import { BUNDLE_PRICES, MODULES, TEXT_OVERAGE, TEXTS_INCLUDED } from "@/lib/plans";
+import { BUNDLE_PRICES, MODULES, PAYMENT_RATES, TEXT_OVERAGE, TEXTS_INCLUDED } from "@/lib/plans";
 
 export const metadata: Metadata = {
   title: "Pricing | SynqIQ",
@@ -27,8 +27,8 @@ export default function PricingPage() {
           <p className="text-sm font-semibold tracking-wide text-primary uppercase">Pricing</p>
           <h1 className="mt-3 text-4xl font-semibold text-zinc-950 sm:text-5xl">Pay for the parts you use.</h1>
           <p className="mt-5 text-lg leading-8 text-zinc-600">
-            SynqIQ comes in three modules. Start with one, add the others when you need them. Monthly, per location,
-            no annual contract. Works with Mindbody.
+            SynqIQ comes in three modules. Start with one, add the others when you need them. Monthly, per location, no annual contract.
+            Works with Mindbody.
           </p>
         </div>
 
@@ -89,6 +89,25 @@ export default function PricingPage() {
             >
               Get all three
             </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-4 rounded-lg border border-zinc-200 p-6 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-xl">
+            <p className="text-xs font-semibold tracking-wide text-primary uppercase">Coming {PAYMENT_RATES.available}</p>
+            <h2 className="mt-1 text-lg font-semibold text-zinc-950">Built-in card processing</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Take memberships, packages and retail payments right in SynqIQ, through your own Stripe account. One flat rate, no separate
+              gateway or monthly processing fees.
+            </p>
+          </div>
+          <div className="grid shrink-0 gap-1 text-sm text-zinc-700">
+            <p>
+              <span className="text-2xl font-semibold text-zinc-950">{PAYMENT_RATES.online}</span> online
+            </p>
+            <p>
+              <span className="text-2xl font-semibold text-zinc-950">{PAYMENT_RATES.inPerson}</span> in person
+            </p>
           </div>
         </div>
 

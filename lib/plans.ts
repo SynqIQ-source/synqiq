@@ -48,6 +48,10 @@ export const BUNDLE_PRICES: Record<number, number> = { 2: 299, 3: 399 };
 export const TEXTS_INCLUDED = 1000;
 export const TEXT_OVERAGE = 0.03;
 
+// Built-in card processing (Stripe Connect), shown on /pricing as coming in
+// 2027: Stripe's standard rate plus SynqIQ's share.
+export const PAYMENT_RATES = { online: "3.4% + 30¢", inPerson: "3.2% + 5¢", available: "2027" } as const;
+
 export function isModuleKey(value: unknown): value is ModuleKey {
   return MODULES.some((module) => module.key === value);
 }
