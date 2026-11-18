@@ -111,14 +111,15 @@ export async function onboardingLink(stripeAccountId: string, origin: string): P
   const stripe = getStripe();
   const link = await stripe.v2.core.accountLinks.create({
     account: stripeAccountId,
+    // Onboarding collects what the account's requested configuration
+    // (merchant) needs; Stripe rejects a separate "configurations" field.
     use_case: {
       type: "account_onboarding",
       account_onboarding: {
-        configurations: ["merchant"],
         refresh_url: `${origin}/dashboard/settings/payments?resume=1`,
         return_url: `${origin}/dashboard/settings/payments?returned=1`,
       },
-    } as Stripe.V2.Core.AccountLinkCreateParams.UseCase,
+    },
   });
   return link.url;
 }
