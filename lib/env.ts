@@ -26,7 +26,13 @@ type EnvKey =
   // event destination (thin v2 events for studios' connected accounts),
   // verified in app/api/stripe/connect-events. STRIPE_CONNECT_LIVE=true
   // allows creating live connected accounts (test mode always works).
-  | "STRIPE_CONNECT_WEBHOOK_SECRET";
+  | "STRIPE_CONNECT_WEBHOOK_SECRET"
+  // Card payments at checkout (lib/payments/checkout.ts): the publishable
+  // key for Stripe's Payment Element (same mode as STRIPE_SECRET_KEY), and
+  // the "Connected accounts" event destination's signing secret, verified in
+  // app/api/stripe/connect-payments.
+  | "STRIPE_PUBLISHABLE_KEY"
+  | "STRIPE_CONNECT_PAYMENTS_WEBHOOK_SECRET";
 
 export function getEnv(key: EnvKey): string {
   const value = process.env[key];

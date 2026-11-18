@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/billing/stripe";
 import { getOptionalEnv } from "@/lib/env";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { refreshStudioAccount } from "@/lib/payments/connect";
+import { refreshStudioAccount, stripeLivemode } from "@/lib/payments/connect";
 
 // Stripe Connect event destination (thin v2 events) for studios' connected
 // accounts. Every request's signature is checked against the raw body; each
@@ -14,12 +14,15 @@ export async function POST(request: NextRequest) {
   if (!secret) return NextResponse.json({ error: "Not configured" }, { status: 503 });
   const raw = await request.text();
   const signature = request.headers.get("stripe-signature") ?? "";
-  let notification: { id: string; type: string; related_object?: { id?: string } | null };
+  let notification: { id: string; type: string; livemode?: boolean; related_object?: { id?: string } | null };
   try {
     notification = getStripe().parseEventNotification(raw, signature, secret) as unknown as typeof notification;
   } catch {
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
+  // A live endpoint can also receive test events: only act on our own mode.
+  if (typeof notification.livemode === "boolean" && notification.livemode !== stripeLivemode())
+    return NextResponse.json({ received: true, ignored: true });
   const admin = createSupabaseAdminClient();
   const accountId = notification.type.startsWith("v2.core.account") ? (notification.related_object?.id ?? null) : null;
   const { error: seenError } = await admin

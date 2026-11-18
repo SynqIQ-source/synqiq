@@ -82,7 +82,11 @@ export default async function PosSalePage({ params }: { params: Promise<{ id: st
             <p className="text-sm">{(sale.client_name as string | null) ?? "Walk-in"}</p>
             {sale.status === "practice" ? (
               <Badge variant="secondary" className="mx-auto">
-                Practice sale · not charged
+                {sale.payment_method === "card_test" ? "Practice sale · Stripe test card" : "Practice sale · not charged"}
+              </Badge>
+            ) : sale.payment_method === "card" ? (
+              <Badge variant="secondary" className="mx-auto">
+                Paid by card{sale.status === "voided" ? " · refunded" : ""}
               </Badge>
             ) : null}
           </CardHeader>

@@ -16,6 +16,8 @@ const money = (cents: number) =>
   `${cents < 0 ? "-" : ""}$${(Math.abs(cents) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const PAYMENT_LABELS: Record<string, string> = {
   practice: "Practice (not charged)",
+  card: "Card",
+  card_test: "Card (Stripe test)",
   card_present: "Card",
   card_on_file: "Card on file",
   cash: "Cash",

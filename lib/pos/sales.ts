@@ -25,6 +25,15 @@ export type SaleLineRequest = {
   none?: boolean;
 };
 
+export type SalePayment = {
+  livemode: boolean;
+  paymentIntentId: string;
+  amountCents: number; // what Stripe charged; must equal the recomputed total
+  stripeAccountId: string;
+  customerId: string | null;
+  paymentMethodId: string | null;
+};
+
 export async function findPromo(admin: Admin, organizationId: string, code: string, timezone: string) {
   const clean = code.trim().toUpperCase();
   if (!clean) return { promo: null, error: null };
@@ -75,8 +84,20 @@ export async function savePracticeSale(
     agreements?: AgreementSignatureRequest[];
     evidence?: { ip: string | null; userAgent: string | null };
     dryRun?: boolean;
+    // Card payments (lib/payments/checkout.ts): `validateOnly` checks the
+    // whole sale, signatures included, and returns the amount to charge
+    // without saving; `payment` saves the sale once Stripe has confirmed the
+    // charge. A test-mode payment is saved as a practice sale so it never
+    // counts in real reports.
+    validateOnly?: boolean;
+    payment?: SalePayment;
   },
-): Promise<{ error: string } | { saleId: string; saleNumber: number } | { agreements: AgreementToSign[] }> {
+): Promise<
+  | { error: string }
+  | { saleId: string; saleNumber: number }
+  | { agreements: AgreementToSign[] }
+  | { totalCents: number; recurring: boolean }
+> {
   const admin = createSupabaseAdminClient();
   const org = staff.organizationId;
   if (input.lines.length === 0) return { error: "The cart is empty." };
@@ -252,12 +273,19 @@ export async function savePracticeSale(
   if (input.dryRun) return { agreements: toSign };
   const unsigned = signatureProblem(toSign, input.agreements ?? []);
   if (unsigned) return { error: unsigned };
+  const recurring = input.lines.some((request) => Boolean(partsBy.get(request.itemId)));
+  if (input.validateOnly) return { totalCents: cart.totalCents, recurring };
+  const payment = input.payment ?? null;
+  if (payment && payment.amountCents !== cart.totalCents) return { error: "The total changed after the card was charged." };
+  // Live card payment -> a real sale; anything else stays practice.
+  const saleStatus = payment?.livemode ? "completed" : "practice";
+  const scheduleStatus = payment?.livemode ? "active" : "practice";
 
   const { data: sale, error } = await admin
     .from("pos_sales")
     .insert({
       organization_id: org,
-      status: "practice",
+      status: saleStatus,
       mindbody_client_id: mindbodyClientId,
       crm_contact_id: crmContactId,
       client_name: input.clientName?.slice(0, 200) ?? null,
@@ -269,7 +297,8 @@ export async function savePracticeSale(
       tax_rate: taxRate,
       promo_code_id: promo?.id ?? null,
       promo_code: promo?.code ?? null,
-      payment_method: "practice",
+      payment_method: payment ? (payment.livemode ? "card" : "card_test") : "practice",
+      payment_ref: payment?.paymentIntentId ?? null,
       note: input.note?.slice(0, 500) ?? null,
     })
     .select("id, sale_number")
@@ -326,8 +355,11 @@ export async function savePracticeSale(
         crm_contact_id: crmContactId,
         client_name: input.clientName?.slice(0, 200) ?? null,
         name: item.name as string,
-        status: "practice",
+        status: scheduleStatus,
         start_date: saleDate,
+        stripe_account_id: payment?.stripeAccountId ?? null,
+        stripe_customer_id: payment?.customerId ?? null,
+        stripe_payment_method_id: payment?.paymentMethodId ?? null,
         first_bill_date: schedule.firstBillDate,
         recurring_lines: schedule.lines.map((line) => ({ ...line, revenueCategory: categoryBy.get(line.revenueCategoryId)?.name ?? null })),
         recurring_subtotal_cents: schedule.subtotalCents,

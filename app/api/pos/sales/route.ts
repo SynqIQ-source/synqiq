@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireCheckoutApi } from "@/lib/pos/api";
 import { canVoidSale, findPromo, savePracticeSale, type SaleLineRequest } from "@/lib/pos/sales";
+import { finishCardPayment, refundCardSale, startCardPayment } from "@/lib/payments/checkout";
 
 // Checkout. POST { action: "promo", code } checks a code;
 // POST { action: "sale", clientId?, clientName?, lines[], promoCode?, note?, agreements? }
 // saves a PRACTICE sale (no money moves until payments are connected);
 // POST { action: "agreements", ...same } checks the sale and returns the
-// agreements the buyer must sign first.
+// agreements the buyer must sign first;
+// POST { action: "card_start", ...same as sale } checks the sale and starts a
+// card payment in the studio's Stripe account (returns the client secret);
+// POST { action: "card_finish", paymentId } saves the sale once Stripe has
+// confirmed the payment; POST { action: "void" } refunds a card sale.
 export async function POST(request: NextRequest) {
   const auth = await requireCheckoutApi();
   if ("error" in auth) return auth.error;
@@ -28,7 +33,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, promo });
   }
 
-  if (body.action === "sale" || body.action === "agreements") {
+  if (body.action === "card_finish") {
+    const paymentId = typeof body.paymentId === "string" && /^[0-9a-f-]{36}$/i.test(body.paymentId) ? body.paymentId : "";
+    if (!paymentId) return NextResponse.json({ success: false, error: "Payment not found." }, { status: 400 });
+    const result = await finishCardPayment(paymentId, currentStaff.organizationId);
+    if ("error" in result) return NextResponse.json({ success: false, ...result }, { status: 400 });
+    return NextResponse.json({ success: true, ...result });
+  }
+
+  if (body.action === "sale" || body.action === "agreements" || body.action === "card_start") {
     const lines = (Array.isArray(body.lines) ? body.lines : []) as SaleLineRequest[];
     const clean = lines.map((line) => ({
       itemId: String(line.itemId ?? ""),
@@ -43,13 +56,12 @@ export async function POST(request: NextRequest) {
         : [],
       none: line.none === true,
     }));
-    const result = await savePracticeSale(currentStaff, {
+    const saleRequest = {
       clientId: typeof body.clientId === "string" && body.clientId ? body.clientId : null,
       clientName: typeof body.clientName === "string" && body.clientName ? body.clientName : null,
       lines: clean,
       promoCode: typeof body.promoCode === "string" && body.promoCode.trim() ? body.promoCode : null,
       note: typeof body.note === "string" && body.note.trim() ? body.note : null,
-      dryRun: body.action === "agreements",
       agreements: (Array.isArray(body.agreements) ? body.agreements : []).slice(0, 100).map((raw: Record<string, unknown>) => ({
         lineIndex: Number(raw?.lineIndex),
         sha256: String(raw?.sha256 ?? ""),
@@ -62,7 +74,13 @@ export async function POST(request: NextRequest) {
         ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? request.headers.get("x-real-ip"),
         userAgent: request.headers.get("user-agent"),
       },
-    });
+    };
+    if (body.action === "card_start") {
+      const started = await startCardPayment(currentStaff, saleRequest);
+      if ("error" in started) return NextResponse.json({ success: false, error: started.error }, { status: 400 });
+      return NextResponse.json({ success: true, ...started });
+    }
+    const result = await savePracticeSale(currentStaff, { ...saleRequest, dryRun: body.action === "agreements" });
     if ("error" in result) return NextResponse.json({ success: false, error: result.error }, { status: 400 });
     return NextResponse.json({ success: true, ...result });
   }
@@ -81,6 +99,9 @@ export async function POST(request: NextRequest) {
     if (sale.status === "voided") return NextResponse.json({ success: false, error: "Already voided." }, { status: 400 });
     if (!canVoidSale(currentStaff, { staffId: sale.staff_id as string, createdAt: sale.created_at as string }, new Date()))
       return NextResponse.json({ success: false, error: "Only a Club Admin or Sales Lead can void this sale." }, { status: 403 });
+    // A card sale is refunded to the card first; if Stripe can't, it stays.
+    const refund = await refundCardSale(admin, currentStaff.organizationId, saleId);
+    if ("error" in refund) return NextResponse.json({ success: false, error: refund.error }, { status: 502 });
     const { error } = await admin
       .from("pos_sales")
       .update({ status: "voided", voided_at: new Date().toISOString(), voided_by_staff_id: currentStaff.id, void_reason: reason })

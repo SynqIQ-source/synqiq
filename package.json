@@ -12,6 +12,8 @@
     "test:db": "node scripts/test-db.mjs"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "7.0.1",
+    "@stripe/stripe-js": "10.2.1",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.1",
     "@vercel/analytics": "^2.0.1",

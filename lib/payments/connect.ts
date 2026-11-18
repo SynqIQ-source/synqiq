@@ -23,6 +23,12 @@ export function connectCreationAllowed(secretKey: string | undefined): boolean {
   return process.env.STRIPE_CONNECT_LIVE === "true";
 }
 
+// Test or live, from the server's Stripe key. A studio can have one account
+// of each; only the one matching the key is ever used.
+export function stripeLivemode(secretKey: string | undefined = process.env.STRIPE_SECRET_KEY): boolean {
+  return Boolean(secretKey?.startsWith("sk_live_") || secretKey?.startsWith("rk_live_"));
+}
+
 export type StudioStripeAccount = {
   stripeAccountId: string;
   livemode: boolean;
@@ -36,6 +42,7 @@ export async function getStudioStripeAccount(admin: Admin, organizationId: strin
     .from("stripe_connected_accounts")
     .select("stripe_account_id, livemode, ready, card_payments_status, requirements_due")
     .eq("organization_id", organizationId)
+    .eq("livemode", stripeLivemode())
     .maybeSingle();
   if (!data) return null;
   return {
@@ -141,6 +148,7 @@ export async function refreshStudioAccount(admin: Admin, organizationId: string)
       last_checked_at: now,
       ...(readiness.ready && !current.ready ? { ready_at: now } : {}),
     })
-    .eq("organization_id", organizationId);
+    .eq("organization_id", organizationId)
+    .eq("livemode", current.livemode);
   return { ...current, ...readiness };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CardPayment, type CardSession } from "./card-payment";
 import { SignAgreements, type AgreementToSign, type SignedAgreement } from "./sign-agreements";
 import { ChevronLeft, ChevronRight, Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +55,7 @@ type Receipt = {
   taxCents: number;
   totalCents: number;
   promo: string | null;
+  paidBy: "practice" | "card" | "card_test";
 };
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -69,6 +71,8 @@ export function Checkout({
   me,
   meEarns,
   freezeNotice,
+  cardReady = false,
+  cardTestMode = false,
 }: {
   items: CheckoutItem[];
   inventoryCategories: PosCategory[];
@@ -79,6 +83,9 @@ export function Checkout({
   me: Person;
   meEarns: boolean;
   freezeNotice: string;
+  // The studio's Stripe account is ready for card payments (test or live).
+  cardReady?: boolean;
+  cardTestMode?: boolean;
 }) {
   const [openId, setOpenId] = useState<string | null>(null); // inventory category being browsed
   const [search, setSearch] = useState("");
@@ -92,6 +99,9 @@ export function Checkout({
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [signing, setSigning] = useState<AgreementToSign[] | null>(null);
   const [signError, setSignError] = useState<string | null>(null);
+  // "card" charges through Stripe; "practice" saves without charging.
+  const [payWith, setPayWith] = useState<"card" | "practice">("practice");
+  const [cardSession, setCardSession] = useState<CardSession | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const itemBy = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
@@ -213,7 +223,8 @@ export function Checkout({
 
   // Complete sale: items with an agreement (memberships, personal training)
   // open the signing screen first; the sale saves once everything is signed.
-  async function complete() {
+  async function complete(mode: "card" | "practice") {
+    setPayWith(mode);
     setSaving(true);
     setError(null);
     const response = await fetch("/api/pos/sales", {
@@ -228,7 +239,51 @@ export function Checkout({
       setSignError(null);
       return setSigning(result.agreements);
     }
-    await save([]);
+    if (mode === "card") await startCard([]);
+    else await save([]);
+  }
+
+  // Card: the server checks the sale (signatures included) and starts the
+  // payment in the studio's Stripe account; the sale is saved only after
+  // Stripe confirms the payment (finishCard).
+  async function startCard(agreements: SignedAgreement[]) {
+    setSaving(true);
+    setError(null);
+    setSignError(null);
+    const response = await fetch("/api/pos/sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...salePayload("sale", agreements), action: "card_start" }),
+    }).catch(() => null);
+    const result = (await response?.json().catch(() => ({}))) as Partial<CardSession> & { success?: boolean; error?: string };
+    setSaving(false);
+    if (!response?.ok || !result?.success || !result.clientSecret) {
+      const message = result?.error ?? "Couldn't start the card payment. Try again.";
+      if (signing) return setSignError(message);
+      return setError(message);
+    }
+    setSigning(null);
+    setCardSession(result as CardSession);
+  }
+
+  async function finishCard() {
+    if (!cardSession) return;
+    // The browser's word isn't enough: the server re-reads the payment from
+    // Stripe. Retry briefly in case the payment is still settling.
+    let result: { success?: boolean; error?: string; saleNumber?: number; livemode?: boolean } = {};
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await fetch("/api/pos/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "card_finish", paymentId: cardSession.paymentId }),
+      }).catch(() => null);
+      result = ((await response?.json().catch(() => ({}))) ?? {}) as typeof result;
+      if (result.success || !/processing|being saved/.test(result.error ?? "")) break;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    setCardSession(null);
+    if (!result.success) return setError(result.error ?? "Couldn't confirm the payment. Check Sales history before charging again.");
+    showReceipt(result.saleNumber ?? 0, result.livemode ? "card" : "card_test");
   }
 
   function salePayload(action: "sale" | "agreements", agreements: SignedAgreement[] = []) {
@@ -272,8 +327,13 @@ export function Checkout({
       return setError(message);
     }
     setSigning(null);
+    showReceipt(result.saleNumber ?? 0, "practice");
+  }
+
+  function showReceipt(saleNumber: number, paidBy: Receipt["paidBy"]) {
     setReceipt({
-      saleNumber: result.saleNumber ?? 0,
+      paidBy,
+      saleNumber,
       member: member?.name ?? "Walk-in",
       lines: lines.flatMap((line) => {
         const item = itemBy.get(line.itemId)!;
@@ -321,13 +381,23 @@ export function Checkout({
           saving={saving}
           error={signError}
           onCancel={() => setSigning(null)}
-          onDone={(signed) => save(signed)}
+          onDone={(signed) => (payWith === "card" ? startCard(signed) : save(signed))}
         />
       ) : null}
-      <p className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-        <span className="font-medium">Practice mode.</span> Sales are saved so you can check the screen, tax and commission. No card is
-        charged and nothing changes in Mindbody.
-      </p>
+      {cardSession ? <CardPayment session={cardSession} onPaid={finishCard} onCancel={() => setCardSession(null)} /> : null}
+      {cardReady ? (
+        cardTestMode ? (
+          <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <span className="font-medium">Stripe test mode.</span> Use Stripe test cards (4242 4242 4242 4242). No real money moves, and
+            these sales are kept as practice sales.
+          </p>
+        ) : null
+      ) : (
+        <p className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+          <span className="font-medium">Practice mode.</span> Sales are saved so you can check the screen, tax and commission. No card is
+          charged and nothing changes in Mindbody.
+        </p>
+      )}
       <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -683,14 +753,28 @@ export function Checkout({
                   <p className="text-xs text-amber-700 dark:text-amber-400">Pick who the membership is for (member, guest or lead).</p>
                 ) : null}
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
+                {cardReady ? (
+                  <Button
+                    className="w-full"
+                    disabled={
+                      saving || lines.length === 0 || packageNeedsMember || missingAmount || membersOnlyBlocked || cart.totalCents < 50
+                    }
+                    onClick={() => complete("card")}
+                  >
+                    {saving && payWith === "card" ? "Checking…" : `Charge card ${money(cart.totalCents)}`}
+                  </Button>
+                ) : null}
                 <Button
                   className="w-full"
+                  variant={cardReady ? "outline" : "default"}
                   disabled={saving || lines.length === 0 || packageNeedsMember || missingAmount || membersOnlyBlocked}
-                  onClick={complete}
+                  onClick={() => complete("practice")}
                 >
-                  {saving ? "Saving…" : "Save practice sale"}
+                  {saving && payWith === "practice" ? "Saving…" : "Save practice sale"}
                 </Button>
-                <p className="text-center text-xs text-muted-foreground">Card payment connects here once Stripe is set up.</p>
+                {cardReady ? null : (
+                  <p className="text-center text-xs text-muted-foreground">Card payment connects here once Stripe is set up.</p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -860,8 +944,13 @@ function ReceiptCard({ receipt, onNew }: { receipt: Receipt; onNew: () => void }
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Practice sale #{receipt.saleNumber}</CardTitle>
-        <p className="text-sm text-muted-foreground">{receipt.member} · not charged</p>
+        <CardTitle>
+          {receipt.paidBy === "card" ? "Sale" : "Practice sale"} #{receipt.saleNumber}
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {receipt.member} ·{" "}
+          {receipt.paidBy === "card" ? "paid by card" : receipt.paidBy === "card_test" ? "paid with a Stripe test card" : "not charged"}
+        </p>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         {receipt.lines.map((line, index) => (

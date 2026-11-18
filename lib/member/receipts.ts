@@ -17,6 +17,8 @@ export type ReceiptRow = { kind: ReceiptKind; id: string; date: string; descript
 
 const PAYMENT_LABELS: Record<string, string> = {
   practice: "Practice -- no payment taken",
+  card: "Card",
+  card_test: "Card (Stripe test)",
   card_present: "Card",
   card_on_file: "Card on file",
   cash: "Cash",

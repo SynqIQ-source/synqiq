@@ -9,6 +9,8 @@ import { COMMISSIONABLE_CATEGORY_KEYS } from "@/lib/pos/cart";
 import { commissionEarnerIds } from "@/lib/payroll/commission-job";
 import { FREEZE_NOTICE } from "@/lib/memberships/freeze-check";
 import { parsePackageParts } from "@/lib/pos/packages";
+import { cardPaymentsReady } from "@/lib/payments/checkout";
+import { stripeLivemode } from "@/lib/payments/connect";
 import { Checkout, type CheckoutCategory, type CheckoutItem, type PosCategory } from "./checkout";
 
 // POS, PRACTICE MODE: the same cards as Products & Inventory (category ->
@@ -53,6 +55,7 @@ export default async function PosPage() {
   }));
   // Only people who earn commission (Admin > Commissions) are in the commission picker.
   const earners = await commissionEarnerIds(admin, staff.organizationId);
+  const cardReady = await cardPaymentsReady(admin, staff.organizationId);
   const categoryBy = new Map((categories ?? []).map((row) => [row.id as string, row]));
   const categoryRows: CheckoutCategory[] = (categories ?? [])
     .filter((row) => row.active)
@@ -97,7 +100,11 @@ export default async function PosPage() {
           <Link href="/dashboard/pos/sales">Sales history &amp; end of day</Link>
         </Button>
       }
-      description="Practice mode: sales are recorded to check the screen and the totals. No card is charged and nothing changes in Mindbody."
+      description={
+        cardReady
+          ? "Charge cards through the studio's Stripe account, or save a practice sale. Nothing changes in Mindbody."
+          : "Practice mode: sales are recorded to check the screen and the totals. No card is charged and nothing changes in Mindbody."
+      }
     >
       <Checkout
         items={itemRows}
@@ -111,6 +118,8 @@ export default async function PosPage() {
         me={{ id: staff.id, name: staff.displayName ?? "Me" }}
         meEarns={earners.has(staff.id)}
         freezeNotice={FREEZE_NOTICE}
+        cardReady={cardReady}
+        cardTestMode={cardReady && !stripeLivemode()}
       />
     </DashboardShell>
   );
