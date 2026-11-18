@@ -34,9 +34,15 @@ export type CardSaleRequest = {
   evidence: { ip: string | null; userAgent: string | null };
 };
 
-// SynqIQ's application fee on studio card payments, in basis points. 0 until
-// the revenue-share model is settled with Stripe (signed agreement).
-export function applicationFeeCents(amountCents: number, basisPoints = Number(process.env.SYNQIQ_APPLICATION_FEE_BPS ?? 0)): number {
+// SynqIQ's application fee on studio card payments, in basis points: 0.5%
+// on top of Stripe's rate (Adam, 2026-11-18). The other 0.5% of SynqIQ's
+// share comes from Stripe's revenue share, not from this fee. Override with
+// SYNQIQ_APPLICATION_FEE_BPS (e.g. 0 to switch it off).
+export const DEFAULT_APPLICATION_FEE_BPS = 50;
+export function applicationFeeCents(
+  amountCents: number,
+  basisPoints = Number(process.env.SYNQIQ_APPLICATION_FEE_BPS ?? DEFAULT_APPLICATION_FEE_BPS),
+): number {
   if (!Number.isFinite(basisPoints) || basisPoints <= 0) return 0;
   return Math.floor((amountCents * Math.min(basisPoints, 1000)) / 10_000);
 }
@@ -94,7 +100,8 @@ export async function startCardPayment(
   const params: Stripe.PaymentIntentCreateParams = {
     amount: checked.totalCents,
     currency: "usd",
-    automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+    // Front desk: cards only (no bank debits or pay-later at the counter).
+    allowed_payment_method_types: ["card"],
     description: `SynqIQ checkout${request.clientName ? ` · ${request.clientName}` : ""}`,
     metadata: { synqiq_payment_id: row.id as string, synqiq_organization_id: staff.organizationId },
     ...(customerId ? { customer: customerId, setup_future_usage: "off_session" as const } : {}),
@@ -217,7 +224,13 @@ export async function refundCardSale(
   if (remaining <= 0) return { refunded: 0 };
   try {
     await getStripe().refunds.create(
-      { payment_intent: row.payment_intent_id as string, amount: remaining, metadata: { synqiq_sale_id: saleId } },
+      // A voided sale returns SynqIQ's fee to the studio too.
+      {
+        payment_intent: row.payment_intent_id as string,
+        amount: remaining,
+        refund_application_fee: true,
+        metadata: { synqiq_sale_id: saleId },
+      },
       { stripeAccount: row.stripe_account_id as string, idempotencyKey: `synqiq-void-refund-${saleId}` },
     );
   } catch (stripeError) {

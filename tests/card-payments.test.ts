@@ -22,3 +22,11 @@ describe("card payments", () => {
     expect(applicationFeeCents(10_000, 5000)).toBe(1000);
   });
 });
+
+describe("SynqIQ's share", () => {
+  it("defaults to 0.5% on top of Stripe's rate", async () => {
+    const { DEFAULT_APPLICATION_FEE_BPS } = await import("@/lib/payments/checkout");
+    expect(DEFAULT_APPLICATION_FEE_BPS).toBe(50);
+    expect(applicationFeeCents(39_900, DEFAULT_APPLICATION_FEE_BPS)).toBe(199); // $399 -> $1.99
+  });
+});
