@@ -70,6 +70,7 @@ export function CheckInDesk() {
       id?: string;
       coverage?: string | null;
       needsStaff?: boolean;
+      classes?: string[]; // reservations checked in with them
     };
   }
 
@@ -88,7 +89,7 @@ export function CheckInDesk() {
       if (result.success) {
         setFlash({
           ok: true,
-          text: `Welcome, ${found.client.name.split(" ")[0]}! Checked in${result.coverage ? ` (${result.coverage})` : ""}.`,
+          text: `Welcome, ${found.client.name.split(" ")[0]}! Checked in${result.coverage ? ` (${result.coverage})` : ""}.${alsoIn(result.classes)}`,
           photo: found.client.photoUrl,
           checkInId: result.id,
         });
@@ -145,7 +146,7 @@ export function CheckInDesk() {
       }
       setFlash({
         ok: true,
-        text: `${status.client.name} checked in${result.coverage ? ` (${result.coverage})` : ""}.`,
+        text: `${status.client.name} checked in${result.coverage ? ` (${result.coverage})` : ""}.${alsoIn(result.classes)}`,
         photo: status.client.photoUrl,
       });
       setStatus(null);
@@ -297,4 +298,9 @@ export function CheckInDesk() {
       ) : null}
     </div>
   );
+}
+
+// "Also checked in for 6:00 PM Cycle." when reservations were checked in too.
+function alsoIn(classes: string[] | undefined): string {
+  return classes?.length ? ` Also checked in for ${classes.join(", ")}.` : "";
 }

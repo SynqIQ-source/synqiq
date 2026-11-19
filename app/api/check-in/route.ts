@@ -4,6 +4,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { canCheckIn } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadCheckInStatus } from "@/lib/checkin/status";
+import { autoCheckInReservations } from "@/lib/checkin/reservations";
 
 // Check someone in. What covers the visit is worked out again here (not
 // trusted from the browser); when nothing covers it a reason is required.
@@ -11,6 +12,8 @@ import { loadCheckInStatus } from "@/lib/checkin/status";
 // A key-card scan (method "scan") only goes through on its own when the
 // visit is covered, the member is in good standing and not in already
 // today; otherwise it comes back to the front desk with the status.
+// Checking in also checks them into SynqIQ class and pool lane reservations
+// starting within the hour (never PT sessions).
 export async function POST(request: NextRequest) {
   const currentStaff = await getCurrentStaff();
   if (!currentStaff || !canCheckIn(currentStaff)) {
@@ -35,15 +38,14 @@ export async function POST(request: NextRequest) {
   }
   const admin = createSupabaseAdminClient();
   const { data: org } = await admin.from("organizations").select("timezone").eq("id", currentStaff.organizationId).maybeSingle();
+  const timezone = (org?.timezone as string | undefined) ?? "America/Chicago";
   const { data: saved, error } = await admin
     .from("check_ins")
     .insert({
       organization_id: currentStaff.organizationId,
       mindbody_client_id: clientId,
       client_name: status.client.name,
-      local_date: DateTime.now()
-        .setZone((org?.timezone as string | undefined) ?? "America/Chicago")
-        .toISODate(),
+      local_date: DateTime.now().setZone(timezone).toISODate(),
       checked_in_by_staff_id: currentStaff.id,
       method,
       billing_standing: status.decision.standing,
@@ -61,5 +63,17 @@ export async function POST(request: NextRequest) {
     console.error("[check-in] save failed:", error.message);
     return NextResponse.json({ success: false, error: "Couldn't check in. Try again." }, { status: 500 });
   }
-  return NextResponse.json({ success: true, id: saved.id, coverage: status.decision.coverageName, status });
+  const reservations = await autoCheckInReservations({
+    organizationId: currentStaff.organizationId,
+    mindbodyClientId: clientId,
+    staffId: currentStaff.id,
+    timezone,
+  }).catch((autoError) => {
+    console.error("[check-in] auto check-in to reservations failed:", autoError);
+    return [];
+  });
+  const classes = reservations.map(
+    (reservation) => `${DateTime.fromISO(reservation.startsAt).setZone(timezone).toFormat("h:mm a")} ${reservation.className}`,
+  );
+  return NextResponse.json({ success: true, id: saved.id, coverage: status.decision.coverageName, status, classes });
 }
