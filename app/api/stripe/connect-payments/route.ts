@@ -5,6 +5,7 @@ import { getOptionalEnv } from "@/lib/env";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { stripeLivemode } from "@/lib/payments/connect";
 import { finishCardPayment, noteCardPaymentFailure } from "@/lib/payments/checkout";
+import { finishRenewalFromEvent } from "@/lib/billing/renewal-job";
 
 // Stripe event destination, "Connected accounts" scope (snapshot events):
 // payments made in studios' own accounts (direct charges). Every request's
@@ -35,7 +36,11 @@ export async function POST(request: NextRequest) {
   const forget = () => admin.from("stripe_connect_events").delete().eq("id", event.id);
 
   try {
-    if (event.type === "payment_intent.succeeded") {
+    const renewal = (event.data.object as Stripe.PaymentIntent).metadata?.synqiq_membership_charge_id;
+    if (renewal && event.type.startsWith("payment_intent.")) {
+      // A monthly renewal that didn't finish during the nightly run.
+      await finishRenewalFromEvent(event.data.object as Stripe.PaymentIntent, event.account);
+    } else if (event.type === "payment_intent.succeeded") {
       const intent = event.data.object as Stripe.PaymentIntent;
       const paymentId = intent.metadata?.synqiq_payment_id;
       if (paymentId) {

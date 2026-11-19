@@ -9,6 +9,8 @@ import { isClubAdmin } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { upcomingPaymentDates } from "@/lib/pos/packages";
 import { cardExpiry, RETRY_DAYS } from "@/lib/billing/renewals";
+import { RunRenewals } from "./run-renewals";
+import { stripeLivemode } from "@/lib/payments/connect";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const UPCOMING_DAYS = 7;
@@ -25,14 +27,15 @@ export default async function MemberBillingPage() {
   const today = DateTime.now().setZone(zone).toISODate()!;
   const until = DateTime.fromISO(today).plus({ days: UPCOMING_DAYS }).toISODate()!;
 
-  const [{ data: schedules }, { data: charges }, { data: notices }] = await Promise.all([
+  const [{ data: scheduleRows }, { data: charges }, { data: notices }] = await Promise.all([
     admin
       .from("member_billing_schedules")
       .select(
-        "id, mindbody_client_id, client_name, name, first_bill_date, autopay_count, auto_renews, recurring_total_cents, billing_start, billing_state, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year",
+        "id, status, mindbody_client_id, client_name, name, first_bill_date, autopay_count, auto_renews, recurring_total_cents, billing_start, billing_state, stripe_payment_method_id, card_brand, card_last4, card_exp_month, card_exp_year",
       )
       .eq("organization_id", org)
-      .eq("status", "active")
+      // Test mode (local/sandbox): also the schedules test-card sales made.
+      .in("status", stripeLivemode() ? ["active"] : ["active", "practice"])
       .limit(5000),
     admin
       .from("membership_charges")
@@ -43,9 +46,11 @@ export default async function MemberBillingPage() {
       .limit(500),
     admin.from("card_expiry_notices").select("schedule_id, card_exp_month, card_exp_year, notice, sent_at").eq("organization_id", org),
   ]);
-  const scheduleBy = new Map((schedules ?? []).map((row) => [row.id as string, row]));
+  // Practice schedules count only when a test card is on them.
+  const schedules = (scheduleRows ?? []).filter((row) => row.status === "active" || row.stripe_payment_method_id);
+  const scheduleBy = new Map(schedules.map((row) => [row.id as string, row]));
 
-  const upcoming = (schedules ?? [])
+  const upcoming = schedules
     .flatMap((row) =>
       upcomingPaymentDates(row.first_bill_date as string, row.autopay_count as number | null, Boolean(row.auto_renews), today, 1)
         .filter((payment) => payment.date <= until)
@@ -53,7 +58,7 @@ export default async function MemberBillingPage() {
     )
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const expiring = (schedules ?? [])
+  const expiring = schedules
     .filter((row) => row.card_exp_month && row.card_exp_year)
     .map((row) => ({ row, card: cardExpiry(Number(row.card_exp_month), Number(row.card_exp_year), today) }))
     .filter(({ card }) => card.state !== "ok")
@@ -82,7 +87,8 @@ export default async function MemberBillingPage() {
   return (
     <DashboardShell
       title="Member Billing"
-      description={`Monthly dues SynqIQ will charge on the studio's Stripe account. Declines retry ${RETRY_DAYS.join(", ")} days after the billing date, then booking is frozen (red). Cards expiring within a month show yellow. Renewals aren't being charged yet.`}
+      actions={<RunRenewals />}
+      description={`Monthly dues SynqIQ will charge on the studio's Stripe account. Declines retry ${RETRY_DAYS.join(", ")} days after the billing date, then booking is frozen (red). Cards expiring within a month show yellow. Renewals run nightly at 4 AM; live charging isn't switched on yet (test cards only).`}
     >
       <div className="space-y-6">
         <Card className="py-0">

@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { canDiscountAtCheckout } from "@/lib/permissions";
-import { computeCart, COMMISSIONABLE_CATEGORY_KEYS, promoProblem, type PromoInput } from "@/lib/pos/cart";
+import { computeCart, COMMISSIONABLE_CATEGORY_KEYS, needsBuyer, promoProblem, type PromoInput } from "@/lib/pos/cart";
 import { isTaxable } from "@/lib/pos/catalog";
 import { commissionEarnerIds } from "@/lib/payroll/commission-job";
 import { expandCartLines, monthlySchedule, parsePackageParts, type PricedPart } from "@/lib/pos/packages";
@@ -176,7 +176,13 @@ export async function savePracticeSale(
     if (!item.revenue_category_id) return { error: `${item.name} needs a revenue category before it can be sold.` };
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 999) return { error: "Check the quantities." };
     if (line.discount && line.discount.value > 0 && !mayDiscount) return { error: "Only Sales staff and Club Admins can give a discount." };
-    if (partsBy.get(item.id as string)) {
+    const lineParts = partsBy.get(item.id as string);
+    const lineKeys = lineParts
+      ? lineParts.map((part) => categoryBy.get(part.revenueCategoryId)?.key as string | undefined)
+      : [categoryBy.get(item.revenue_category_id as string)?.key as string | undefined];
+    if (!input.clientId && needsBuyer(item.kind as string, lineKeys))
+      return { error: `Pick who ${item.name} is for (member, guest or lead).` };
+    if (lineParts) {
       if (line.quantity !== 1) return { error: `Sell one ${item.name} at a time.` };
       if (!input.clientId) return { error: `Pick the member for ${item.name}.` };
     }

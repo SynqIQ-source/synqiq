@@ -100,3 +100,26 @@ export function billingFlag(input: { frozen: boolean; card: CardExpiry | null })
   if (input.card && input.card.state !== "ok") return "yellow";
   return null;
 }
+
+// Billing dates a nightly run should charge: due today or in the last few
+// days (catching up a missed run), never further back, and never before the
+// schedule's first bill date. Months are counted from the first bill date.
+export const CATCH_UP_DAYS = 3;
+export function datesToCharge(
+  firstBill: string,
+  autopayCount: number | null,
+  autoRenews: boolean,
+  today: string,
+  catchUpDays = CATCH_UP_DAYS,
+): string[] {
+  const from = day(today).minus({ days: catchUpDays }).toISODate()!;
+  const first = day(firstBill);
+  const out: string[] = [];
+  for (let k = 0; k < 600; k += 1) {
+    if (autopayCount != null && !autoRenews && k >= autopayCount) break;
+    const date = first.plus({ months: k }).toISODate()!;
+    if (date > today) break;
+    if (date >= from) out.push(date);
+  }
+  return out;
+}

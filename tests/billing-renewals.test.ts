@@ -76,3 +76,24 @@ describe("expiring cards", () => {
     expect(billingFlag({ frozen: false, card: null })).toBeNull();
   });
 });
+
+describe("nightly renewal dates", () => {
+  it("charges today's billing date and catches up a missed run, no further back", async () => {
+    const { datesToCharge } = await import("@/lib/billing/renewals");
+    expect(datesToCharge("2026-10-01", null, false, "2026-12-01")).toEqual(["2026-12-01"]);
+    expect(datesToCharge("2026-10-01", null, false, "2026-12-03")).toEqual(["2026-12-01"]);
+    expect(datesToCharge("2026-10-01", null, false, "2026-12-05")).toEqual([]);
+    expect(datesToCharge("2026-12-01", null, false, "2026-11-30")).toEqual([]);
+    expect(datesToCharge("2026-10-01", 2, false, "2026-12-01")).toEqual([]); // two payments: Oct, Nov
+    expect(datesToCharge("2026-10-01", 2, true, "2026-12-01")).toEqual(["2026-12-01"]);
+  });
+});
+
+describe("who must be named on a sale", () => {
+  it("memberships and personal training need a buyer", async () => {
+    const { needsBuyer } = await import("@/lib/pos/cart");
+    expect(needsBuyer("membership", [])).toBe(true);
+    expect(needsBuyer("service", ["personal_training"])).toBe(true);
+    expect(needsBuyer("product", ["drinks"])).toBe(false);
+  });
+});

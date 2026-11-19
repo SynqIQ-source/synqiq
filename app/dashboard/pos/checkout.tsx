@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { computeCart, type PromoInput } from "@/lib/pos/cart";
+import { computeCart, needsBuyer, type PromoInput } from "@/lib/pos/cart";
 import { expandCartLines, monthlySchedule, scheduleTerms, type PricedPart } from "@/lib/pos/packages";
 import { firstPaymentParts, type BillingStart } from "@/lib/billing/renewals";
 
@@ -184,7 +184,17 @@ export function Checkout({
     ),
   ];
   const membersOnlyBlocked = membersOnlyNames.length > 0 && !sellsMembership && !(member && member.plans.length > 0);
-  const packageNeedsMember = !member && lines.some((line) => itemBy.get(line.itemId)?.parts);
+  // Memberships and personal training must be sold to a member, guest or lead.
+  const packageNeedsMember =
+    !member &&
+    lines.some((line) => {
+      const item = itemBy.get(line.itemId);
+      if (!item) return false;
+      const keys = item.parts
+        ? item.parts.map((part) => categoryBy.get(part.revenueCategoryId)?.key)
+        : [categoryBy.get(item.categoryId)?.key];
+      return needsBuyer(item.kind, keys);
+    });
   const missingAmount = lines.some((line) => itemBy.get(line.itemId)?.openPrice && !(Number(line.price) >= 0 && line.price?.trim()));
 
   function add(item: CheckoutItem) {
@@ -772,7 +782,9 @@ export function Checkout({
                 </div>
                 {missingAmount ? <p className="text-xs text-amber-700 dark:text-amber-400">Enter the amount for the fee.</p> : null}
                 {packageNeedsMember ? (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">Pick who the membership is for (member, guest or lead).</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Pick who this is for (member, guest or lead). Memberships and personal training can’t be sold without a name.
+                  </p>
                 ) : null}
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
                 {cardReady ? (

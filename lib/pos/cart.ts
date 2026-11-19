@@ -23,6 +23,13 @@ export type CartTotals = { lines: CartLine[]; subtotalCents: number; discountCen
 // Revenue categories whose sales earn commission (chosen per line at checkout).
 export const COMMISSIONABLE_CATEGORY_KEYS = ["membership_dues", "registration_fee", "personal_training", "pilates"];
 
+// Memberships and personal training are always sold to someone: a member,
+// guest or lead (Adam, 2026-11-19).
+export const NEEDS_BUYER_CATEGORY_KEYS = ["membership_dues", "personal_training"];
+export function needsBuyer(kind: string, categoryKeys: (string | null | undefined)[]): boolean {
+  return kind === "membership" || categoryKeys.some((key) => NEEDS_BUYER_CATEGORY_KEYS.includes(key ?? ""));
+}
+
 export function computeCart(input: CartLineInput[], taxRate: number, promo?: PromoInput | null): CartTotals {
   const lines = input.map((line) => {
     const quantity = Math.max(1, Math.floor(line.quantity));
