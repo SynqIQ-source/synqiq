@@ -3,6 +3,7 @@ import { getStripe } from "@/lib/billing/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getStudioStripeAccount, stripeLivemode } from "@/lib/payments/connect";
 import { saveMemberCard } from "@/lib/billing/member-cards";
+import { ensureMemberId } from "@/lib/members/ids";
 import { savePracticeSale, type SaleLineRequest } from "@/lib/pos/sales";
 import type { AgreementSignatureRequest } from "@/lib/agreements/sale";
 import type { CurrentStaff } from "@/lib/current-staff";
@@ -70,6 +71,13 @@ export async function startCardPayment(
   if ("error" in checked) return checked;
   if (!("totalCents" in checked)) return { error: "Couldn't check the sale. Try again." };
   if (checked.totalCents < 50) return { error: "Card payments need a total of at least $0.50." };
+  // A guest or lead joining: they get their member ID before the card is
+  // charged (from Mindbody for now; lib/members/ids.ts). Practice and
+  // test-mode sales never create one.
+  if (checked.recurring && account.livemode && request.clientId?.startsWith("crm:")) {
+    const assigned = await ensureMemberId(admin, staff.organizationId, request.clientId.slice(4));
+    if ("error" in assigned) return assigned;
+  }
 
   const stripe = getStripe();
   const fee = applicationFeeCents(checked.totalCents);
@@ -138,7 +146,7 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
   const { data: row } = await admin
     .from("pos_card_payments")
     .select(
-      "id, organization_id, staff_id, stripe_account_id, livemode, payment_intent_id, stripe_customer_id, amount_cents, status, sale_id, sale_request",
+      "id, organization_id, staff_id, stripe_account_id, livemode, payment_intent_id, stripe_customer_id, amount_cents, status, sale_id, sale_request, on_file_purpose",
     )
     .eq("id", paymentId)
     .maybeSingle();
@@ -199,10 +207,17 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
   // A membership's card becomes the member's card on file.
   const request = row.sale_request as CardSaleRequest;
   const card = savedCard(intent.payment_method);
-  if (row.stripe_customer_id && paymentMethodId && card && request.clientId && !request.clientId.startsWith("crm:")) {
+  // (Not when the sale was charged to a card already on file.) A guest who
+  // just joined is keyed by the member ID they were given.
+  let memberId = request.clientId;
+  if (memberId?.startsWith("crm:")) {
+    const { data: contact } = await admin.from("crm_contacts").select("mindbody_client_id").eq("id", memberId.slice(4)).maybeSingle();
+    memberId = (contact?.mindbody_client_id as string | null) ?? null;
+  }
+  if (!row.on_file_purpose && row.stripe_customer_id && paymentMethodId && card && memberId) {
     await saveMemberCard(admin, {
       organizationId: row.organization_id as string,
-      clientId: request.clientId,
+      clientId: memberId,
       livemode: Boolean(row.livemode),
       accountId: row.stripe_account_id as string,
       customerId: row.stripe_customer_id as string,
@@ -235,6 +250,90 @@ function savedCard(method: unknown) {
     expMonth: typeof card.exp_month === "number" ? card.exp_month : null,
     expYear: typeof card.exp_year === "number" ? card.exp_year : null,
   };
+}
+
+// "Charge card on file" at the POS: a named member's saved card is charged
+// with no card present (off-session) on the studio's Stripe account. The
+// retail card is used; if the member has none, the dues card only after the
+// staff member confirms (`allowDuesCard`). The sale then saves exactly like a
+// card sale (finishCardPayment re-reads the payment from Stripe).
+export async function chargeCardOnFile(
+  staff: CurrentStaff,
+  request: CardSaleRequest,
+  allowDuesCard: boolean,
+): Promise<{ error: string } | { needsDuesConfirm: string } | FinishResult> {
+  const admin = createSupabaseAdminClient();
+  if (!(await cardPaymentsReady(admin, staff.organizationId))) return { error: "Card payments aren't set up for this studio yet." };
+  const account = (await getStudioStripeAccount(admin, staff.organizationId))!;
+  const clientId = request.clientId;
+  if (!clientId || clientId.startsWith("crm:")) return { error: "Pick a member with a card on file." };
+  const { data: cards } = await admin
+    .from("member_cards")
+    .select("purpose, stripe_customer_id, stripe_payment_method_id, card_brand, card_last4")
+    .eq("organization_id", staff.organizationId)
+    .eq("mindbody_client_id", clientId)
+    .eq("livemode", account.livemode)
+    .eq("stripe_account_id", account.stripeAccountId);
+  const retail = (cards ?? []).find((row) => row.purpose === "retail");
+  const dues = (cards ?? []).find((row) => row.purpose === "dues");
+  const label = (row: typeof dues) =>
+    `${row?.card_brand ? String(row.card_brand)[0].toUpperCase() + String(row.card_brand).slice(1) : "Card"} ending ${row?.card_last4 ?? "????"}`;
+  const chosen = retail ?? (allowDuesCard ? dues : undefined);
+  if (!chosen) return dues ? { needsDuesConfirm: label(dues) } : { error: "This member has no card on file." };
+  const purpose = retail ? "retail" : "dues";
+
+  const checked = await savePracticeSale(staff, { ...request, validateOnly: true });
+  if ("error" in checked) return checked;
+  if (!("totalCents" in checked)) return { error: "Couldn't check the sale. Try again." };
+  if (checked.totalCents < 50) return { error: "Card payments need a total of at least $0.50." };
+  const fee = applicationFeeCents(checked.totalCents);
+  const { data: row, error } = await admin
+    .from("pos_card_payments")
+    .insert({
+      organization_id: staff.organizationId,
+      staff_id: staff.id,
+      stripe_account_id: account.stripeAccountId,
+      livemode: account.livemode,
+      stripe_customer_id: chosen.stripe_customer_id,
+      stripe_payment_method_id: chosen.stripe_payment_method_id,
+      on_file_purpose: purpose,
+      amount_cents: checked.totalCents,
+      application_fee_cents: fee,
+      sale_request: request,
+    })
+    .select("id")
+    .single();
+  if (error || !row) return { error: "Couldn't start the payment. Try again." };
+  try {
+    const intent = await getStripe().paymentIntents.create(
+      {
+        amount: checked.totalCents,
+        currency: "usd",
+        customer: chosen.stripe_customer_id as string,
+        payment_method: chosen.stripe_payment_method_id as string,
+        off_session: true,
+        confirm: true,
+        description: `SynqIQ checkout (card on file)${request.clientName ? ` · ${request.clientName}` : ""}`,
+        metadata: { synqiq_payment_id: row.id as string, synqiq_organization_id: staff.organizationId, synqiq_card_on_file: purpose },
+        ...(fee > 0 ? { application_fee_amount: fee } : {}),
+      },
+      { stripeAccount: account.stripeAccountId, idempotencyKey: `synqiq-pos-on-file-${row.id}` },
+    );
+    await admin.from("pos_card_payments").update({ payment_intent_id: intent.id }).eq("id", row.id);
+  } catch (stripeError) {
+    const declined = (stripeError as { type?: string; message?: string }).type === "StripeCardError";
+    await admin
+      .from("pos_card_payments")
+      .update({ status: "cancelled", last_error: declined ? "Card on file declined" : "Couldn't create the payment" })
+      .eq("id", row.id);
+    if (!declined) console.error("[payments/checkout] card on file failed:", stripeError);
+    return {
+      error: declined
+        ? `The ${purpose === "retail" ? "retail" : "dues"} card on file (${label(chosen)}) was declined. Ask for another card.`
+        : "Couldn't charge the card on file. Try again.",
+    };
+  }
+  return finishCardPayment(row.id as string, staff.organizationId);
 }
 
 // Refund a card sale in full (when it's voided). Idempotent per sale.

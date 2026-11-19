@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findStudio, getCurrentMember, sameOrigin } from "@/lib/member/session";
 import { finishCardUpdate, startCardUpdate } from "@/lib/billing/cards";
+import { cardPurpose } from "@/lib/billing/member-cards";
 
 // A signed-in member updates their own card in the app. The card goes from
 // the app straight to Stripe (the studio's account); SynqIQ keeps only which
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
   if (!member) return NextResponse.json({ success: false, error: "Sign in to update your card.", signIn: true }, { status: 401 });
 
   if (body?.action === "start") {
-    const result = await startCardUpdate(studio.id, member.mindbodyClientId, "app", null);
+    const result = await startCardUpdate(studio.id, member.mindbodyClientId, "app", null, cardPurpose(body.purpose));
     if ("error" in result) return NextResponse.json({ success: false, error: result.error }, { status: 400 });
     return NextResponse.json({ success: true, ...result });
   }

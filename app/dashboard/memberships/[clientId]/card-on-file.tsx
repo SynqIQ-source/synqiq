@@ -3,16 +3,26 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CardUpdate } from "@/components/billing/card-update";
 
-// Member profile: the card on file for monthly payments. Staff can update it
-// here, or email the member a secure link; members can also do it in the app
-// (where Apple Pay / Google Pay fill it in). Every route saves the card
-// straight to Stripe.
-export function CardOnFile(props: {
+export type ShownCard = { label: string; expires: string; state: "ok" | "expiring" | "expired"; via: string; updatedAt: string };
+
+const PURPOSES = [
+  { purpose: "dues", title: "Monthly dues card" },
+  { purpose: "retail", title: "Retail & drinks card (optional)" },
+] as const;
+
+// The member's cards on file (profile "Card on file" card and the Billing
+// tab): one for monthly dues and an optional one for POS purchases. Update
+// either here with Stripe's card form, or email the member a one-time link
+// (they pick which card). Either way the card goes straight to Stripe.
+export function CardControls({
+  clientId,
+  cards,
+  hasEmail,
+}: {
   clientId: string;
-  card: { label: string; expires: string; state: "ok" | "expiring" | "expired"; via: string; updatedAt: string } | null;
+  cards: { dues: ShownCard | null; retail: ShownCard | null };
   hasEmail: boolean;
 }) {
   const router = useRouter();
@@ -22,7 +32,7 @@ export function CardOnFile(props: {
   async function emailLink() {
     setSending(true);
     setSent(null);
-    const response = await fetch(`/api/members/${encodeURIComponent(props.clientId)}/card`, {
+    const response = await fetch(`/api/members/${encodeURIComponent(clientId)}/card`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "email" }),
@@ -32,47 +42,47 @@ export function CardOnFile(props: {
     setSent(body?.success ? `Link sent to ${body.email}. It works for 7 days.` : (body?.error ?? "Couldn't send the link."));
   }
 
-  const tone =
-    props.card?.state === "expired" || props.card?.state === "expiring"
-      ? "border-yellow-300 bg-yellow-50 text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-200"
-      : "bg-muted/40";
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Card on file</CardTitle>
-        <CardDescription>Used for monthly membership payments. The card is kept by Stripe on the studio&apos;s account.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className={`rounded-md border px-3 py-2 text-sm ${tone}`}>
-          {props.card ? (
-            <>
-              <span className="font-medium">{props.card.label}</span> · {props.card.state === "expired" ? "expired" : "expires"}{" "}
-              {props.card.expires}
-              <span className="block text-xs opacity-80">
-                Updated {props.card.updatedAt} ({props.card.via})
-              </span>
-            </>
-          ) : (
-            "No card on file in SynqIQ yet."
-          )}
-        </div>
-        <div className="flex flex-wrap items-start gap-3">
-          <CardUpdate
-            endpoint={`/api/members/${encodeURIComponent(props.clientId)}/card`}
-            body={{}}
-            label={props.card ? "Update card here" : "Add card here"}
-            onSaved={() => router.refresh()}
-          />
-          <Button variant="outline" onClick={emailLink} disabled={sending || !props.hasEmail}>
-            {sending ? "Sending…" : "Email the member a link"}
-          </Button>
-        </div>
-        {sent ? <p className="text-sm text-muted-foreground">{sent}</p> : null}
-        {!props.hasEmail ? <p className="text-xs text-muted-foreground">No email address on file, so a link can&apos;t be sent.</p> : null}
-        <p className="text-xs text-muted-foreground">
-          Members can also update it themselves in the app under Payment card. Tapping a card at the desk needs a Stripe card reader.
-        </p>
-      </CardContent>
-    </Card>
+    <div className="space-y-3">
+      {PURPOSES.map(({ purpose, title }) => {
+        const card = cards[purpose];
+        const warn = card && card.state !== "ok";
+        return (
+          <div
+            key={purpose}
+            className={`space-y-2 rounded-md border px-3 py-2 text-sm ${
+              warn ? "border-yellow-300 bg-yellow-50 text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-200" : ""
+            }`}
+          >
+            <div>
+              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</p>
+              {card ? (
+                <>
+                  <p className="font-medium">{card.label}</p>
+                  <p className="text-xs opacity-80">
+                    {card.state === "expired" ? "Expired" : "Expires"} {card.expires} · updated {card.updatedAt} {card.via}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground">
+                  {purpose === "retail" ? "None. Purchases use the dues card if staff confirm." : "No card saved in SynqIQ yet."}
+                </p>
+              )}
+            </div>
+            <CardUpdate
+              endpoint={`/api/members/${encodeURIComponent(clientId)}/card`}
+              body={{ purpose }}
+              label={card ? "Update card" : "Add card"}
+              onSaved={() => router.refresh()}
+            />
+          </div>
+        );
+      })}
+      <Button variant="outline" onClick={emailLink} disabled={sending || !hasEmail}>
+        {sending ? "Sending…" : "Email member a link"}
+      </Button>
+      {sent ? <p className="text-xs text-muted-foreground">{sent}</p> : null}
+      {!hasEmail ? <p className="text-xs text-muted-foreground">No email address on file, so a link can&apos;t be sent.</p> : null}
+    </div>
   );
 }

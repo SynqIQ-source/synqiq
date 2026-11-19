@@ -22,6 +22,9 @@ export async function createCardLink(
     mindbody_client_id: clientId,
     token_hash: hashToken(token),
     reason,
+    // Declined / expiring links are about the dues card; staff links let the
+    // member pick either card.
+    purpose: reason === "staff" ? "either" : "dues",
     created_by_staff_id: staffId,
     expires_at: new Date(Date.now() + LINK_DAYS * 86_400_000).toISOString(),
   });
@@ -34,9 +37,14 @@ export async function findCardLink(token: string) {
   const admin = createSupabaseAdminClient();
   const { data } = await admin
     .from("card_update_links")
-    .select("id, organization_id, mindbody_client_id, expires_at, used_at")
+    .select("id, organization_id, mindbody_client_id, expires_at, used_at, purpose")
     .eq("token_hash", hashToken(token))
     .maybeSingle();
   if (!data || data.used_at || Date.parse(data.expires_at as string) < Date.now()) return null;
-  return { id: data.id as string, organizationId: data.organization_id as string, clientId: data.mindbody_client_id as string };
+  return {
+    id: data.id as string,
+    organizationId: data.organization_id as string,
+    clientId: data.mindbody_client_id as string,
+    purpose: (data.purpose as "dues" | "retail" | "either") ?? "dues",
+  };
 }

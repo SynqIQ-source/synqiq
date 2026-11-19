@@ -2,9 +2,13 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 export type CardVia = "desk" | "link" | "app" | "pos";
+// dues: monthly membership payments; retail: POS purchases (drinks, retail).
+export type CardPurpose = "dues" | "retail";
+export const CARD_PURPOSES: CardPurpose[] = ["dues", "retail"];
+export const cardPurpose = (value: unknown): CardPurpose => (value === "retail" ? "retail" : "dues");
 
-// Record a member's card and put it on their payment schedules (the ones on
-// the same Stripe account, or not on one yet).
+// Record a member's card. A dues card also goes on their payment schedules
+// (the ones on the same Stripe account, or not on one yet).
 export async function saveMemberCard(
   admin: Admin,
   input: {
@@ -17,13 +21,16 @@ export async function saveMemberCard(
     card: { brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null; wallet?: string | null };
     via: CardVia;
     staffId: string | null;
+    purpose?: CardPurpose;
   },
 ) {
+  const purpose = input.purpose ?? "dues";
   await admin.from("member_cards").upsert(
     {
       organization_id: input.organizationId,
       mindbody_client_id: input.clientId,
       livemode: input.livemode,
+      purpose,
       stripe_account_id: input.accountId,
       stripe_customer_id: input.customerId,
       stripe_payment_method_id: input.paymentMethodId,
@@ -36,8 +43,9 @@ export async function saveMemberCard(
       updated_by_staff_id: input.staffId,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "organization_id,mindbody_client_id,livemode" },
+    { onConflict: "organization_id,mindbody_client_id,livemode,purpose" },
   );
+  if (purpose !== "dues") return;
   const cardFields = {
     stripe_account_id: input.accountId,
     stripe_customer_id: input.customerId,

@@ -3,6 +3,7 @@ import { getCurrentStaff } from "@/lib/current-staff";
 import { canViewMembers } from "@/lib/permissions";
 import { finishCardUpdate, startCardUpdate } from "@/lib/billing/cards";
 import { sendCardLink } from "@/lib/billing/notify";
+import { cardPurpose } from "@/lib/billing/member-cards";
 
 // Staff (Club Admins, Sales Leads, Sales) update a member's card on file at
 // the desk, or email the member a secure link to do it themselves.
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 
   if (body?.action === "start") {
-    const result = await startCardUpdate(staff.organizationId, clientId, "desk", staff.id);
+    const result = await startCardUpdate(staff.organizationId, clientId, "desk", staff.id, cardPurpose(body.purpose));
     if ("error" in result) return NextResponse.json({ success: false, error: result.error }, { status: 400 });
     return NextResponse.json({ success: true, ...result });
   }

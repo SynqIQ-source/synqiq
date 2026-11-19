@@ -31,10 +31,24 @@ export default async function CardLinkPage({ params }: { params: Promise<{ token
         <>
           <h1 className="text-2xl font-semibold">{(org?.name as string | null) ?? "Your studio"}</h1>
           <p className="text-muted-foreground">
-            Hi {(client?.first_name as string | null) || "there"}, add the card you&apos;d like to use for your monthly membership payments.
-            If a payment is overdue, it&apos;s tried again with this card right away.
+            Hi {(client?.first_name as string | null) || "there"}, add the card you&apos;d like to use
+            {link.purpose === "retail" ? " for purchases at the club" : " for your monthly membership payments"}. If a membership payment is
+            overdue, it&apos;s tried again with the new card right away.
           </p>
-          <CardUpdate endpoint="/api/card-update" body={{ token }} label="Add my card" />
+          {link.purpose === "either" ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Card for monthly membership dues</p>
+                <CardUpdate endpoint="/api/card-update" body={{ token, purpose: "dues" }} label="Add my dues card" />
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Separate card for drinks and retail (optional)</p>
+                <CardUpdate endpoint="/api/card-update" body={{ token, purpose: "retail" }} label="Add a purchases card" />
+              </div>
+            </div>
+          ) : (
+            <CardUpdate endpoint="/api/card-update" body={{ token, purpose: link.purpose }} label="Add my card" />
+          )}
         </>
       ) : (
         <>

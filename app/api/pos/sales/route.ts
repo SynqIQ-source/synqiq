@@ -3,7 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireCheckoutApi } from "@/lib/pos/api";
 import { refundRenewalSale } from "@/lib/billing/refunds";
 import { canVoidSale, findPromo, savePracticeSale, type SaleLineRequest } from "@/lib/pos/sales";
-import { finishCardPayment, refundCardSale, startCardPayment } from "@/lib/payments/checkout";
+import { chargeCardOnFile, finishCardPayment, refundCardSale, startCardPayment } from "@/lib/payments/checkout";
 
 // Checkout. POST { action: "promo", code } checks a code;
 // POST { action: "sale", clientId?, clientName?, lines[], promoCode?, note?, agreements? }
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ...result });
   }
 
-  if (body.action === "sale" || body.action === "agreements" || body.action === "card_start") {
+  if (body.action === "sale" || body.action === "agreements" || body.action === "card_start" || body.action === "card_on_file") {
     const lines = (Array.isArray(body.lines) ? body.lines : []) as SaleLineRequest[];
     const clean = lines.map((line) => ({
       itemId: String(line.itemId ?? ""),
@@ -77,6 +77,12 @@ export async function POST(request: NextRequest) {
         userAgent: request.headers.get("user-agent"),
       },
     };
+    if (body.action === "card_on_file") {
+      const result = await chargeCardOnFile(currentStaff, saleRequest, body.useDuesCard === true);
+      if ("needsDuesConfirm" in result) return NextResponse.json({ success: false, needsDuesConfirm: result.needsDuesConfirm });
+      if ("error" in result) return NextResponse.json({ success: false, error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, ...result });
+    }
     if (body.action === "card_start") {
       const started = await startCardPayment(currentStaff, saleRequest);
       if ("error" in started) return NextResponse.json({ success: false, error: started.error }, { status: 400 });

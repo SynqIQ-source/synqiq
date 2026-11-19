@@ -4,7 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getStudioStripeAccount } from "@/lib/payments/connect";
 import { cardPaymentsReady } from "@/lib/payments/checkout";
 import { retryChargeNow, type Outcome } from "@/lib/billing/renewal-job";
-import { saveMemberCard } from "@/lib/billing/member-cards";
+import { cardPurpose, saveMemberCard, type CardPurpose } from "@/lib/billing/member-cards";
 
 // The card on file (membership billing step 3). A member's card is saved on
 // the studio's own Stripe account with a SetupIntent, through Stripe's
@@ -23,6 +23,7 @@ import type { CardVia } from "@/lib/billing/member-cards";
 
 export type CardSetup = { clientSecret: string; publishableKey: string; stripeAccountId: string };
 export type CardResult = {
+  purpose: CardPurpose;
   card: { brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null; wallet: string | null };
   retried: Outcome[];
 };
@@ -32,6 +33,7 @@ export async function startCardUpdate(
   clientId: string,
   via: CardVia,
   staffId: string | null,
+  purpose: CardPurpose = "dues",
 ): Promise<{ error: string } | CardSetup> {
   const admin = createSupabaseAdminClient();
   if (!(await cardPaymentsReady(admin, organizationId))) return { error: "Card payments aren't set up for this studio yet." };
@@ -44,6 +46,7 @@ export async function startCardUpdate(
     .eq("organization_id", organizationId)
     .eq("mindbody_client_id", clientId)
     .eq("livemode", account.livemode)
+    .limit(1)
     .maybeSingle();
   let customerId = saved?.stripe_account_id === account.stripeAccountId ? (saved.stripe_customer_id as string) : null;
   if (!customerId) {
@@ -78,13 +81,14 @@ export async function startCardUpdate(
       usage: "off_session",
       // Cards, including Apple Pay / Google Pay wallets (no bank debits).
       allowed_payment_method_types: ["card"],
-      description: "Card on file for monthly membership payments",
+      description: purpose === "retail" ? "Card on file for purchases" : "Card on file for monthly membership payments",
       metadata: {
         synqiq_card_update: "1",
         synqiq_organization_id: organizationId,
         synqiq_client: clientId,
         synqiq_via: via,
         synqiq_staff: staffId ?? "",
+        synqiq_purpose: purpose,
       },
     } as Stripe.SetupIntentCreateParams,
     { stripeAccount: account.stripeAccountId },
@@ -133,6 +137,7 @@ export async function finishCardUpdate(
   const card = cardFrom(intent.payment_method as Stripe.PaymentMethod);
   const via = (["desk", "link", "app"].includes(intent.metadata?.synqiq_via ?? "") ? intent.metadata!.synqiq_via : "desk") as CardVia;
   const staffId = /^[0-9a-f-]{36}$/i.test(intent.metadata?.synqiq_staff ?? "") ? intent.metadata!.synqiq_staff : null;
+  const purpose = cardPurpose(intent.metadata?.synqiq_purpose);
 
   // Already saved (the browser and the webhook both finish): nothing to redo.
   const { data: current } = await admin
@@ -141,8 +146,9 @@ export async function finishCardUpdate(
     .eq("organization_id", organizationId)
     .eq("mindbody_client_id", clientId)
     .eq("livemode", intent.livemode)
+    .eq("purpose", purpose)
     .maybeSingle();
-  if (current?.stripe_payment_method_id === paymentMethodId) return { card, retried: [] };
+  if (current?.stripe_payment_method_id === paymentMethodId) return { purpose, card, retried: [] };
 
   await saveMemberCard(admin, {
     organizationId,
@@ -154,8 +160,11 @@ export async function finishCardUpdate(
     card,
     via,
     staffId,
+    purpose,
   });
-  // Stripe: this card is the customer's default from now on.
+  // A retail card is only for POS purchases: no schedules, no retries.
+  if (purpose === "retail") return { purpose, card, retried: [] };
+  // Stripe: the dues card is the customer's default from now on.
   await getStripe()
     .customers.update(customerId, { invoice_settings: { default_payment_method: paymentMethodId } }, { stripeAccount: accountId })
     .catch((error) => console.error("[billing/cards] default card not set:", error));
@@ -183,5 +192,5 @@ export async function finishCardUpdate(
       if ("outcome" in result) retried.push(result.outcome);
     }
   }
-  return { card, retried };
+  return { purpose, card, retried };
 }

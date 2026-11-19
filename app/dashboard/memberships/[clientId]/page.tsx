@@ -1,4 +1,4 @@
-import { CardOnFile } from "./card-on-file";
+import { CardControls, type ShownCard } from "./card-on-file";
 import { stripeLivemode } from "@/lib/payments/connect";
 import { cardExpiry } from "@/lib/billing/renewals";
 import { ChargeControls } from "@/app/dashboard/member-billing/charge-controls";
@@ -480,30 +480,39 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     .limit(50);
 
   const billing = (await memberBillingFlags(createSupabaseAdminClient(), orgId, [clientId], timezone)).get(clientId) ?? null;
-  // The card on file (Stripe holds it; SynqIQ keeps brand, last 4, expiry).
-  const { data: savedCard } = await createSupabaseAdminClient()
+  // Cards on file (Stripe holds them; SynqIQ keeps brand, last 4, expiry):
+  // one for monthly dues, an optional one for retail and drinks.
+  const { data: savedCards } = await createSupabaseAdminClient()
     .from("member_cards")
-    .select("card_brand, card_last4, card_exp_month, card_exp_year, wallet, updated_via, updated_at")
+    .select("purpose, card_brand, card_last4, card_exp_month, card_exp_year, wallet, updated_via, updated_at")
     .eq("organization_id", orgId)
     .eq("mindbody_client_id", clientId)
-    .eq("livemode", stripeLivemode())
-    .maybeSingle();
-  const cardOnFile = savedCard?.card_last4
-    ? {
-        label: `${savedCard.card_brand ? String(savedCard.card_brand)[0].toUpperCase() + String(savedCard.card_brand).slice(1) : "Card"} ending ${savedCard.card_last4}${savedCard.wallet ? ` (${String(savedCard.wallet).replace("_", " ")})` : ""}`,
-        expires: `${String(savedCard.card_exp_month).padStart(2, "0")}/${savedCard.card_exp_year}`,
-        state: cardExpiry(Number(savedCard.card_exp_month), Number(savedCard.card_exp_year), today).state,
-        via: (
-          { desk: "at the desk", link: "by the member, emailed link", app: "by the member, in the app", pos: "at a POS sale" } as Record<
-            string,
-            string
-          >
-        )[savedCard.updated_via as string],
-        updatedAt: DateTime.fromISO(savedCard.updated_at as string)
-          .setZone(timezone)
-          .toFormat("LLL d, yyyy"),
-      }
-    : null;
+    .eq("livemode", stripeLivemode());
+  const savedCard = (savedCards ?? []).find((row) => row.purpose === "dues") ?? null;
+  const shownCard = (row: NonNullable<typeof savedCard> | null): ShownCard | null =>
+    row?.card_last4
+      ? {
+          label: `${row.card_brand ? String(row.card_brand)[0].toUpperCase() + String(row.card_brand).slice(1) : "Card"} ending ${row.card_last4}${row.wallet ? ` (${String(row.wallet).replace("_", " ")})` : ""}`,
+          expires: `${String(row.card_exp_month).padStart(2, "0")}/${row.card_exp_year}`,
+          state: cardExpiry(Number(row.card_exp_month), Number(row.card_exp_year), today).state,
+          via:
+            (
+              {
+                desk: "at the desk",
+                link: "by the member, emailed link",
+                app: "by the member, in the app",
+                pos: "at a POS sale",
+              } as Record<string, string>
+            )[row.updated_via as string] ?? "",
+          updatedAt: DateTime.fromISO(row.updated_at as string)
+            .setZone(timezone)
+            .toFormat("LLL d, yyyy"),
+        }
+      : null;
+  const shownCards = {
+    dues: shownCard(savedCard),
+    retail: shownCard((savedCards ?? []).find((row) => row.purpose === "retail") ?? null),
+  };
   // Upcoming payments a Club Admin moved to another day (Member Billing rules).
   const movedCharges =
     isAdmin && posSchedules?.length
@@ -564,7 +573,6 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
             the member for a new card.
           </div>
         ) : null}
-        <CardOnFile clientId={clientId} card={cardOnFile} hasEmail={Boolean(personal.email)} />
         {current.some((contract) => contract.autopay_status === "Suspended" && isInForce(contract, today)) ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
             <span className="font-medium">On freeze.</span> {FREEZE_NOTICE}
@@ -603,11 +611,19 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
             />
             <Glance
               label="Card on file"
-              value={card ? `${card.card_brand ?? "Card"} ••${card.card_last4}` : "—"}
+              value={
+                savedCard?.card_last4
+                  ? `${savedCard.card_brand ? String(savedCard.card_brand)[0].toUpperCase() + String(savedCard.card_brand).slice(1) : "Card"} ••${savedCard.card_last4}`
+                  : card
+                    ? `${card.card_brand ?? "Card"} ••${card.card_last4}`
+                    : "—"
+              }
               sub={
-                card?.card_exp_month && card.card_exp_year
-                  ? `Exp ${String(card.card_exp_month).padStart(2, "0")}/${String(card.card_exp_year).slice(-2)}`
-                  : undefined
+                savedCard?.card_last4
+                  ? `Exp ${String(savedCard.card_exp_month).padStart(2, "0")}/${String(savedCard.card_exp_year).slice(-2)}`
+                  : card?.card_exp_month && card.card_exp_year
+                    ? `Exp ${String(card.card_exp_month).padStart(2, "0")}/${String(card.card_exp_year).slice(-2)} (Mindbody)`
+                    : undefined
               }
             />
           </CardContent>
@@ -761,6 +777,17 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
 
               {isAdmin ? (
                 <TabsContent value="billing" className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Card on file</CardTitle>
+                      <CardDescription>
+                        Kept by Stripe on the studio&apos;s account: one card for dues, an optional one for purchases.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <CardControls clientId={clientId} cards={shownCards} hasEmail={Boolean(personal.email)} />
+                    </CardContent>
+                  </Card>
                   <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
                     Mindbody still charges until the switch; these edits don&apos;t change charges yet.
                   </div>
@@ -1103,9 +1130,11 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
             <Card>
               <CardHeader>
                 <CardTitle>Card on file</CardTitle>
-                <CardDescription>From Mindbody&apos;s AutoPay Detail report.</CardDescription>
+                <CardDescription>Kept by Stripe on the studio&apos;s account.</CardDescription>
               </CardHeader>
-              <CardContent className="text-sm">
+              <CardContent className="space-y-3 text-sm">
+                <CardControls clientId={clientId} cards={shownCards} hasEmail={Boolean(personal.email)} />
+                <p className="pt-1 text-xs font-medium text-muted-foreground">In Mindbody (AutoPay Detail report)</p>
                 {card ? (
                   <>
                     <p className="font-medium">

@@ -101,7 +101,9 @@ export function Checkout({
   const [signing, setSigning] = useState<AgreementToSign[] | null>(null);
   const [signError, setSignError] = useState<string | null>(null);
   // "card" charges through Stripe; "practice" saves without charging.
-  const [payWith, setPayWith] = useState<"card" | "practice">("practice");
+  const [payWith, setPayWith] = useState<"card" | "practice" | "on_file">("practice");
+  // Charge card on file: no retail card, so staff confirm using the dues card.
+  const [duesConfirm, setDuesConfirm] = useState<{ label: string; agreements: SignedAgreement[] } | null>(null);
   const [cardSession, setCardSession] = useState<CardSession | null>(null);
   // Memberships: bill from the sign-up day (default), or prorate and draft on the 1st.
   const [billingStart, setBillingStart] = useState<BillingStart>("signup");
@@ -241,7 +243,7 @@ export function Checkout({
 
   // Complete sale: items with an agreement (memberships, personal training)
   // open the signing screen first; the sale saves once everything is signed.
-  async function complete(mode: "card" | "practice") {
+  async function complete(mode: "card" | "practice" | "on_file") {
     setPayWith(mode);
     setSaving(true);
     setError(null);
@@ -258,7 +260,41 @@ export function Checkout({
       return setSigning(result.agreements);
     }
     if (mode === "card") await startCard([]);
+    else if (mode === "on_file") await chargeOnFile([], false);
     else await save([]);
+  }
+
+  // Charge card on file: the member's retail card (or dues card once
+  // confirmed) is charged by the server with no card present.
+  async function chargeOnFile(agreements: SignedAgreement[], useDuesCard: boolean) {
+    setSaving(true);
+    setError(null);
+    setSignError(null);
+    setDuesConfirm(null);
+    const response = await fetch("/api/pos/sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...salePayload("sale", agreements), action: "card_on_file", useDuesCard }),
+    }).catch(() => null);
+    const result = (await response?.json().catch(() => ({}))) as {
+      success?: boolean;
+      error?: string;
+      needsDuesConfirm?: string;
+      saleNumber?: number;
+      livemode?: boolean;
+    };
+    setSaving(false);
+    if (result?.needsDuesConfirm) {
+      setSigning(null);
+      return setDuesConfirm({ label: result.needsDuesConfirm, agreements });
+    }
+    if (!response?.ok || !result?.success) {
+      const message = result?.error ?? "Couldn't charge the card on file. Check Sales history before trying again.";
+      if (signing) return setSignError(message);
+      return setError(message);
+    }
+    setSigning(null);
+    showReceipt(result.saleNumber ?? 0, result.livemode ? "card" : "card_test");
   }
 
   // Card: the server checks the sale (signatures included) and starts the
@@ -400,7 +436,7 @@ export function Checkout({
           saving={saving}
           error={signError}
           onCancel={() => setSigning(null)}
-          onDone={(signed) => (payWith === "card" ? startCard(signed) : save(signed))}
+          onDone={(signed) => (payWith === "card" ? startCard(signed) : payWith === "on_file" ? chargeOnFile(signed, false) : save(signed))}
         />
       ) : null}
       {cardSession ? <CardPayment session={cardSession} onPaid={finishCard} onCancel={() => setCardSession(null)} /> : null}
@@ -797,6 +833,34 @@ export function Checkout({
                   >
                     {saving && payWith === "card" ? "Checking…" : `Charge card ${money(cart.totalCents)}`}
                   </Button>
+                ) : null}
+                {cardReady && member && !member.id.startsWith("crm:") ? (
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    disabled={
+                      saving || lines.length === 0 || packageNeedsMember || missingAmount || membersOnlyBlocked || cart.totalCents < 50
+                    }
+                    onClick={() => complete("on_file")}
+                  >
+                    {saving && payWith === "on_file" ? "Charging…" : `Charge card on file ${money(cart.totalCents)}`}
+                  </Button>
+                ) : null}
+                {duesConfirm ? (
+                  <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                    <p>
+                      {member?.name ?? "This member"} has no retail card on file. Charge their dues card ({duesConfirm.label}) for{" "}
+                      {money(cart.totalCents)}?
+                    </p>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={saving} onClick={() => chargeOnFile(duesConfirm.agreements, true)}>
+                        Charge dues card
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={saving} onClick={() => setDuesConfirm(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
                 ) : null}
                 <Button
                   className="w-full"
