@@ -1,3 +1,6 @@
+import { CardOnFile } from "./card-on-file";
+import { stripeLivemode } from "@/lib/payments/connect";
+import { cardExpiry } from "@/lib/billing/renewals";
 import { ChargeControls } from "@/app/dashboard/member-billing/charge-controls";
 import { memberBillingFlags } from "@/lib/billing/flags";
 import Link from "next/link";
@@ -477,6 +480,30 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     .limit(50);
 
   const billing = (await memberBillingFlags(createSupabaseAdminClient(), orgId, [clientId], timezone)).get(clientId) ?? null;
+  // The card on file (Stripe holds it; SynqIQ keeps brand, last 4, expiry).
+  const { data: savedCard } = await createSupabaseAdminClient()
+    .from("member_cards")
+    .select("card_brand, card_last4, card_exp_month, card_exp_year, wallet, updated_via, updated_at")
+    .eq("organization_id", orgId)
+    .eq("mindbody_client_id", clientId)
+    .eq("livemode", stripeLivemode())
+    .maybeSingle();
+  const cardOnFile = savedCard?.card_last4
+    ? {
+        label: `${savedCard.card_brand ? String(savedCard.card_brand)[0].toUpperCase() + String(savedCard.card_brand).slice(1) : "Card"} ending ${savedCard.card_last4}${savedCard.wallet ? ` (${String(savedCard.wallet).replace("_", " ")})` : ""}`,
+        expires: `${String(savedCard.card_exp_month).padStart(2, "0")}/${savedCard.card_exp_year}`,
+        state: cardExpiry(Number(savedCard.card_exp_month), Number(savedCard.card_exp_year), today).state,
+        via: (
+          { desk: "at the desk", link: "by the member, emailed link", app: "by the member, in the app", pos: "at a POS sale" } as Record<
+            string,
+            string
+          >
+        )[savedCard.updated_via as string],
+        updatedAt: DateTime.fromISO(savedCard.updated_at as string)
+          .setZone(timezone)
+          .toFormat("LLL d, yyyy"),
+      }
+    : null;
   // Upcoming payments a Club Admin moved to another day (Member Billing rules).
   const movedCharges =
     isAdmin && posSchedules?.length
@@ -537,6 +564,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
             the member for a new card.
           </div>
         ) : null}
+        <CardOnFile clientId={clientId} card={cardOnFile} hasEmail={Boolean(personal.email)} />
         {current.some((contract) => contract.autopay_status === "Suspended" && isInForce(contract, today)) ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
             <span className="font-medium">On freeze.</span> {FREEZE_NOTICE}

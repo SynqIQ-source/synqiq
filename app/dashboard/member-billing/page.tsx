@@ -11,7 +11,7 @@ import { upcomingPaymentDates } from "@/lib/pos/packages";
 import { cardExpiry, RETRY_DAYS } from "@/lib/billing/renewals";
 import { RunRenewals } from "./run-renewals";
 import { ChargeControls } from "./charge-controls";
-import { stripeLivemode } from "@/lib/payments/connect";
+import { getStudioStripeAccount, stripeLivemode } from "@/lib/payments/connect";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const UPCOMING_DAYS = 7;
@@ -47,6 +47,35 @@ export default async function MemberBillingPage() {
       .limit(500),
     admin.from("card_expiry_notices").select("schedule_id, card_exp_month, card_exp_year, notice, sent_at").eq("organization_id", org),
   ]);
+  const [{ data: disputes }, account] = await Promise.all([
+    admin
+      .from("payment_disputes")
+      .select("id, mindbody_client_id, sale_id, amount_cents, reason, status, evidence_due_by, created_at")
+      .eq("organization_id", org)
+      .eq("livemode", stripeLivemode())
+      .order("created_at", { ascending: false })
+      .limit(100),
+    getStudioStripeAccount(admin, org),
+  ]);
+  // Going live: what SynqIQ can check itself, then what people sign off.
+  const checks = [
+    { label: "Live Stripe key on the server", done: stripeLivemode() },
+    {
+      label: "Live publishable key (STRIPE_PUBLISHABLE_KEY pk_live_…) in Vercel",
+      done: Boolean(process.env.STRIPE_PUBLISHABLE_KEY?.startsWith("pk_live_")),
+    },
+    { label: "The Preserve's live Stripe account is ready for card payments", done: Boolean(account?.ready && account.livemode) },
+    { label: "Payments webhook secret set", done: Boolean(process.env.STRIPE_CONNECT_PAYMENTS_WEBHOOK_SECRET) },
+    { label: "Live card payments switched on (STRIPE_CONNECT_LIVE=true)", done: process.env.STRIPE_CONNECT_LIVE === "true" },
+    { label: "Renewals switched on (SYNQIQ_RENEWALS_LIVE=true)", done: process.env.SYNQIQ_RENEWALS_LIVE === "true" },
+  ];
+  const signOffs = [
+    "Stripe (Neel) confirms the Connect setup",
+    "Revenue-share agreement signed",
+    "Independent payments-security review done",
+    "setup_intent.succeeded added to the SynqIQ Studio Payments webhook events",
+    "Pilot members: Mindbody autopay turned off before SynqIQ's first charge",
+  ];
   // Practice schedules count only when a test card is on them.
   const schedules = (scheduleRows ?? []).filter((row) => row.status === "active" || row.stripe_payment_method_id);
   const scheduleBy = new Map(schedules.map((row) => [row.id as string, row]));
@@ -245,6 +274,72 @@ export default async function MemberBillingPage() {
                 </TableBody>
               </Table>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="py-0">
+          <CardHeader className="pt-4">
+            <CardTitle className="text-base">Disputes (chargebacks)</CardTitle>
+          </CardHeader>
+          <CardContent className="px-0">
+            {(disputes ?? []).length === 0 ? (
+              <p className="px-6 pb-6 text-sm text-muted-foreground">
+                No disputes. If a member disputes a charge with their bank, it shows here.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-6">Opened</TableHead>
+                    <TableHead>Member</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Respond by</TableHead>
+                    <TableHead className="pr-6 text-right">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(disputes ?? []).map((dispute) => (
+                    <TableRow key={dispute.id as string}>
+                      <TableCell className="pl-6 whitespace-nowrap">{date((dispute.created_at as string).slice(0, 10))}</TableCell>
+                      <TableCell>{member(dispute.mindbody_client_id as string | null, null)}</TableCell>
+                      <TableCell>{String(dispute.reason ?? "—").replaceAll("_", " ")}</TableCell>
+                      <TableCell>
+                        <Badge variant={dispute.status === "won" ? "secondary" : dispute.status === "lost" ? "destructive" : "outline"}>
+                          {String(dispute.status).replaceAll("_", " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{dispute.evidence_due_by ? date((dispute.evidence_due_by as string).slice(0, 10)) : "—"}</TableCell>
+                      <TableCell className="pr-6 text-right tabular-nums">{money(Number(dispute.amount_cents))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+            {(disputes ?? []).length ? (
+              <p className="px-6 pb-4 text-xs text-muted-foreground">
+                Answer disputes in the studio&apos;s Stripe dashboard before the respond-by date.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Going live checklist</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-sm">
+            {checks.map((check) => (
+              <p key={check.label}>
+                <span className={check.done ? "text-emerald-600" : "text-muted-foreground"}>{check.done ? "✓" : "○"}</span> {check.label}
+              </p>
+            ))}
+            <p className="pt-2 text-xs font-medium text-muted-foreground">Sign-offs (not checked by SynqIQ)</p>
+            {signOffs.map((item) => (
+              <p key={item} className="text-muted-foreground">
+                ○ {item}
+              </p>
+            ))}
           </CardContent>
         </Card>
       </div>

@@ -41,11 +41,9 @@ export default async function PosSalePage({ params }: { params: Promise<{ id: st
   const nameOf = new Map((people ?? []).map((row) => [row.id as string, (row.display_name as string | null) ?? "Unknown"]));
   const zone = (org?.timezone as string | null) ?? "America/Chicago";
   const voided = sale.status === "voided";
-  // Renewals are refunded from Member Billing (refunds step), not voided here.
+  // Voiding an automatic renewal refunds that month to the card.
   const mayVoid =
-    !voided &&
-    sale.staff_id !== null &&
-    canVoidSale(staff, { staffId: sale.staff_id as string, createdAt: sale.created_at as string }, new Date());
+    !voided && canVoidSale(staff, { staffId: (sale.staff_id as string | null) ?? "", createdAt: sale.created_at as string }, new Date());
 
   return (
     <DashboardShell

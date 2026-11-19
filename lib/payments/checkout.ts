@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { getStripe } from "@/lib/billing/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getStudioStripeAccount, stripeLivemode } from "@/lib/payments/connect";
+import { saveMemberCard } from "@/lib/billing/member-cards";
 import { savePracticeSale, type SaleLineRequest } from "@/lib/pos/sales";
 import type { AgreementSignatureRequest } from "@/lib/agreements/sale";
 import type { CurrentStaff } from "@/lib/current-staff";
@@ -195,6 +196,22 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
   });
   if ("error" in saved) return markAttention(admin, row.id as string, saved.error);
   if (!("saleId" in saved)) return markAttention(admin, row.id as string, "Sale not saved");
+  // A membership's card becomes the member's card on file.
+  const request = row.sale_request as CardSaleRequest;
+  const card = savedCard(intent.payment_method);
+  if (row.stripe_customer_id && paymentMethodId && card && request.clientId && !request.clientId.startsWith("crm:")) {
+    await saveMemberCard(admin, {
+      organizationId: row.organization_id as string,
+      clientId: request.clientId,
+      livemode: Boolean(row.livemode),
+      accountId: row.stripe_account_id as string,
+      customerId: row.stripe_customer_id as string,
+      paymentMethodId,
+      card,
+      via: "pos",
+      staffId: row.staff_id as string,
+    }).catch((error) => console.error("[payments/checkout] card on file not saved:", error));
+  }
   await admin
     .from("pos_card_payments")
     .update({

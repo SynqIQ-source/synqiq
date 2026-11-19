@@ -6,6 +6,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { stripeLivemode } from "@/lib/payments/connect";
 import { finishCardPayment, noteCardPaymentFailure } from "@/lib/payments/checkout";
 import { finishRenewalFromEvent } from "@/lib/billing/renewal-job";
+import { finishCardUpdate } from "@/lib/billing/cards";
+import { applyStripeRefund, recordDispute } from "@/lib/billing/refunds";
 
 // Stripe event destination, "Connected accounts" scope (snapshot events):
 // payments made in studios' own accounts (direct charges). Every request's
@@ -61,8 +63,16 @@ export async function POST(request: NextRequest) {
           intent.last_payment_error?.message ?? event.type.replace("payment_intent.", ""),
         );
     }
-    // charge.refunded, disputes and payout failures are recorded (above) for
-    // now; handling them is part of the refunds/disputes step.
+    if (event.type === "setup_intent.succeeded") {
+      // A card saved on the desk, link or app form whose page closed early.
+      const intent = event.data.object as Stripe.SetupIntent;
+      if (intent.metadata?.synqiq_card_update === "1") await finishCardUpdate(intent.id, { accountId: event.account });
+    } else if (event.type === "charge.refunded") {
+      await applyStripeRefund(event.data.object as Stripe.Charge, event.account);
+    } else if (event.type.startsWith("charge.dispute.")) {
+      await recordDispute(event.data.object as Stripe.Dispute, event.account, event.livemode);
+    }
+    // payout.failed is recorded (stripe_connect_events) for the studio's Stripe dashboard.
   } catch (error) {
     console.error("[stripe/connect-payments] failed:", event.type, error);
     await forget();

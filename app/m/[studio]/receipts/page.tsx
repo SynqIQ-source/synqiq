@@ -41,6 +41,9 @@ export default async function ReceiptsPage({ params }: { params: Promise<{ studi
           <Link href={`/m/${studio.siteId}/my-classes`} className="underline underline-offset-4">
             My classes
           </Link>
+          <Link href={`/m/${studio.siteId}/card`} className="underline underline-offset-4">
+            Payment card
+          </Link>
         </span>
         <SignOutButton />
       </div>

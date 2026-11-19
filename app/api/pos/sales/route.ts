@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireCheckoutApi } from "@/lib/pos/api";
+import { refundRenewalSale } from "@/lib/billing/refunds";
 import { canVoidSale, findPromo, savePracticeSale, type SaleLineRequest } from "@/lib/pos/sales";
 import { finishCardPayment, refundCardSale, startCardPayment } from "@/lib/payments/checkout";
 
@@ -98,24 +99,27 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (!sale) return NextResponse.json({ success: false, error: "Sale not found." }, { status: 404 });
     if (sale.status === "voided") return NextResponse.json({ success: false, error: "Already voided." }, { status: 400 });
-    if (!sale.staff_id)
-      return NextResponse.json({ success: false, error: "Automatic renewals can't be voided here yet." }, { status: 400 });
-    if (!canVoidSale(currentStaff, { staffId: sale.staff_id as string, createdAt: sale.created_at as string }, new Date()))
+    // Automatic renewals (no staff member) can be voided by Club Admins and Sales Leads.
+    if (!canVoidSale(currentStaff, { staffId: (sale.staff_id as string | null) ?? "", createdAt: sale.created_at as string }, new Date()))
       return NextResponse.json({ success: false, error: "Only a Club Admin or Sales Lead can void this sale." }, { status: 403 });
     // A card sale is refunded to the card first; if Stripe can't, it stays.
-    const refund = await refundCardSale(admin, currentStaff.organizationId, saleId);
+    const refund = sale.staff_id
+      ? await refundCardSale(admin, currentStaff.organizationId, saleId)
+      : await refundRenewalSale(admin, currentStaff.organizationId, saleId);
     if ("error" in refund) return NextResponse.json({ success: false, error: refund.error }, { status: 502 });
     const { error } = await admin
       .from("pos_sales")
       .update({ status: "voided", voided_at: new Date().toISOString(), voided_by_staff_id: currentStaff.id, void_reason: reason })
       .eq("id", saleId);
     if (error) return NextResponse.json({ success: false, error: "Couldn't void. Try again." }, { status: 500 });
-    // A voided sale's membership payment schedule is voided with it.
-    await admin
-      .from("member_billing_schedules")
-      .update({ status: "voided", voided_at: new Date().toISOString() })
-      .eq("sale_id", saleId)
-      .eq("organization_id", currentStaff.organizationId);
+    // A voided sale's membership payment schedule is voided with it (a voided
+    // renewal refunds that month only; the schedule carries on).
+    if (sale.staff_id)
+      await admin
+        .from("member_billing_schedules")
+        .update({ status: "voided", voided_at: new Date().toISOString() })
+        .eq("sale_id", saleId)
+        .eq("organization_id", currentStaff.organizationId);
     return NextResponse.json({ success: true });
   }
   return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400 });

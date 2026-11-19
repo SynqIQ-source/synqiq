@@ -54,6 +54,9 @@ export default async function MemberBookingPage({ params, searchParams }: Props)
             <Link href={`/m/${studio.siteId}/receipts`} className="underline underline-offset-4">
               Receipts
             </Link>
+            <Link href={`/m/${studio.siteId}/card`} className="underline underline-offset-4">
+              Payment card
+            </Link>
             <SignOutButton />
           </span>
         </>

@@ -55,6 +55,9 @@ export default async function MyClassesPage({ params }: { params: Promise<{ stud
           <Link href={`/m/${studio.siteId}/receipts`} className="underline underline-offset-4">
             Receipts
           </Link>
+          <Link href={`/m/${studio.siteId}/card`} className="underline underline-offset-4">
+            Payment card
+          </Link>
         </span>
         <SignOutButton />
       </div>
