@@ -259,7 +259,8 @@ export default async function ClassPage({ params }: { params: Params }) {
         ) : null}
 
         {manage && context && window ? (
-          <Card>
+          // overflow-visible: the name list drops below the card.
+          <Card className="overflow-visible">
             <CardHeader>
               <CardTitle>Book someone</CardTitle>
               <CardDescription>
