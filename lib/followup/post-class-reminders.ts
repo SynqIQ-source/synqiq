@@ -6,6 +6,7 @@ import { isExcludedDepartmentName } from "@/lib/excluded-departments";
 import { sendPushToStaff } from "@/lib/push/send";
 import { sendEmailToRecipients } from "@/lib/email/send";
 import { postClassFollowUpEmail } from "@/lib/email/templates";
+import { loadEmailKit } from "@/lib/email/studio-kit";
 import { getOptionalEnv } from "@/lib/env";
 
 // Local hours (in each studio's own time zone) when reminders go out:
@@ -64,9 +65,7 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
     .in("id", groupFitnessOrgIds);
   if (orgError) throw new Error(`Failed to load studios: ${orgError.message}`);
 
-  const orgs = (orgRows ?? []).filter((org) =>
-    SEND_HOURS_LOCAL.includes(now.setZone(org.timezone ?? "America/Chicago").hour),
-  );
+  const orgs = (orgRows ?? []).filter((org) => SEND_HOURS_LOCAL.includes(now.setZone(org.timezone ?? "America/Chicago").hour));
   if (orgs.length === 0) return result;
 
   const { data: dueRows, error: dueError } = await supabase
@@ -94,11 +93,10 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
   const syncedAt = now.toISO() ?? "";
 
   for (const org of orgs) {
+    const kit = await loadEmailKit(supabase, org.id);
     const orgClasses = due.filter((row) => row.organization_id === org.id);
     if (orgClasses.length === 0) continue;
-    const mindbody = createMindbodyClient(
-      org.mindbody_site_id ? { siteId: String(org.mindbody_site_id) } : undefined,
-    );
+    const mindbody = createMindbodyClient(org.mindbody_site_id ? { siteId: String(org.mindbody_site_id) } : undefined);
 
     let accessToken: string;
     try {
@@ -174,13 +172,16 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
       if (instructor.email) {
         await sendEmailToRecipients(
           [{ email: instructor.email, displayName: instructor.display_name }],
-          postClassFollowUpEmail({
-            className,
-            startDatetime: occurrence.start_datetime,
-            timezone: org.timezone ?? "utc",
-            siteUrl,
-            checkedInCount: signedInCount,
-          }),
+          postClassFollowUpEmail(
+            {
+              className,
+              startDatetime: occurrence.start_datetime,
+              timezone: org.timezone ?? "utc",
+              siteUrl,
+              checkedInCount: signedInCount,
+            },
+            kit,
+          ),
         );
       }
 

@@ -8,8 +8,9 @@ import { MoreHorizontal } from "lucide-react";
 import { NAV_ICONS_BY_HREF } from "@/lib/nav-icons";
 
 // badge: an unread count shown next to the item (e.g. new guest messages).
-export type NavItem = { href: string; label: string; badge?: number };
-
+// children: shown nested under this item in the sidebar (expandable);
+// the mobile "More" list shows them flat.
+export type NavItem = { href: string; label: string; badge?: number; children?: NavItem[] };
 
 // Shorter labels than the desktop sidebar's -- these sit under a small
 // icon at ~78px tab width, where "My Schedule"/"Sub Requests"/"Message
@@ -26,13 +27,7 @@ function TabIcon({ href, className }: { href: string; className: string }) {
   return Icon ? <Icon className={className} /> : null;
 }
 
-export function BottomNav({
-  primaryItems,
-  moreItems,
-}: {
-  primaryItems: NavItem[];
-  moreItems: NavItem[];
-}) {
+export function BottomNav({ primaryItems, moreItems }: { primaryItems: NavItem[]; moreItems: NavItem[] }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -73,13 +68,9 @@ export function BottomNav({
               moreOpen || moreIsActive ? "text-primary" : "text-muted-foreground"
             }`}
           >
-            {(moreOpen || moreIsActive) && (
-              <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />
-            )}
+            {(moreOpen || moreIsActive) && <span className="absolute inset-x-3 top-0 h-0.5 rounded-full bg-primary" />}
             <MoreHorizontal className="h-5 w-5" />
-            {moreItems.some((item) => item.badge) ? (
-              <span className="absolute top-1.5 right-1/4 h-2 w-2 rounded-full bg-primary" />
-            ) : null}
+            {moreItems.some((item) => item.badge) ? <span className="absolute top-1.5 right-1/4 h-2 w-2 rounded-full bg-primary" /> : null}
             <span>More</span>
           </button>
 
@@ -98,7 +89,11 @@ export function BottomNav({
                     >
                       <TabIcon href={item.href} className="h-4 w-4" />
                       {item.label}
-                      {item.badge ? <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-semibold text-primary-foreground tabular-nums">{item.badge > 99 ? "99+" : item.badge}</span> : null}
+                      {item.badge ? (
+                        <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-semibold text-primary-foreground tabular-nums">
+                          {item.badge > 99 ? "99+" : item.badge}
+                        </span>
+                      ) : null}
                     </Link>
                   </li>
                 );

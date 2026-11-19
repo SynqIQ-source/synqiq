@@ -27,6 +27,7 @@ import {
   Landmark,
   LayoutDashboard,
   ListChecks,
+  Mail,
   MailCheck,
   Mails,
   MessageSquare,
@@ -110,4 +111,5 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/maintenance": Wrench,
   "/dashboard/attendance-fees": CalendarX,
   "/dashboard/member-billing": CreditCard,
+  "/dashboard/email": Mail,
 };

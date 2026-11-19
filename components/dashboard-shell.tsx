@@ -32,11 +32,14 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 // crm: shown only when the org has the CRM module.
 // platform: shown only to SynqIQ platform admins (lib/platform/admin.ts).
 // modules: shown only when the studio has at least one of these modules on.
-type NavEntry = NavItem & {
+// children: nested under the item in the sidebar (expandable), each
+// filtered by its own rules; hiding the parent hides them too.
+type NavEntry = Omit<NavItem, "children"> & {
   who?: (staff: CurrentStaff) => boolean;
   crm?: boolean;
   platform?: boolean;
   modules?: ModuleKey[];
+  children?: NavEntry[];
 };
 
 const instructorOrTrainer = (staff: CurrentStaff) => isInstructorAccess(staff) || isTrainerAccess(staff);
@@ -120,18 +123,29 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     label: "Admin",
     items: [
       { href: "/dashboard/settings", label: "Settings", who: isClubAdmin },
-      { href: "/dashboard/settings/staff", label: "Staff & Roles", who: isClubAdmin },
-      { href: "/dashboard/settings/billing", label: "Billing", who: isClubAdmin },
+      {
+        href: "/dashboard/settings/staff",
+        label: "Staff & Roles",
+        who: isClubAdmin,
+        children: [
+          { href: "/dashboard/pay-rates", label: "Pay Rates", who: isClubAdmin },
+          { href: "/dashboard/commissions", label: "Commissions", who: isClubAdmin },
+          { href: "/dashboard/payroll", label: "Payroll", who: isClubAdmin },
+          { href: "/dashboard/timesheets", label: "Timesheets", who: isClubAdmin },
+          { href: "/dashboard/settings/eligibility", label: "Class Eligibility", who: isClubAdmin, modules: ["group_fitness"] },
+        ],
+      },
+      { href: "/dashboard/email", label: "Email", who: isClubAdmin },
       { href: "/dashboard/settings/payments", label: "Payments", who: isClubAdmin },
-      { href: "/dashboard/settings/eligibility", label: "Class Eligibility", who: isClubAdmin, modules: ["group_fitness"] },
-      { href: "/dashboard/timesheets", label: "Timesheets", who: isClubAdmin },
-      { href: "/dashboard/payroll", label: "Payroll", who: isClubAdmin },
-      { href: "/dashboard/pay-rates", label: "Pay Rates", who: isClubAdmin },
-      { href: "/dashboard/commissions", label: "Commissions", who: isClubAdmin },
-      { href: "/dashboard/settings/imports", label: "Imports", who: isClubAdmin },
-      { href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", who: isClubAdmin },
       { href: "/dashboard/settings/crm", label: "CRM", who: isClubAdmin, crm: true },
       { href: "/dashboard/settings/sales-targets", label: "Sales Targets", who: isClubAdmin, crm: true },
+      {
+        href: "/dashboard/settings/imports",
+        label: "Imports",
+        who: isClubAdmin,
+        children: [{ href: "/dashboard/settings/mindbody-items", label: "Mindbody Items", who: isClubAdmin }],
+      },
+      { href: "/dashboard/settings/billing", label: "SynqIQ Plan", who: isClubAdmin },
     ],
   },
   {
@@ -208,22 +222,30 @@ export async function DashboardShell({ children, title, description, actions, fu
     : { data: null };
   const allowed = (entry: NavEntry) => !entry.who || (currentStaff !== null && entry.who(currentStaff));
 
+  const visible = (entries: NavEntry[]): NavItem[] =>
+    entries
+      .filter(
+        (item) =>
+          allowed(item) &&
+          (!item.crm || crmEnabled) &&
+          (!item.platform || isPlatformAdmin) &&
+          (!item.modules || !enabledModules || item.modules.some((module) => enabledModules.has(module))),
+      )
+      .map(({ href, label, children }) => {
+        const shownChildren = children ? visible(children) : [];
+        return {
+          href,
+          label,
+          badge: href === unreadHref ? guestUnread : undefined,
+          ...(shownChildren.length ? { children: shownChildren } : {}),
+        };
+      });
   const visibleGroups: NavGroup[] = navigation
-    .map((group) => ({
-      label: group.label,
-      items: group.items
-        .filter(
-          (item) =>
-            allowed(item) &&
-            (!item.crm || crmEnabled) &&
-            (!item.platform || isPlatformAdmin) &&
-            (!item.modules || !enabledModules || item.modules.some((module) => enabledModules.has(module))),
-        )
-        .map(({ href, label }) => ({ href, label, badge: href === unreadHref ? guestUnread : undefined })),
-    }))
+    .map((group) => ({ label: group.label, items: visible(group.items) }))
     .filter((group) => group.items.length > 0);
 
-  const visibleItems = visibleGroups.flatMap((group) => group.items);
+  const flatten = (items: NavItem[]): NavItem[] => items.flatMap(({ children, ...item }) => [item, ...flatten(children ?? [])]);
+  const visibleItems = flatten(visibleGroups.flatMap((group) => group.items));
   const primaryMobileItems = MOBILE_PRIMARY_PREFERENCE.map((href) => visibleItems.find((item) => item.href === href))
     .filter((item): item is NavItem => Boolean(item))
     .slice(0, 4);

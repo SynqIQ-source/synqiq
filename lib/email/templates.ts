@@ -1,4 +1,5 @@
 import { DateTime } from "luxon";
+import { defaultKit, emailButton, renderStudioEmail, type EmailKit } from "@/lib/email/studio-templates";
 
 type ClassInfo = {
   className: string;
@@ -186,25 +187,19 @@ export function substitutionRequestSelectedEmail({ className, startDatetime, tim
 // Sent ~2 hours after a class ends to the instructor who taught it (the
 // approved sub when there was one), when at least one member checked in.
 // Points at Follow Up, where that class's attendees now appear.
-export function postClassFollowUpEmail({
-  className,
-  startDatetime,
-  timezone,
-  siteUrl,
-  checkedInCount,
-}: ClassInfo & { checkedInCount: number }): { subject: string; html: string } {
-  const when = formatClassTime(startDatetime, timezone);
+export function postClassFollowUpEmail(
+  { className, startDatetime, timezone, siteUrl, checkedInCount }: ClassInfo & { checkedInCount: number },
+  kit?: EmailKit,
+): { subject: string; html: string } {
   const people = checkedInCount === 1 ? "1 member" : `${checkedInCount} members`;
-
-  return {
-    subject: `Follow up with your ${className} class`,
-    html: `
-      <p>Thanks for teaching <strong>${escapeHtml(className)}</strong> on ${when}. ${people} checked in.</p>
-      <p>A quick personal note after class goes a long way. Send a follow-up to the people who attended here:</p>
-      <p><a href="${siteUrl}/dashboard/follow-up">${siteUrl}/dashboard/follow-up</a></p>
-      <p>Members see your name and the studio. Your email address stays private.</p>
-    `,
-  };
+  const used = kit ?? defaultKit("SynqIQ");
+  // Studio wording (Admin > Email > Templates) when the studio's kit is passed.
+  return renderStudioEmail(
+    "class_followup_reminder",
+    { class_name: className, class_time: formatClassTime(startDatetime, timezone), checked_in: people },
+    used,
+    { action: emailButton(`${siteUrl}/dashboard/follow-up`, "Open Follow Up", used.branding.color) },
+  );
 }
 
 type NewLead = {

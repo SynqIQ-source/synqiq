@@ -3,6 +3,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendEmailToRecipients } from "@/lib/email/send";
 import { createCardLink } from "@/lib/billing/card-links";
 import { cardExpiry, cardNoticeDue } from "@/lib/billing/renewals";
+import { defaultKit, emailButton, renderStudioEmail, type EmailKit } from "@/lib/email/studio-templates";
+import { loadEmailKit, studioFrom } from "@/lib/email/studio-kit";
 
 // Emails to members about their monthly payment (Adam, 2026-11-19): when a
 // payment is first declined (booking paused, the next retry date) and when the
@@ -10,9 +12,6 @@ import { cardExpiry, cardNoticeDue } from "@/lib/billing/renewals";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
-}
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const longDay = (iso: string) => DateTime.fromISO(iso).toFormat("cccc, LLLL d");
 
@@ -26,61 +25,57 @@ export type DeclineEmailInput = {
   updateUrl?: string | null; // one-time "update your card" link
 };
 
-function updateButton(url: string | null | undefined, label = "Update your card") {
-  return url
-    ? `<p><a href="${escapeHtml(url)}" style="display:inline-block;background:#111;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">${label}</a><br><span style="color:#666;font-size:12px">This secure link works for 7 days. Your card goes straight to our payment processor, Stripe.</span></p>`
-    : "";
-}
+const LINK_NOTE = "This secure link works for 7 days. Your card goes straight to our payment processor, Stripe.";
 
-export function declinedPaymentEmail(input: DeclineEmailInput) {
-  const card = input.card ? ` (${escapeHtml(input.card)})` : "";
+// The studio's wording and header/footer (Admin > Email > Templates); the
+// defaults when no kit is passed.
+export function declinedPaymentEmail(input: DeclineEmailInput, kit: EmailKit = defaultKit(input.studioName)) {
   const final = input.retryOn === null;
-  const opening = final
-    ? `We weren't able to collect your <strong>${escapeHtml(input.membership)}</strong> payment of ${money(input.amountCents)} after several tries, so your membership is on hold.`
-    : `Your <strong>${escapeHtml(input.membership)}</strong> payment of ${money(input.amountCents)} was declined by your card${card}.`;
-  const retry = final ? "" : ` We'll try your card again on <strong>${escapeHtml(longDay(input.retryOn!))}</strong>.`;
-  return {
-    subject: final ? `Your ${input.studioName} membership is on hold` : `Your ${input.studioName} membership payment didn't go through`,
-    html: `
-      <p>Hi ${escapeHtml(input.firstName || "there")},</p>
-      <p>${opening}</p>
-      <p>Class and lane booking is paused until the payment is made.${retry}</p>
-      ${updateButton(input.updateUrl, final ? "Update your card and pay" : "Update your card")}
-      <p>If your card has changed or was replaced, update it ${input.updateUrl ? "with the link above, " : ""}or stop by or call the front desk and we'll take care of it.</p>
-      <p>Thank you,<br>${escapeHtml(input.studioName)}</p>
-    `,
-  };
+  return renderStudioEmail(
+    final ? "payment_on_hold" : "payment_declined",
+    {
+      studio: input.studioName,
+      first_name: input.firstName,
+      membership: input.membership,
+      amount: money(input.amountCents),
+      card_note: input.card ? ` (${input.card})` : "",
+      retry_date: input.retryOn ? longDay(input.retryOn) : "",
+    },
+    kit,
+    {
+      action: input.updateUrl
+        ? emailButton(input.updateUrl, final ? "Update your card and pay" : "Update your card", kit.branding.color, LINK_NOTE)
+        : "",
+    },
+  );
 }
 
 // Staff sent a link, or the card on file is about to expire (first notice a
 // month before, second 15 days later).
-export function cardLinkEmail(input: {
-  studioName: string;
-  firstName: string;
-  reason: "staff" | "expiring";
-  card: string | null;
-  expires: string | null; // "December 2026"
-  second?: boolean;
-  updateUrl: string;
-}) {
-  const subject =
-    input.reason === "expiring"
-      ? `${input.second ? "Reminder: your" : "Your"} card on file with ${input.studioName} expires soon`
-      : `Update your card on file with ${input.studioName}`;
-  const body =
-    input.reason === "expiring"
-      ? `<p>The card we have on file for your membership${input.card ? ` (${escapeHtml(input.card)})` : ""} expires at the end of <strong>${escapeHtml(input.expires ?? "this month")}</strong>. To keep your membership payments going without interruption, please add your new card.</p>`
-      : `<p>Here's the secure link to add or update the card we keep on file for your membership payments.</p>`;
-  return {
-    subject,
-    html: `
-      <p>Hi ${escapeHtml(input.firstName || "there")},</p>
-      ${body}
-      ${updateButton(input.updateUrl)}
-      <p>You can also update it in the app, or at the front desk.</p>
-      <p>Thank you,<br>${escapeHtml(input.studioName)}</p>
-    `,
-  };
+export function cardLinkEmail(
+  input: {
+    studioName: string;
+    firstName: string;
+    reason: "staff" | "expiring";
+    card: string | null;
+    expires: string | null; // "December 2026"
+    second?: boolean;
+    updateUrl: string;
+  },
+  kit: EmailKit = defaultKit(input.studioName),
+) {
+  const key = input.reason === "staff" ? "card_link" : input.second ? "card_expiring_reminder" : "card_expiring";
+  return renderStudioEmail(
+    key,
+    {
+      studio: input.studioName,
+      first_name: input.firstName,
+      card_note: input.card ? ` (${input.card})` : "",
+      expires: input.expires ?? "this month",
+    },
+    kit,
+    { action: emailButton(input.updateUrl, "Update your card", kit.branding.color, LINK_NOTE) },
+  );
 }
 
 export const cardLabel = (brand: string | null | undefined, last4: string | null | undefined) =>
@@ -113,25 +108,28 @@ export async function emailDecline(admin: Admin, chargeId: string, retryOn: stri
   if (!charge?.livemode || !charge.mindbody_client_id) return false;
   const final = retryOn === null;
   if (final ? charge.frozen_emailed_at : charge.decline_emailed_at) return false;
-  const [{ data: schedule }, { data: org }, contact] = await Promise.all([
+  const [{ data: schedule }, kit, contact] = await Promise.all([
     admin.from("member_billing_schedules").select("name, card_brand, card_last4").eq("id", charge.schedule_id).maybeSingle(),
-    admin.from("organizations").select("name").eq("id", charge.organization_id).maybeSingle(),
+    loadEmailKit(admin, charge.organization_id as string),
     memberEmail(admin, charge.organization_id as string, charge.mindbody_client_id as string),
   ]);
   if (!contact.email) return false;
-  const studioName = (org?.name as string | null) ?? "Your studio";
+  const studioName = kit.branding.studioName;
   const updateUrl = await createCardLink(admin, charge.organization_id as string, charge.mindbody_client_id as string, "declined", null);
   await sendEmailToRecipients([{ email: contact.email }], {
-    from: `${studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`,
-    ...declinedPaymentEmail({
-      studioName,
-      firstName: contact.firstName,
-      membership: (schedule?.name as string | null) ?? "membership",
-      amountCents: Number(charge.total_cents),
-      card: cardLabel(schedule?.card_brand as string | null, schedule?.card_last4 as string | null),
-      retryOn,
-      updateUrl,
-    }),
+    from: studioFrom(studioName),
+    ...declinedPaymentEmail(
+      {
+        studioName,
+        firstName: contact.firstName,
+        membership: (schedule?.name as string | null) ?? "membership",
+        amountCents: Number(charge.total_cents),
+        card: cardLabel(schedule?.card_brand as string | null, schedule?.card_last4 as string | null),
+        retryOn,
+        updateUrl,
+      },
+      kit,
+    ),
   });
   await admin
     .from("membership_charges")
@@ -147,9 +145,9 @@ export async function sendCardLink(
   staffId: string,
 ): Promise<{ error: string } | { email: string }> {
   const admin = createSupabaseAdminClient();
-  const [contact, { data: org }, { data: card }] = await Promise.all([
+  const [contact, kit, { data: card }] = await Promise.all([
     memberEmail(admin, organizationId, clientId),
-    admin.from("organizations").select("name").eq("id", organizationId).maybeSingle(),
+    loadEmailKit(admin, organizationId),
     admin
       .from("member_cards")
       .select("card_brand, card_last4")
@@ -159,18 +157,21 @@ export async function sendCardLink(
       .maybeSingle(),
   ]);
   if (!contact.email) return { error: "This member has no email address on file." };
-  const studioName = (org?.name as string | null) ?? "Your studio";
+  const studioName = kit.branding.studioName;
   const updateUrl = await createCardLink(admin, organizationId, clientId, "staff", staffId);
   await sendEmailToRecipients([{ email: contact.email }], {
-    from: `${studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`,
-    ...cardLinkEmail({
-      studioName,
-      firstName: contact.firstName,
-      reason: "staff",
-      card: cardLabel(card?.card_brand as string | null, card?.card_last4 as string | null),
-      expires: null,
-      updateUrl,
-    }),
+    from: studioFrom(studioName),
+    ...cardLinkEmail(
+      {
+        studioName,
+        firstName: contact.firstName,
+        reason: "staff",
+        card: cardLabel(card?.card_brand as string | null, card?.card_last4 as string | null),
+        expires: null,
+        updateUrl,
+      },
+      kit,
+    ),
   });
   return { email: contact.email };
 }
@@ -191,8 +192,8 @@ export async function sendExpiringCardNotices(organizationId: string, today: str
     .from("card_expiry_notices")
     .select("schedule_id, card_exp_month, card_exp_year, notice, sent_at")
     .eq("organization_id", organizationId);
-  const { data: org } = await admin.from("organizations").select("name").eq("id", organizationId).maybeSingle();
-  const studioName = (org?.name as string | null) ?? "Your studio";
+  const kit = await loadEmailKit(admin, organizationId);
+  const studioName = kit.branding.studioName;
   const byClient = new Map<string, typeof schedules>();
   for (const row of schedules)
     byClient.set(row.mindbody_client_id as string, [...(byClient.get(row.mindbody_client_id as string) ?? []), row]);
@@ -217,16 +218,19 @@ export async function sendExpiringCardNotices(organizationId: string, today: str
     if (contact.email) {
       const updateUrl = await createCardLink(admin, organizationId, clientId, "expiring", null);
       await sendEmailToRecipients([{ email: contact.email }], {
-        from: `${studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`,
-        ...cardLinkEmail({
-          studioName,
-          firstName: contact.firstName,
-          reason: "expiring",
-          card: cardLabel(first.card_brand as string | null, first.card_last4 as string | null),
-          expires: DateTime.fromObject({ year, month, day: 1 }).toFormat("LLLL yyyy"),
-          second: due === "second",
-          updateUrl,
-        }),
+        from: studioFrom(studioName),
+        ...cardLinkEmail(
+          {
+            studioName,
+            firstName: contact.firstName,
+            reason: "expiring",
+            card: cardLabel(first.card_brand as string | null, first.card_last4 as string | null),
+            expires: DateTime.fromObject({ year, month, day: 1 }).toFormat("LLLL yyyy"),
+            second: due === "second",
+            updateUrl,
+          },
+          kit,
+        ),
       });
       sent += 1;
     }

@@ -3,6 +3,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getOptionalEnv } from "@/lib/env";
 import { newToken } from "@/lib/member/password";
 import { sendEmailToRecipients } from "@/lib/email/send";
+import { defaultKit, escapeHtml, renderStudioEmail, type EmailKit } from "@/lib/email/studio-templates";
+import { loadEmailKit, studioFrom } from "@/lib/email/studio-kit";
 import { LINK_DAYS, QUEUE_DAYS, firstVisitsByQuarter, pickToSend, type Visit } from "@/lib/ratings/rules";
 
 // Nightly, after the class-visit sync: find each member's first class with
@@ -241,7 +243,8 @@ async function sendDue(admin: Admin, organizationId: string, studioName: string,
     sentThisWeek,
   );
   const siteUrl = getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? "https://synqiq.co";
-  const from = `${studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`;
+  const kit = await loadEmailKit(admin, organizationId);
+  const from = studioFrom(studioName);
   let sent = 0;
   for (const request of toSend) {
     const client = clientBy.get(request.clientId)!;
@@ -264,48 +267,47 @@ async function sendDue(admin: Admin, organizationId: string, studioName: string,
       .toFormat("cccc");
     await sendEmailToRecipients([{ email: client.email as string }], {
       from,
-      ...ratingEmail({
-        studioName,
-        firstName: client.firstName,
-        className: request.class_name as string,
-        instructor: instructor.split(" ")[0],
-        when,
-        link: `${siteUrl}/r/${encodeURIComponent(token)}`,
-      }),
+      ...ratingEmail(
+        {
+          studioName,
+          firstName: client.firstName,
+          className: request.class_name as string,
+          instructor: instructor.split(" ")[0],
+          when,
+          link: `${siteUrl}/r/${encodeURIComponent(token)}`,
+        },
+        kit,
+      ),
     });
     sent += 1;
   }
   return { sent, waiting: queued.length - sent };
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
-}
-
-export function ratingEmail(input: {
-  studioName: string;
-  firstName: string;
-  className: string;
-  instructor: string;
-  when: string;
-  link: string;
-}) {
+export function ratingEmail(
+  input: {
+    studioName: string;
+    firstName: string;
+    className: string;
+    instructor: string;
+    when: string;
+    link: string;
+  },
+  kit: EmailKit = defaultKit(input.studioName),
+) {
   const stars = [1, 2, 3, 4, 5]
     .map(
       (n) =>
         `<a href="${escapeHtml(`${input.link}?stars=${n}`)}" style="display:inline-block;margin:0 4px;font-size:32px;line-height:1;color:#f59e0b;text-decoration:none" aria-label="${n} star${n === 1 ? "" : "s"}">&#9733;</a>`,
     )
     .join("");
-  return {
-    subject: `How was ${input.className} with ${input.instructor}?`,
-    html: `
-      <p>Hi ${escapeHtml(input.firstName || "there")},</p>
-      <p>Thanks for coming to <strong>${escapeHtml(input.className)}</strong> with ${escapeHtml(input.instructor)} on ${escapeHtml(input.when)}. How was it?</p>
-      <p style="margin:20px 0">${stars}</p>
-      <p>Tap a star to rate it. You can add a comment on the next page if you like.</p>
-      <p style="color:#666;font-size:13px">Your feedback is anonymous to the instructor. The link works once and expires in ${LINK_DAYS} days.
-      Don't want these emails? <a href="${escapeHtml(`${input.link}?stop=1`)}">Stop rating emails</a>.</p>
-      <p style="color:#666;font-size:13px">${escapeHtml(input.studioName)}</p>
-    `,
-  };
+  return renderStudioEmail(
+    "rating_request",
+    { studio: input.studioName, first_name: input.firstName, class_name: input.className, instructor: input.instructor, day: input.when },
+    kit,
+    {
+      action: `<p style="margin:20px 0">${stars}</p>`,
+      finePrint: `<p style="margin:0">Your feedback is anonymous to the instructor. The link works once and expires in ${LINK_DAYS} days. Don't want these emails? <a href="${escapeHtml(`${input.link}?stop=1`)}">Stop rating emails</a>.</p>`,
+    },
+  );
 }
