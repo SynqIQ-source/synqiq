@@ -51,26 +51,43 @@ export function MemberSearch({
     }
   }, [initialQuery]);
 
+  // Matches for a query; a newer keystroke's search wins.
+  async function search(q: string): Promise<Suggestion[]> {
+    const request = ++latest.current;
+    try {
+      const response = await fetch(`${endpoint}?q=${encodeURIComponent(q)}`);
+      const result = (await response.json()) as { success?: boolean; members?: Suggestion[] };
+      if (request !== latest.current) return [];
+      setSuggestions(result.members ?? []);
+      setActive(-1);
+      return result.members ?? [];
+    } catch {
+      if (request === latest.current) setSuggestions([]);
+      return [];
+    }
+  }
+
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) {
       setSuggestions([]);
       return;
     }
-    const request = ++latest.current;
-    const timer = setTimeout(async () => {
-      try {
-        const response = await fetch(`${endpoint}?q=${encodeURIComponent(q)}`);
-        const result = (await response.json()) as { success?: boolean; members?: Suggestion[] };
-        if (request !== latest.current) return; // a newer keystroke won
-        setSuggestions(result.members ?? []);
-        setActive(-1);
-      } catch {
-        if (request === latest.current) setSuggestions([]);
-      }
-    }, 200);
+    const timer = setTimeout(() => void search(q), 200);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, endpoint]);
+
+  // Picking mode (book someone, check-in): Enter or Search with nothing
+  // highlighted picks the only match, or shows the list to pick from.
+  async function submitPick() {
+    const q = query.trim();
+    if (q.length < 2) return;
+    const found = suggestions.length ? suggestions : await search(q);
+    if (found.length === 1) return pick(found[0]);
+    setOpen(true);
+    inputRef.current?.focus();
+  }
 
   function pick(suggestion: Suggestion) {
     setOpen(false);
@@ -92,6 +109,11 @@ export function MemberSearch({
       setSuggestions([]);
       setQuery("");
       onSubmitQuery(value);
+      return;
+    }
+    if (event.key === "Enter" && onPick && (active < 0 || !open || suggestions.length === 0)) {
+      event.preventDefault();
+      void submitPick();
       return;
     }
     if (!open || suggestions.length === 0) return;
@@ -116,8 +138,12 @@ export function MemberSearch({
       className={compact ? (onPick ? "relative w-full" : "relative w-full sm:w-64") : "relative flex max-w-xl gap-2"}
       action="/dashboard/memberships"
       onSubmit={(event) => {
+        if (onPick) {
+          event.preventDefault();
+          void submitPick();
+          return;
+        }
         setOpen(false);
-        if (onPick) event.preventDefault();
       }}
     >
       <div className="relative flex-1">
