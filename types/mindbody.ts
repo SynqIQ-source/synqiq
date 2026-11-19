@@ -139,6 +139,8 @@ export interface MindbodyClientRecord {
   // never stored for the rest of the roster.
   MobilePhone?: string | null;
   SalesReps?: { Id?: number | null }[] | null;
+  // Mindbody's "send promotional emails" setting (read-only copy; newsletters).
+  SendPromotionalEmails?: boolean | null;
 }
 
 // GET /client/clientcontracts (one client).

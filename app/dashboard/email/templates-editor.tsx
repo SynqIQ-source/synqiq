@@ -144,7 +144,13 @@ export function TemplatesEditor({ kit, templates }: { kit: EmailKit; templates: 
               </div>
               <div className="space-y-2">
                 <Label htmlFor="body">Message</Label>
-                <Textarea id="body" rows={14} value={draft.body} onChange={(event) => setDraft({ body: event.target.value })} />
+                <Textarea
+                  id="body"
+                  rows={14}
+                  className="min-h-72 [field-sizing:fixed]"
+                  value={draft.body}
+                  onChange={(event) => setDraft({ body: event.target.value })}
+                />
                 <p className="text-xs text-muted-foreground">
                   Blank line = new paragraph. **text** = bold. Put <code>[button]</code> on its own line where the button goes.
                 </p>

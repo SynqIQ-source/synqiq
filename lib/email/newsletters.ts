@@ -6,7 +6,8 @@ import { loadEmailKit, studioFrom } from "@/lib/email/studio-kit";
 import { cleanFilters, renderNewsletter, type NewsletterFilters } from "@/lib/email/newsletter-content";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
-export type AudienceRow = { contact_id: string; email: string; first_name: string | null };
+// A CRM contact (contact_id) or a Mindbody member (client_id).
+export type AudienceRow = { contact_id: string | null; client_id: string | null; email: string; first_name: string | null };
 
 const siteUrl = () => getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? "https://synqiq.co";
 
@@ -62,12 +63,14 @@ export async function sendNewsletter(newsletterId: string, now = new Date()) {
     newsletterAudience(admin, organizationId, (claimed.filters ?? {}) as NewsletterFilters),
     loadEmailKit(admin, organizationId),
   ]);
-  const people = audience.map((row) => ({ ...row, ...newToken() }));
+  const people = audience.map((row) => ({ ...row, ...newToken(), id: crypto.randomUUID() }));
   for (let i = 0; i < people.length; i += 500) {
     const { error } = await admin.from("newsletter_recipients").insert(
       people.slice(i, i + 500).map((person) => ({
+        id: person.id,
         newsletter_id: newsletterId,
         contact_id: person.contact_id,
+        client_id: person.client_id,
         organization_id: organizationId,
         email: person.email,
         unsubscribe_token_hash: person.hash,
@@ -100,16 +103,10 @@ export async function sendNewsletter(newsletterId: string, now = new Date()) {
     });
     const result = await sendEmailMessages(messages);
     const sentAt = new Date().toISOString();
-    const sentIds = batch.filter((person) => result.sent.includes(person.email)).map((person) => person.contact_id);
-    const failedIds = batch.filter((person) => !result.sent.includes(person.email)).map((person) => person.contact_id);
-    if (sentIds.length)
-      await admin
-        .from("newsletter_recipients")
-        .update({ status: "sent", sent_at: sentAt })
-        .eq("newsletter_id", newsletterId)
-        .in("contact_id", sentIds);
-    if (failedIds.length)
-      await admin.from("newsletter_recipients").update({ status: "failed" }).eq("newsletter_id", newsletterId).in("contact_id", failedIds);
+    const sentIds = batch.filter((person) => result.sent.includes(person.email)).map((person) => person.id);
+    const failedIds = batch.filter((person) => !result.sent.includes(person.email)).map((person) => person.id);
+    if (sentIds.length) await admin.from("newsletter_recipients").update({ status: "sent", sent_at: sentAt }).in("id", sentIds);
+    if (failedIds.length) await admin.from("newsletter_recipients").update({ status: "failed" }).in("id", failedIds);
     sentCount += sentIds.length;
     failedCount += failedIds.length;
     await admin.from("newsletters").update({ sent_count: sentCount, failed_count: failedCount }).eq("id", newsletterId);
@@ -144,7 +141,7 @@ export async function findUnsubscribe(token: string) {
   const admin = createSupabaseAdminClient();
   const { data: row } = await admin
     .from("newsletter_recipients")
-    .select("newsletter_id, contact_id, organization_id, email, unsubscribed_at")
+    .select("id, newsletter_id, contact_id, client_id, organization_id, email, unsubscribed_at")
     .eq("unsubscribe_token_hash", hashToken(token))
     .maybeSingle();
   if (!row) return null;
@@ -153,27 +150,22 @@ export async function findUnsubscribe(token: string) {
 }
 
 // Stops all marketing email from the studio to that address: the address goes
-// on the studio's unsubscribe list and the contact's email consent is turned off.
+// on the studio's unsubscribe list and any CRM contact with it has email
+// consent turned off. Mindbody isn't changed (SynqIQ never writes to it); the
+// list keeps them out even though Mindbody still says yes.
 export async function unsubscribe(token: string): Promise<boolean> {
   const row = await findUnsubscribe(token);
   if (!row) return false;
   const admin = createSupabaseAdminClient();
   const now = new Date().toISOString();
-  // The contact's own normalized address (the CRM's rule), else lower-case.
-  const { data: contact } = await admin.from("crm_contacts").select("email_normalized").eq("id", row.contact_id).maybeSingle();
-  const normalized = (contact?.email_normalized as string | null) ?? (row.email as string).trim().toLowerCase();
+  const normalized = (row.email as string).trim().toLowerCase();
   await admin
     .from("email_unsubscribes")
     .upsert(
       { organization_id: row.organization_id, email_normalized: normalized, newsletter_id: row.newsletter_id },
       { ignoreDuplicates: true },
     );
-  await admin
-    .from("newsletter_recipients")
-    .update({ unsubscribed_at: now })
-    .eq("newsletter_id", row.newsletter_id)
-    .eq("contact_id", row.contact_id)
-    .is("unsubscribed_at", null);
+  await admin.from("newsletter_recipients").update({ unsubscribed_at: now }).eq("id", row.id).is("unsubscribed_at", null);
   await admin
     .from("crm_contacts")
     .update({ email_consent: false, updated_at: now })

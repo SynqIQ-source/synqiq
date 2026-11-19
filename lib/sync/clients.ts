@@ -6,12 +6,12 @@ import { siteIdOr } from "@/lib/sync/sites";
 import { getEnabledModules } from "@/lib/modules";
 import { recordEnrollments } from "@/lib/crm/onboarding";
 import type { MindbodyClientRecord } from "@/types/mindbody";
+import { keepEmail } from "@/lib/sync/client-email";
 
-export type SyncClientsResult =
-  | { success: true; imported: number; total: number; enrolled: number }
-  | { success: false; error: string };
+export type SyncClientsResult = { success: true; imported: number; total: number; enrolled: number } | { success: false; error: string };
 
 const PAGE_LIMIT = 200;
+
 
 // Full re-sync every run, not incremental -- same convention as
 // syncStaff/syncDepartments in lib/sync/classes.ts. The roster (~14.5k
@@ -36,17 +36,12 @@ export async function syncClients(
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
-      throw new Error(
-        `MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`,
-      );
+      throw new Error(`MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`);
     }
 
     const { data: org, error: orgError } = await supabase
       .from("organizations")
-      .upsert(
-        { mindbody_site_id: site.Id, timezone: site.TimeZone, name: site.Name },
-        { onConflict: "mindbody_site_id" },
-      )
+      .upsert({ mindbody_site_id: site.Id, timezone: site.TimeZone, name: site.Name }, { onConflict: "mindbody_site_id" })
       .select()
       .single();
 
@@ -78,9 +73,7 @@ export async function syncClients(
     let offset = 0;
 
     for (;;) {
-      const page = await withRetry(() =>
-        mindbody.getClients(clientsAccessToken, { offset, limit: PAGE_LIMIT }),
-      );
+      const page = await withRetry(() => mindbody.getClients(clientsAccessToken, { offset, limit: PAGE_LIMIT }));
       const clients = (page.Clients ?? []) as MindbodyClientRecord[];
 
       // Only trust TotalResults from a page that actually returned rows --
@@ -152,7 +145,8 @@ export async function syncClients(
               is_prospect: client.IsProspect,
               creation_date: client.CreationDate,
               mindbody_client_id: client.Id != null ? String(client.Id) : null,
-              email: checkedInIds.has(client.UniqueId) ? client.Email ?? null : null,
+              email: keepEmail(client, checkedInIds) ? (client.Email ?? null) : null,
+              email_promotions: typeof client.SendPromotionalEmails === "boolean" ? client.SendPromotionalEmails : null,
               synced_at: syncedAt,
             })),
             { onConflict: "organization_id,mindbody_unique_id" },

@@ -216,6 +216,7 @@ export function NewsletterComposer({
                 <Textarea
                   id="body"
                   rows={16}
+                  className="min-h-80 [field-sizing:fixed]"
                   value={body}
                   disabled={!editable}
                   onChange={(event) => {
