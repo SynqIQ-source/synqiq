@@ -88,6 +88,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/check-in", label: "Check-in", who: canCheckIn },
       { href: "/dashboard/pos", label: "POS", who: canCheckout },
       { href: "/dashboard/classes", label: "Classes", modules: ["group_fitness"] },
+      { href: "/dashboard/pool-lanes", label: "Pool Lanes" },
       { href: "/dashboard/memberships", label: "Members", who: canViewMembers },
       { href: "/dashboard/maintenance", label: "Maintenance" },
     ],
