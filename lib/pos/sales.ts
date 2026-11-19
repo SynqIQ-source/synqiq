@@ -5,6 +5,7 @@ import { computeCart, COMMISSIONABLE_CATEGORY_KEYS, promoProblem, type PromoInpu
 import { isTaxable } from "@/lib/pos/catalog";
 import { commissionEarnerIds } from "@/lib/payroll/commission-job";
 import { expandCartLines, monthlySchedule, parsePackageParts, type PricedPart } from "@/lib/pos/packages";
+import { firstPaymentParts, type BillingStart } from "@/lib/billing/renewals";
 import type { CurrentStaff } from "@/lib/current-staff";
 import {
   agreementsForSale,
@@ -32,6 +33,7 @@ export type SalePayment = {
   stripeAccountId: string;
   customerId: string | null;
   paymentMethodId: string | null;
+  card?: { brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null } | null;
 };
 
 export async function findPromo(admin: Admin, organizationId: string, code: string, timezone: string) {
@@ -91,6 +93,9 @@ export async function savePracticeSale(
     // counts in real reports.
     validateOnly?: boolean;
     payment?: SalePayment;
+    // Memberships: bill monthly from the sign-up day (default), or prorate
+    // the rest of this month and draft on the 1st (lib/billing/renewals.ts).
+    billingStart?: BillingStart;
   },
 ): Promise<
   | { error: string }
@@ -138,6 +143,8 @@ export async function savePracticeSale(
   const categoryBy = new Map((categories ?? []).map((category) => [category.id as string, category]));
   const taxRate = Number(orgRow?.sales_tax_rate ?? 0.0825);
   const timezone = (orgRow?.timezone as string | null) ?? "America/Chicago";
+  const saleDate = DateTime.now().setZone(timezone).toISODate()!;
+  const billingStart: BillingStart = input.billingStart === "prorated" ? "prorated" : "signup";
   const mayDiscount = canDiscountAtCheckout(staff);
 
   // Commission can only be credited to people who earn it (Admin > Commissions).
@@ -190,18 +197,24 @@ export async function savePracticeSale(
   const expanded = expandCartLines(
     input.lines.map((line, index) => {
       const item = itemBy.get(line.itemId)!;
+      const parts = partsBy.get(item.id as string);
+      const firstParts = parts ? firstPaymentParts(parts, billingStart, saleDate) : null;
       return {
         key: String(index),
         quantity: line.quantity,
         manualDiscount: line.discount && line.discount.value > 0 ? line.discount : null,
         item: {
-          priceCents: item.open_price ? Number(line.priceCents) : Number(item.price_cents),
+          priceCents: firstParts
+            ? firstParts.reduce((sum, part) => sum + part.amountCents, 0)
+            : item.open_price
+              ? Number(line.priceCents)
+              : Number(item.price_cents),
           taxable: isTaxable(
             { taxable: (item.taxable as boolean | null) ?? null },
             categoryBy.get(item.revenue_category_id as string) as { taxable: boolean } | undefined,
           ),
           categoryId: item.revenue_category_id as string,
-          parts: partsBy.get(item.id as string) ?? null,
+          parts: firstParts,
         },
       };
     }),
@@ -243,7 +256,6 @@ export async function savePracticeSale(
   const cart = computeCart(expanded, taxRate, promo);
 
   // Agreements the buyer signs for this sale.
-  const saleDate = DateTime.now().setZone(timezone).toISODate()!;
   const toSign = await agreementsForSale(admin, org, {
     memberName: input.clientName,
     timezone,
@@ -262,7 +274,7 @@ export async function savePracticeSale(
         quantity: request.quantity,
         firstPaymentCents,
         monthlyDuesCents: parts
-          ? (monthlySchedule(parts, taxRate, saleDate)?.subtotalCents ?? null)
+          ? (monthlySchedule(parts, taxRate, saleDate, billingStart)?.subtotalCents ?? null)
           : item.kind === "membership"
             ? Number(item.price_cents)
             : null,
@@ -344,7 +356,7 @@ export async function savePracticeSale(
   const schedules = input.lines.flatMap((request) => {
     const item = itemBy.get(request.itemId)!;
     const parts = partsBy.get(item.id as string);
-    const schedule = parts ? monthlySchedule(parts, taxRate, saleDate) : null;
+    const schedule = parts ? monthlySchedule(parts, taxRate, saleDate, billingStart) : null;
     if (!schedule || !input.clientId) return [];
     return [
       {
@@ -360,6 +372,11 @@ export async function savePracticeSale(
         stripe_account_id: payment?.stripeAccountId ?? null,
         stripe_customer_id: payment?.customerId ?? null,
         stripe_payment_method_id: payment?.paymentMethodId ?? null,
+        card_brand: payment?.card?.brand ?? null,
+        card_last4: payment?.card?.last4 ?? null,
+        card_exp_month: payment?.card?.expMonth ?? null,
+        card_exp_year: payment?.card?.expYear ?? null,
+        billing_start: billingStart,
         first_bill_date: schedule.firstBillDate,
         recurring_lines: schedule.lines.map((line) => ({ ...line, revenueCategory: categoryBy.get(line.revenueCategoryId)?.name ?? null })),
         recurring_subtotal_cents: schedule.subtotalCents,

@@ -92,6 +92,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/pool-lanes", label: "Pool Lanes" },
       { href: "/dashboard/memberships", label: "Members", who: canViewMembers },
       { href: "/dashboard/attendance-fees", label: "No-shows & Late Cancels", who: managesSales },
+      { href: "/dashboard/member-billing", label: "Member Billing", who: isClubAdmin },
       { href: "/dashboard/maintenance", label: "Maintenance" },
     ],
   },

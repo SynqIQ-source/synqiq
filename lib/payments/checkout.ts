@@ -150,7 +150,7 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
   const stripe = getStripe();
   const intent = await stripe.paymentIntents.retrieve(
     row.payment_intent_id as string,
-    {},
+    { expand: ["payment_method"] },
     { stripeAccount: row.stripe_account_id as string },
   );
   if (intent.status !== "succeeded")
@@ -190,6 +190,7 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
       stripeAccountId: row.stripe_account_id as string,
       customerId: (row.stripe_customer_id as string | null) ?? null,
       paymentMethodId,
+      card: savedCard(intent.payment_method),
     },
   });
   if ("error" in saved) return markAttention(admin, row.id as string, saved.error);
@@ -204,6 +205,19 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
     })
     .eq("id", row.id);
   return { saleId: saved.saleId, saleNumber: saved.saleNumber, livemode: Boolean(row.livemode) };
+}
+
+// Brand, last 4 and expiry of the card used (for monthly billing and the
+// expiring-card list); Stripe keeps the card itself.
+function savedCard(method: unknown) {
+  const card = (method && typeof method === "object" ? (method as { card?: Record<string, unknown> }).card : null) ?? null;
+  if (!card) return null;
+  return {
+    brand: typeof card.brand === "string" ? card.brand : null,
+    last4: typeof card.last4 === "string" ? card.last4 : null,
+    expMonth: typeof card.exp_month === "number" ? card.exp_month : null,
+    expYear: typeof card.exp_year === "number" ? card.exp_year : null,
+  };
 }
 
 // Refund a card sale in full (when it's voided). Idempotent per sale.

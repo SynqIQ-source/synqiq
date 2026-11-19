@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { computeCart, type PromoInput } from "@/lib/pos/cart";
 import { expandCartLines, monthlySchedule, scheduleTerms, type PricedPart } from "@/lib/pos/packages";
+import { firstPaymentParts, type BillingStart } from "@/lib/billing/renewals";
 
 export type CheckoutCategory = { id: string; key: string; name: string; commissionable: boolean };
 export type CheckoutItem = {
@@ -102,6 +103,8 @@ export function Checkout({
   // "card" charges through Stripe; "practice" saves without charging.
   const [payWith, setPayWith] = useState<"card" | "practice">("practice");
   const [cardSession, setCardSession] = useState<CardSession | null>(null);
+  // Memberships: bill from the sign-up day (default), or prorate and draft on the 1st.
+  const [billingStart, setBillingStart] = useState<BillingStart>("signup");
   const searchRef = useRef<HTMLInputElement>(null);
 
   const itemBy = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
@@ -131,9 +134,15 @@ export function Checkout({
       ? items.filter((item) => placeOf(item) === openId)
       : [];
 
+  const today = new Date().toLocaleDateString("en-CA");
   const expanded = expandCartLines(
     lines.map((line) => {
-      const item = itemBy.get(line.itemId)!;
+      const stocked = itemBy.get(line.itemId)!;
+      // A package's first payment (dues prorated when billing from the 1st).
+      const firstParts = stocked.parts ? firstPaymentParts(stocked.parts, billingStart, today) : null;
+      const item = firstParts
+        ? { ...stocked, parts: firstParts, priceCents: firstParts.reduce((sum, part) => sum + part.amountCents, 0) }
+        : stocked;
       const value = Number(line.discount?.value ?? 0);
       return {
         key: line.key,
@@ -177,7 +186,6 @@ export function Checkout({
   const membersOnlyBlocked = membersOnlyNames.length > 0 && !sellsMembership && !(member && member.plans.length > 0);
   const packageNeedsMember = !member && lines.some((line) => itemBy.get(line.itemId)?.parts);
   const missingAmount = lines.some((line) => itemBy.get(line.itemId)?.openPrice && !(Number(line.price) >= 0 && line.price?.trim()));
-  const today = new Date().toLocaleDateString("en-CA");
 
   function add(item: CheckoutItem) {
     setReceipt(null);
@@ -293,6 +301,7 @@ export function Checkout({
       clientId: member?.id ?? null,
       clientName: member?.name ?? null,
       promoCode: promo?.code ?? null,
+      billingStart,
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
@@ -353,7 +362,7 @@ export function Checkout({
       }),
       schedules: lines.flatMap((line) => {
         const item = itemBy.get(line.itemId)!;
-        const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today) : null;
+        const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today, billingStart) : null;
         return schedule
           ? [
               `${item.name}: ${money(schedule.totalCents)}/month incl. tax from ${schedule.firstBillDate}, ${scheduleTerms(item.autopayCount, item.autoRenews)}`,
@@ -486,7 +495,7 @@ export function Checkout({
           {shown.length ? (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
               {shown.map((item) => {
-                const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today) : null;
+                const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today, billingStart) : null;
                 return (
                   <button
                     key={item.id}
@@ -554,7 +563,7 @@ export function Checkout({
                   const item = itemBy.get(line.itemId)!;
                   const computed = lineTotals(line.key);
                   const commissionable = isCommissionable(item);
-                  const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today) : null;
+                  const schedule = item.parts ? monthlySchedule(item.parts, taxRate, today, billingStart) : null;
                   return (
                     <div key={line.key} className="space-y-1 border-b pb-2 last:border-b-0">
                       <div className="flex items-start gap-2">
@@ -665,6 +674,19 @@ export function Checkout({
                               Then {money(schedule.subtotalCents)} + tax = <span className="font-medium">{money(schedule.totalCents)}</span>{" "}
                               a month from {schedule.firstBillDate}, {scheduleTerms(item.autopayCount, item.autoRenews)}.
                             </p>
+                          ) : null}
+                          {schedule ? (
+                            <label className="flex flex-wrap items-center gap-1 border-t pt-1">
+                              <span className="text-muted-foreground">Billing date</span>
+                              <select
+                                className="h-7 rounded-md border bg-background px-1 text-xs"
+                                value={billingStart}
+                                onChange={(event) => setBillingStart(event.target.value === "prorated" ? "prorated" : "signup")}
+                              >
+                                <option value="signup">Sign-up day each month</option>
+                                <option value="prorated">1st of the month (first month prorated)</option>
+                              </select>
+                            </label>
                           ) : null}
                         </div>
                       ) : null}

@@ -1,0 +1,78 @@
+import { describe, expect, it } from "vitest";
+import {
+  afterDecline,
+  billingFlag,
+  cardExpiry,
+  cardNoticeDue,
+  firstBillDate,
+  firstPaymentParts,
+  proratedCents,
+} from "@/lib/billing/renewals";
+
+describe("billing start", () => {
+  it("bills on the sign-up day each month by default", () => {
+    expect(firstBillDate("signup", "2026-11-21")).toBe("2026-12-21");
+    expect(firstBillDate("signup", "2027-01-31")).toBe("2027-02-28");
+  });
+
+  it("prorated: drafts on the 1st of next month", () => {
+    expect(firstBillDate("prorated", "2026-11-21")).toBe("2026-12-01");
+    expect(firstBillDate("prorated", "2026-12-31")).toBe("2027-01-01");
+    expect(firstBillDate("prorated", "2026-11-01")).toBe("2026-12-01");
+  });
+
+  it("prorates the rest of the month, sale day included", () => {
+    expect(proratedCents(20000, "2026-11-21")).toBe(6667); // 10 of 30 days
+    expect(proratedCents(20000, "2026-11-01")).toBe(20000);
+    expect(proratedCents(20000, "2026-11-30")).toBe(667);
+    expect(proratedCents(21900, "2027-02-15")).toBe(10950); // 14 of 28 days
+  });
+
+  it("prorates only the dues in the first payment", () => {
+    const parts = [
+      { label: "Registration", amountCents: 9900, recurring: false },
+      { label: "Dues", amountCents: 21900, recurring: true },
+    ];
+    expect(firstPaymentParts(parts, "signup", "2026-11-21")).toBe(parts);
+    expect(firstPaymentParts(parts, "prorated", "2026-11-21").map((part) => part.amountCents)).toEqual([9900, 7300]);
+  });
+});
+
+describe("declined renewals", () => {
+  it("retries 3, 6 and 10 days after the billing date, then freezes", () => {
+    expect(afterDecline("2026-12-01", 1)).toEqual({ retryOn: "2026-12-04" });
+    expect(afterDecline("2026-12-01", 2)).toEqual({ retryOn: "2026-12-07" });
+    expect(afterDecline("2026-12-01", 3)).toEqual({ retryOn: "2026-12-11" });
+    expect(afterDecline("2026-12-01", 4)).toEqual({ freeze: true });
+  });
+});
+
+describe("expiring cards", () => {
+  it("turns yellow a month before the card expires", () => {
+    expect(cardExpiry(12, 2026, "2026-11-29").state).toBe("ok");
+    expect(cardExpiry(12, 2026, "2026-11-30")).toEqual({
+      state: "expiring",
+      expiresOn: "2026-12-31",
+      firstNoticeOn: "2026-11-30",
+      secondNoticeOn: "2026-12-15",
+    });
+    expect(cardExpiry(12, 2026, "2027-01-01").state).toBe("expired");
+  });
+
+  it("emails when it turns yellow and again 15 days later", () => {
+    const card = cardExpiry(12, 2026, "2026-11-30");
+    expect(cardNoticeDue(card, { first: false, second: false }, "2026-11-30")).toBe("first");
+    expect(cardNoticeDue(card, { first: true, second: false }, "2026-12-14", "2026-11-30")).toBeNull();
+    expect(cardNoticeDue(card, { first: true, second: false }, "2026-12-15", "2026-11-30")).toBe("second");
+    expect(cardNoticeDue(card, { first: true, second: true }, "2026-12-20", "2026-11-30")).toBeNull();
+    expect(cardNoticeDue(cardExpiry(12, 2026, "2026-11-01"), { first: false, second: false }, "2026-11-01")).toBeNull();
+  });
+
+  it("flags red for a frozen membership, yellow for an expiring card", () => {
+    const expiring = cardExpiry(12, 2026, "2026-12-05");
+    expect(billingFlag({ frozen: true, card: expiring })).toBe("red");
+    expect(billingFlag({ frozen: false, card: expiring })).toBe("yellow");
+    expect(billingFlag({ frozen: false, card: cardExpiry(6, 2028, "2026-12-05") })).toBeNull();
+    expect(billingFlag({ frozen: false, card: null })).toBeNull();
+  });
+});

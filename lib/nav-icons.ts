@@ -109,4 +109,5 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/pool-lanes": Waves,
   "/dashboard/maintenance": Wrench,
   "/dashboard/attendance-fees": CalendarX,
+  "/dashboard/member-billing": CreditCard,
 };

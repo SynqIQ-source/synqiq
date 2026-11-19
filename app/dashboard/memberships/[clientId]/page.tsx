@@ -1,3 +1,4 @@
+import { memberBillingFlags } from "@/lib/billing/flags";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DateTime } from "luxon";
@@ -474,6 +475,8 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     .order("signed_at", { ascending: false })
     .limit(50);
 
+  const billing = (await memberBillingFlags(createSupabaseAdminClient(), orgId, [clientId], timezone)).get(clientId) ?? null;
+
   return (
     <DashboardShell
       title={displayName}
@@ -495,6 +498,20 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       }
     >
       <div className="space-y-6">
+        {billing?.flag === "red" ? (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
+            <span className="font-medium">Payment failed, booking frozen.</span> The monthly payment was declined on every retry. Update the
+            card and take the payment to unfreeze.
+          </div>
+        ) : billing?.flag === "yellow" && billing.card ? (
+          <div className="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-200">
+            <span className="font-medium">Card {billing.card.state === "expired" ? "expired" : "expiring"}.</span>{" "}
+            {billing.card.brand ? `${billing.card.brand.toUpperCase()} ` : ""}
+            {billing.card.last4 ? `ending ${billing.card.last4} ` : ""}
+            {billing.card.state === "expired" ? "expired" : "expires"} {DateTime.fromISO(billing.card.expiresOn).toFormat("LLL yyyy")}. Ask
+            the member for a new card.
+          </div>
+        ) : null}
         {current.some((contract) => contract.autopay_status === "Suspended" && isInForce(contract, today)) ? (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
             <span className="font-medium">On freeze.</span> {FREEZE_NOTICE}

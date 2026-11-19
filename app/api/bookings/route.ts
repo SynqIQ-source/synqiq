@@ -5,6 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadSessionContext } from "@/lib/booking/context";
 import { bookingCoverage, bookingWindow, placeFor } from "@/lib/booking/rules";
 import { loadCheckInStatus } from "@/lib/checkin/status";
+import { billingFrozen } from "@/lib/billing/flags";
 import { chooseSpot } from "@/lib/rooms/layout";
 
 const MEMBERSHIP_PROGRAM = "Memberships & Passes";
@@ -37,6 +38,17 @@ export async function POST(request: NextRequest) {
   if (!context) return NextResponse.json({ success: false, error: "Class not found." }, { status: 404 });
   if (!person) return NextResponse.json({ success: false, error: "Unknown person." }, { status: 404 });
 
+  // Frozen for a failed monthly payment: staff can still book with a reason.
+  if (!note && (await billingFrozen(orgId, clientId))) {
+    return NextResponse.json(
+      {
+        success: false,
+        needsReason: true,
+        error: `${person.client.name}'s booking is frozen: their monthly payment failed every retry. Add a reason to book anyway.`,
+      },
+      { status: 400 },
+    );
+  }
   // After the class: staff can still add someone (up to a day) with a reason.
   const window = bookingWindow(context.session, context.rules, new Date(), "staff");
   if (!window.open && !(window.overridable && note)) {

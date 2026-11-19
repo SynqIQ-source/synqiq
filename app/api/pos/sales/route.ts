@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
       lines: clean,
       promoCode: typeof body.promoCode === "string" && body.promoCode.trim() ? body.promoCode : null,
       note: typeof body.note === "string" && body.note.trim() ? body.note : null,
+      billingStart: body.billingStart === "prorated" ? ("prorated" as const) : ("signup" as const),
       agreements: (Array.isArray(body.agreements) ? body.agreements : []).slice(0, 100).map((raw: Record<string, unknown>) => ({
         lineIndex: Number(raw?.lineIndex),
         sha256: String(raw?.sha256 ?? ""),

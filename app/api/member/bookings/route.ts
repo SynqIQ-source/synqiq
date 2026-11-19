@@ -4,6 +4,7 @@ import { findStudio, getCurrentMember, sameOrigin } from "@/lib/member/session";
 import { loadSessionContext } from "@/lib/booking/context";
 import { bookingCoverage, bookingWindow, placeFor } from "@/lib/booking/rules";
 import { loadCheckInStatus } from "@/lib/checkin/status";
+import { billingFrozen, FROZEN_MESSAGE } from "@/lib/billing/flags";
 import { chooseSpot } from "@/lib/rooms/layout";
 
 const MEMBERSHIP_PROGRAM = "Memberships & Passes";
@@ -30,6 +31,8 @@ export async function POST(request: NextRequest) {
   if (!context) return NextResponse.json({ success: false, error: "Class not found." }, { status: 404 });
   if (!person)
     return NextResponse.json({ success: false, error: "We couldn't find your account. Please contact the front desk." }, { status: 404 });
+  if (await billingFrozen(studio.id, member.mindbodyClientId))
+    return NextResponse.json({ success: false, error: FROZEN_MESSAGE }, { status: 400 });
   const window = bookingWindow(context.session, context.rules, new Date(), "member");
   if (!window.open) return NextResponse.json({ success: false, error: window.reason }, { status: 400 });
   const existing = context.bookings.find((booking) => booking.mindbody_client_id === member.mindbodyClientId);

@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import type { CartLineInput } from "@/lib/pos/cart";
+import { firstBillDate, type BillingStart } from "@/lib/billing/renewals";
 
 // Membership packages: a membership item whose first payment is made of
 // parts in different revenue categories (registration fee + first month's
@@ -118,8 +119,9 @@ export type Schedule = {
 };
 
 // The monthly payments after the sale: only the recurring parts (dues), at
-// full price, starting one month after the sale date.
-export function monthlySchedule(parts: PricedPart[], taxRate: number, saleDate: string): Schedule | null {
+// full price, starting one month after the sale date (or on the 1st of next
+// month when the first month is prorated).
+export function monthlySchedule(parts: PricedPart[], taxRate: number, saleDate: string, start: BillingStart = "signup"): Schedule | null {
   const recurring = parts.filter((part) => part.recurring);
   if (recurring.length === 0) return null;
   const lines = recurring.map((part) => ({
@@ -136,7 +138,7 @@ export function monthlySchedule(parts: PricedPart[], taxRate: number, saleDate: 
     subtotalCents,
     taxCents,
     totalCents: subtotalCents + taxCents,
-    firstBillDate: DateTime.fromISO(saleDate).plus({ months: 1 }).toISODate()!,
+    firstBillDate: firstBillDate(start, saleDate),
   };
 }
 
