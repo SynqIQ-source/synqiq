@@ -51,6 +51,7 @@ import {
   Wallet,
   type LucideIcon,
   Timer,
+  Trophy,
 } from "lucide-react";
 
 // Shared by the desktop sidebar and the mobile bottom nav so a page's icon
@@ -114,4 +115,5 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/member-billing": CreditCard,
   "/dashboard/email": Mail,
   "/dashboard/email/newsletters": Newspaper,
+  "/dashboard/email/milestones": Trophy,
 };

@@ -56,6 +56,13 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/schedule", label: "My Schedule", who: isInstructorAccess, modules: ["group_fitness"] },
       { href: "/dashboard/sub-requests", label: "Sub Requests", who: isInstructorAccess, modules: ["group_fitness"] },
       { href: "/dashboard/ratings", label: "Ratings", who: isInstructorAccess, modules: ["group_fitness"] },
+      // Instructors' own milestone emails (Club Admins reach them under Admin > Email).
+      {
+        href: "/dashboard/email/milestones",
+        label: "Milestone Emails",
+        who: (staff) => staff.isInstructor && !isClubAdmin(staff),
+        modules: ["group_fitness"],
+      },
       { href: "/dashboard/follow-up", label: "Follow Up", who: instructorOrTrainer, modules: ["group_fitness", "trainer"] },
       { href: "/dashboard/follow-up-activity", label: "Follow Up Performance", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/substitutions", label: "Substitutions", who: isClubAdmin, modules: ["group_fitness"] },
@@ -139,7 +146,10 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
         href: "/dashboard/email",
         label: "Email",
         who: isClubAdmin,
-        children: [{ href: "/dashboard/email/newsletters", label: "Newsletters", who: isClubAdmin }],
+        children: [
+          { href: "/dashboard/email/newsletters", label: "Newsletters", who: isClubAdmin },
+          { href: "/dashboard/email/milestones", label: "Milestones", who: isClubAdmin },
+        ],
       },
       { href: "/dashboard/settings/payments", label: "Payments", who: isClubAdmin },
       { href: "/dashboard/settings/crm", label: "CRM", who: isClubAdmin, crm: true },
