@@ -208,6 +208,7 @@ export default async function ClassPage({ params }: { params: Params }) {
   const spotOpen = context ? placeFor(context.session, taken) === "booked" : false;
   const lateNow = context ? cancellationFor(context.session, context.rules, now).status === "late_cancelled" : false;
   const feeLabel = context ? money(context.rules.lateCancelFeeCents) : null;
+  const noShowFeeLabel = context?.rules.noShowFeeCents ? money(context.rules.noShowFeeCents) : null;
   const memberLink = (mindbodyClientId: string | null | undefined) =>
     isClubAdmin(staff) && mindbodyClientId ? `/dashboard/memberships/${mindbodyClientId}` : null;
   const rowCount = roster.length + inClass.length;
@@ -348,6 +349,9 @@ export default async function ClassPage({ params }: { params: Params }) {
                           {booking.status === "late_cancelled" && booking.late_cancel_fee_cents ? (
                             <span className="block text-xs">{money(booking.late_cancel_fee_cents)} fee (not charged yet)</span>
                           ) : null}
+                          {booking.status === "no_show" && booking.no_show_fee_cents ? (
+                            <span className="block text-xs">{money(booking.no_show_fee_cents)} fee (not charged yet)</span>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-sm">
                           {booking.coverage_kind === "none" ? (
@@ -371,6 +375,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                               spotOpen={spotOpen}
                               lateNow={lateNow}
                               feeLabel={feeLabel}
+                              noShowFeeLabel={noShowFeeLabel}
                             />
                           </TableCell>
                         ) : null}

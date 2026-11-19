@@ -7,7 +7,7 @@ import { decideCancel, placeFor } from "@/lib/booking/rules";
 import { chooseSpot } from "@/lib/rooms/layout";
 
 type RouteParams = { params: Promise<{ id: string }> };
-type Action = "cancel" | "check_in" | "no_show" | "move_in" | "move_spot";
+type Action = "cancel" | "check_in" | "undo_check_in" | "no_show" | "move_in" | "move_spot";
 
 // Change a booking: cancel (on time or late; the program's window decides
 // by default and staff can override either way, with a reason that's
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   } | null;
   const spotRequested = typeof body?.spotId === "string" && body.spotId ? body.spotId.slice(0, 40) : null;
   const action = body?.action as Action;
-  if (!["cancel", "check_in", "no_show", "move_in", "move_spot"].includes(action)) {
+  if (!["cancel", "check_in", "undo_check_in", "no_show", "move_in", "move_spot"].includes(action)) {
     return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400 });
   }
   const reason = typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : "";
@@ -78,11 +78,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   } else if (action === "check_in") {
     if (!["booked", "no_show"].includes(status))
       return NextResponse.json({ success: false, error: "Only booked people can be checked in." }, { status: 400 });
-    update = { status: "checked_in", checked_in_at: now.toISOString(), checked_in_by_staff_id: currentStaff.id };
+    // Checking in a no-show clears their no-show fee.
+    update = { status: "checked_in", checked_in_at: now.toISOString(), checked_in_by_staff_id: currentStaff.id, no_show_fee_cents: null };
+  } else if (action === "undo_check_in") {
+    if (status !== "checked_in") return NextResponse.json({ success: false, error: "They're not checked in." }, { status: 400 });
+    update = { status: "booked", checked_in_at: null, checked_in_by_staff_id: null };
   } else if (action === "no_show") {
-    if (status !== "booked") return NextResponse.json({ success: false, error: "Only booked people can be no-shows." }, { status: 400 });
+    if (status !== "booked" && status !== "checked_in")
+      return NextResponse.json({ success: false, error: "Only booked people can be no-shows." }, { status: 400 });
     if (!started) return NextResponse.json({ success: false, error: "The class hasn't started yet." }, { status: 400 });
-    update = { status: "no_show" };
+    update = { status: "no_show", checked_in_at: null, no_show_fee_cents: context.rules.noShowFeeCents || null };
   } else if (action === "move_spot") {
     if (!context.layout) return NextResponse.json({ success: false, error: "This room has no spots." }, { status: 400 });
     if (status !== "booked" && status !== "checked_in")

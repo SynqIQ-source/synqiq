@@ -11,6 +11,7 @@ export type ProgramRules = {
   bookingClosesMinutes: number | null; // online booking closes this long before start
   cancelWindowMinutes: number | null; // cancelling inside this is late
   lateCancelFeeCents: number;
+  noShowFeeCents?: number; // recorded when someone is marked a no-show
 };
 
 export type SessionInfo = { startsAt: string; endsAt: string; capacity: number | null; active: boolean };

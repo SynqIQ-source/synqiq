@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, CircleAlert, Loader2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MemberSearch, type MemberSuggestion } from "../../memberships/member-search";
@@ -94,30 +94,33 @@ export function BookSomeone({ sessionId, open }: { sessionId: string; open: bool
   );
 }
 
-// Per-booking actions: check in, no-show, move in from waitlist, cancel
-// (on time or late; the program's rule picks the default, and only Club
-// Admins and Sales Leads can turn a late cancel into an on-time one).
+// Per-booking controls on the roster (classes and pool lanes):
+//   check box  -- checked in (untick to undo a mistake)
+//   X          -- remove / early cancel (no fee)
+//   Late       -- late cancel (the program's late-cancel fee is recorded)
+//   No show    -- after the start (the program's no-show fee is recorded)
+// Fees aren't charged here; they go to the No-shows & Late Cancels report.
+// X, Late and No show ask once more before saving.
 export function BookingRowActions({
   id,
   status,
   started,
   canWaive,
   spotOpen,
-  lateNow,
   feeLabel,
+  noShowFeeLabel,
 }: {
   id: string;
   status: string;
   started: boolean;
   canWaive: boolean;
   spotOpen: boolean;
-  lateNow: boolean;
+  lateNow?: boolean;
   feeLabel: string | null;
+  noShowFeeLabel?: string | null;
 }) {
   const router = useRouter();
-  const [cancelling, setCancelling] = useState(false);
-  const [reason, setReason] = useState("");
-  const [kind, setKind] = useState<"on_time" | "late">(lateNow && status !== "waitlisted" ? "late" : "on_time");
+  const [confirming, setConfirming] = useState<"early" | "late" | "no_show" | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -135,52 +138,56 @@ export function BookingRowActions({
         setError(result.error ?? "Couldn't save. Try again.");
         return;
       }
-      setCancelling(false);
+      setConfirming(null);
       router.refresh();
     } finally {
       setSaving(false);
     }
   }
 
-  if (cancelling) {
-    const onTimeLocked = lateNow && !canWaive;
+  if (confirming) {
+    const label =
+      confirming === "early"
+        ? "Remove (early cancel, no fee)?"
+        : confirming === "late"
+          ? `Late cancel${feeLabel ? ` (${feeLabel} fee)` : ""}?`
+          : `No show${noShowFeeLabel ? ` (${noShowFeeLabel} fee)` : ""}?`;
+    const save = () =>
+      confirming === "no_show"
+        ? act("no_show")
+        : act("cancel", {
+            kind: confirming === "late" ? "late" : "on_time",
+            reason: confirming === "late" ? "Late cancel at the roster" : "Removed at the roster (early cancel)",
+          });
     return (
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Input className="h-8 w-44" placeholder="Why cancel" value={reason} onChange={(event) => setReason(event.target.value)} />
-        {status !== "waitlisted" ? (
-          <select
-            aria-label="Cancel type"
-            className="h-8 rounded-md border bg-background px-2 text-xs"
-            value={kind}
-            onChange={(event) => setKind(event.target.value as "on_time" | "late")}
-          >
-            <option value="on_time" disabled={onTimeLocked}>
-              On time{lateNow ? " (waive late cancel)" : ""}
-            </option>
-            <option value="late">Late cancel{feeLabel ? ` · ${feeLabel} fee` : ""}</option>
-          </select>
-        ) : null}
-        <Button size="sm" variant="destructive" disabled={saving || !reason.trim()} onClick={() => act("cancel", { reason, kind })}>
-          Cancel booking
+        <span className="text-xs">{label}</span>
+        <Button size="sm" variant="destructive" disabled={saving} onClick={save}>
+          Yes
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setCancelling(false)} disabled={saving}>
-          Keep
+        <Button size="sm" variant="ghost" disabled={saving} onClick={() => setConfirming(null)}>
+          No
         </Button>
         {error ? <p className="w-full text-right text-xs text-destructive">{error}</p> : null}
       </div>
     );
   }
+
+  const attending = status === "booked" || status === "checked_in" || status === "no_show";
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
-      {status === "booked" || status === "no_show" ? (
-        <Button size="sm" variant="outline" disabled={saving} onClick={() => act("check_in")}>
-          Check in
-        </Button>
-      ) : null}
-      {status === "booked" && started ? (
-        <Button size="sm" variant="ghost" disabled={saving} onClick={() => act("no_show")}>
-          No-show
-        </Button>
+      {attending ? (
+        <label className="mr-1 flex cursor-pointer items-center gap-1.5 text-xs" title="Checked in">
+          <input
+            type="checkbox"
+            className="size-5 cursor-pointer accent-emerald-600"
+            checked={status === "checked_in"}
+            disabled={saving}
+            onChange={(event) => act(event.target.checked ? "check_in" : "undo_check_in")}
+            aria-label="Checked in"
+          />
+          In
+        </label>
       ) : null}
       {status === "waitlisted" && spotOpen ? (
         <Button size="sm" variant="outline" disabled={saving} onClick={() => act("move_in")}>
@@ -193,8 +200,32 @@ export function BookingRowActions({
         </Button>
       ) : null}
       {["booked", "waitlisted", "checked_in"].includes(status) ? (
-        <Button size="sm" variant="ghost" disabled={saving} onClick={() => setCancelling(true)}>
-          Cancel
+        <Button
+          size="icon"
+          variant="ghost"
+          className="size-8"
+          disabled={saving}
+          onClick={() => setConfirming("early")}
+          aria-label="Remove / early cancel"
+          title="Remove / early cancel"
+        >
+          <X className="size-4" />
+        </Button>
+      ) : null}
+      {status === "booked" || status === "checked_in" ? (
+        <Button size="sm" variant="ghost" disabled={saving} onClick={() => setConfirming("late")} title="Late cancel">
+          Late
+        </Button>
+      ) : null}
+      {status === "booked" || status === "checked_in" ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={saving || !started}
+          onClick={() => setConfirming("no_show")}
+          title={started ? "No show" : "Available once it starts"}
+        >
+          No show
         </Button>
       ) : null}
       {error ? <p className="w-full text-right text-xs text-destructive">{error}</p> : null}

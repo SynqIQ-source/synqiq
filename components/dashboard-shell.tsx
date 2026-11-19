@@ -13,6 +13,7 @@ import type { CurrentStaff } from "@/lib/current-staff";
 import {
   canUseCrm,
   canViewMembers,
+  managesSales,
   canViewOverview,
   isClubAdmin,
   isInstructorAccess,
@@ -90,6 +91,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/classes", label: "Classes", modules: ["group_fitness"] },
       { href: "/dashboard/pool-lanes", label: "Pool Lanes" },
       { href: "/dashboard/memberships", label: "Members", who: canViewMembers },
+      { href: "/dashboard/attendance-fees", label: "No-shows & Late Cancels", who: managesSales },
       { href: "/dashboard/maintenance", label: "Maintenance" },
     ],
   },
