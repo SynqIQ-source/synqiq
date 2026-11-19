@@ -4,16 +4,20 @@ import { notFound } from "next/navigation";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadPublicSchedule } from "@/lib/widget/schedule";
 import { getCurrentMember } from "@/lib/member/session";
-import { BookingClosed, UUID, studioOr404 } from "./shell";
-import { MemberSchedule, SignOutButton, type MyBooking } from "./member-ui";
+import { DateTime } from "luxon";
+import { MapPin } from "lucide-react";
+import { BookingClosed, MemberApp, MemberHeader, UUID, studioOr404 } from "./shell";
+import { type MyBooking } from "./member-ui";
+import { BookScreen } from "./book-screen";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Book a class", robots: { index: false, follow: false } };
 
 type Props = { params: Promise<{ studio: string }>; searchParams: Promise<{ class?: string }> };
 
-// The member booking page: the schedule with Book / Cancel. Opened from the
-// website widget's Book buttons (new tab) or directly.
+// The member app's Book screen (and its landing page). Opened from the
+// website widget's Book buttons (new tab) or directly; ?class= opens that
+// class's sheet.
 export default async function MemberBookingPage({ params, searchParams }: Props) {
   const studio = await studioOr404((await params).studio);
   if (studio.mode === "off") return <BookingClosed studio={studio} />;
@@ -42,48 +46,42 @@ export default async function MemberBookingPage({ params, searchParams }: Props)
     }
   }
 
-  const header = (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-sm">
-      {member ? (
-        <>
-          <span>Hi {member.firstName}. Tap a class to book.</span>
-          <span className="flex gap-3">
-            <Link href={`/m/${studio.siteId}/my-classes`} className="underline underline-offset-4">
-              My classes
-            </Link>
-            <Link href={`/m/${studio.siteId}/receipts`} className="underline underline-offset-4">
-              Receipts
-            </Link>
-            <Link href={`/m/${studio.siteId}/card`} className="underline underline-offset-4">
-              Payment card
-            </Link>
-            <SignOutButton />
-          </span>
-        </>
-      ) : (
-        <span>
+  const today = DateTime.now().setZone(studio.timezone).toISODate()!;
+  const screen = (
+    <BookScreen
+      schedule={schedule}
+      studio={studio.siteId}
+      signedIn={Boolean(member)}
+      bookings={bookings}
+      initialClassId={classId && UUID.test(classId) ? classId : undefined}
+      today={today}
+    />
+  );
+  const pin = <MapPin className="size-5 shrink-0" />;
+  if (member) {
+    return (
+      <MemberApp studio={studio} title={studio.name} icon={pin} tab="book">
+        {screen}
+      </MemberApp>
+    );
+  }
+  // Signed out: the schedule is open to browse; booking asks to sign in.
+  return (
+    <div className="min-h-screen bg-neutral-100 font-sans text-neutral-900">
+      <MemberHeader
+        studio={studio}
+        title={studio.name}
+        icon={pin}
+        action={
           <Link
             href={`/m/${studio.siteId}/sign-in${classId && UUID.test(classId) ? `?class=${classId}` : ""}`}
-            className="font-medium underline underline-offset-4"
+            className="rounded-full bg-white/20 px-3 py-1 font-medium"
           >
             Sign in
-          </Link>{" "}
-          to book a class.
-        </span>
-      )}
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-white">
-      <MemberSchedule
-        schedule={schedule}
-        studio={studio.siteId}
-        signedIn={Boolean(member)}
-        bookings={bookings}
-        initialClassId={classId && UUID.test(classId) ? classId : undefined}
-        header={header}
+          </Link>
+        }
       />
+      <main className="mx-auto max-w-md pb-10">{screen}</main>
     </div>
   );
 }

@@ -267,13 +267,17 @@ export function MemberSchedule({
   );
 }
 
-function ClassAction({
+// Book / join waitlist / cancel for one class. `full` = the big full-width
+// buttons of the member app's class sheet; otherwise compact (widget list).
+export function ClassAction({
   item,
   studio,
   signedIn,
   booking,
   color,
   lateMinutes,
+  full = false,
+  onBooked,
 }: {
   item: PublicClass;
   lateMinutes: number | null;
@@ -281,7 +285,10 @@ function ClassAction({
   signedIn: boolean;
   booking: MyBooking | undefined;
   color: string;
+  full?: boolean;
+  onBooked?: (status: string, spot: string | null) => void;
 }) {
+  const big = full ? "h-12 w-full rounded-xl text-base" : "";
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -293,7 +300,7 @@ function ClassAction({
     return (
       <Link
         href={`/m/${studio}/sign-in?class=${item.id}`}
-        className="inline-block rounded-md px-3 py-1.5 text-sm font-medium text-white"
+        className={`inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium text-white ${big}`}
         style={{ background: color }}
       >
         Sign in to book
@@ -311,6 +318,7 @@ function ClassAction({
       return setMessage({ ok: false, text: result.error ?? "Couldn't book." });
     }
     setPicking(false);
+    onBooked?.(result.status ?? "booked", result.spot ?? null);
     setMessage({
       ok: true,
       text:
@@ -369,7 +377,7 @@ function ClassAction({
                 </button>
               </>
             ) : (
-              <button type="button" onClick={() => setConfirming(true)} className="rounded-md border px-3 py-1 text-sm">
+              <button type="button" onClick={() => setConfirming(true)} className={`rounded-md border px-3 py-1 text-sm ${big}`}>
                 {booking.status === "waitlisted" ? "Leave waitlist" : "Cancel"}
               </button>
             )
@@ -390,7 +398,7 @@ function ClassAction({
             type="button"
             disabled={busy}
             onClick={() => (item.pickSpot && item.spotsLeft !== 0 ? setPicking(true) : book())}
-            className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
+            className={`rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60 ${big}`}
             style={{ background: color }}
           >
             {busy
