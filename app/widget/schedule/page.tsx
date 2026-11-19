@@ -6,20 +6,20 @@ import { ScheduleWidget } from "./schedule-widget";
 // Public class schedule for a studio's website (embedded with an iframe):
 // /widget/schedule?studio=<mindbody site id>. No member data. Book buttons
 // (opening the member booking page in a new tab) show once member booking
-// is open to everyone, or with &booking=1 for testing during the parallel run.
+// is open (organizations.member_portal_mode).
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Class schedule", robots: { index: false, follow: false } };
 
-export default async function WidgetSchedulePage({ searchParams }: { searchParams: Promise<{ studio?: string; booking?: string }> }) {
-  const { studio, booking } = await searchParams;
+export default async function WidgetSchedulePage({ searchParams }: { searchParams: Promise<{ studio?: string }> }) {
+  const { studio } = await searchParams;
   const siteId = Number(studio);
   const valid = Number.isInteger(siteId) && siteId > 0;
   const [schedule, studioRow] = valid ? await Promise.all([loadPublicSchedule(siteId), findStudio(siteId)]) : [null, null];
   if (!schedule || !studioRow) {
     return <p style={{ padding: 24, fontFamily: "system-ui, sans-serif" }}>This schedule isn&apos;t available.</p>;
   }
-  const bookable = studioRow.mode === "open" || (studioRow.mode === "testers" && booking === "1");
+  const bookable = studioRow.mode === "open";
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://synqiq.co").replace(/\/$/, "");
   return (
     <ScheduleWidget

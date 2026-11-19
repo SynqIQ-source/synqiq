@@ -68,9 +68,6 @@ export default async function MemberBookingPage({ params, searchParams }: Props)
           to book a class.
         </span>
       )}
-      {studio.mode === "testers" ? (
-        <span className="w-full text-xs text-neutral-500">Online booking is being tested with a few members.</span>
-      ) : null}
     </div>
   );
 

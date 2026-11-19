@@ -4,8 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { runRatings } from "@/lib/ratings/job";
 
 // Daily (cron), after the class-visit sync: queue and send class rating
-// emails. Studios with ratings off are skipped; in tester mode only
-// member-portal testers are emailed.
+// emails. Studios with ratings off are skipped.
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {

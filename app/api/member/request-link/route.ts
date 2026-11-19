@@ -11,8 +11,8 @@ const LINK_MINUTES = 60;
 
 // Create-account and forgot-password both land here: email -> one-time
 // link to set a password. The answer is the same whether or not the email
-// matched, so it can't be used to find out who's a member. During the
-// parallel run only testers a Club Admin added get an email.
+// matched, so it can't be used to find out who's a member. Only sent while
+// member booking is open.
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ success: false, error: "Not allowed." }, { status: 403 });
   const body = (await request.json().catch(() => null)) as { studio?: unknown; email?: unknown; classId?: unknown } | null;
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   if (!matches || matches.length !== 1) return ok;
   const client = matches[0];
   const clientId = client.mindbody_client_id as string;
-  if (!clientId || !(await memberPortalAllowed(studio, clientId))) return ok;
+  if (!clientId || !(await memberPortalAllowed(studio))) return ok;
 
   // The account (one per client); its email follows the client's.
   let { data: account } = await admin

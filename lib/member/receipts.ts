@@ -9,7 +9,7 @@ import { buildReceiptPdf, type ReceiptInput } from "@/lib/pos/receipt-pdf";
 //
 // Before payments go live, SynqIQ's sales and dues are practice only; those
 // are listed and printed with a clear "practice -- no payment taken" mark
-// (the portal is limited to tester members until then). Real dues receipts
+// Real dues receipts
 // come from the payment records once Stripe is live.
 
 export type ReceiptKind = "sale" | "dues";

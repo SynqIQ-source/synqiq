@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ success: false, error: WRONG }, { status: 401 });
   }
-  if (!(await memberPortalAllowed(studio, account.mindbody_client_id as string))) {
+  if (!(await memberPortalAllowed(studio))) {
     return NextResponse.json({ success: false, error: "Online booking isn't open for your account yet." }, { status: 403 });
   }
   await admin

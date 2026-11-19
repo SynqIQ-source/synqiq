@@ -7,8 +7,8 @@ import { LINK_DAYS, QUEUE_DAYS, firstVisitsByQuarter, pickToSend, type Visit } f
 
 // Nightly, after the class-visit sync: find each member's first class with
 // each instructor this quarter, queue a rating request, and email the ones
-// allowed today (2 a week per member). During the parallel run only
-// member-portal testers are emailed (organizations.ratings_mode).
+// allowed today (2 a week per member). Sent only when the studio has
+// rating emails on for every member (organizations.ratings_mode).
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -27,8 +27,8 @@ const chunks = <T>(list: T[], size = 200) =>
 export async function runRatings(organizationId: string, now = new Date()) {
   const admin = createSupabaseAdminClient();
   const { data: org } = await admin.from("organizations").select("name, timezone, ratings_mode").eq("id", organizationId).maybeSingle();
-  const mode = (org?.ratings_mode as string | null) ?? "testers";
-  if (!org || mode === "off") return { skipped: "off" };
+  const mode = (org?.ratings_mode as string | null) ?? "off";
+  if (!org || mode !== "everyone") return { skipped: "off" };
   const zone = (org.timezone as string | null) ?? "America/Chicago";
   const queued = await queueRequests(admin, organizationId, zone, now);
   const tidied = await expireOld(admin, organizationId, now);
@@ -181,10 +181,7 @@ async function sendDue(admin: Admin, organizationId: string, studioName: string,
   );
   if (!queued.length) return { sent: 0, waiting: 0 };
   const clientIds = [...new Set(queued.map((row) => row.mindbody_client_id as string))];
-  const [testers, optOuts, recent, clients, personal, staff] = await Promise.all([
-    mode === "testers"
-      ? admin.from("member_portal_testers").select("mindbody_client_id").eq("organization_id", organizationId)
-      : Promise.resolve({ data: null }),
+  const [optOuts, recent, clients, personal, staff] = await Promise.all([
     admin.from("rating_opt_outs").select("mindbody_client_id").eq("organization_id", organizationId),
     admin
       .from("rating_requests")
@@ -211,7 +208,6 @@ async function sendDue(admin: Admin, organizationId: string, studioName: string,
     ).then((results) => results.flatMap((result) => result.data ?? [])),
     admin.from("staff").select("id, display_name").eq("organization_id", organizationId),
   ]);
-  const allowed = testers.data ? new Set(testers.data.map((row) => row.mindbody_client_id as string)) : null;
   const optedOut = new Set((optOuts.data ?? []).map((row) => row.mindbody_client_id as string));
   const editedEmail = new Map(
     personal
@@ -234,11 +230,11 @@ async function sendDue(admin: Admin, organizationId: string, studioName: string,
     sentThisWeek.set(row.mindbody_client_id as string, (sentThisWeek.get(row.mindbody_client_id as string) ?? 0) + 1);
   const staffName = new Map((staff.data ?? []).map((row) => [row.id as string, (row.display_name as string | null) ?? "your instructor"]));
 
-  // Skip those who can't be emailed (not a tester yet, opted out, no email):
-  // they stay queued (testers can be added) until the two-week cutoff.
+  // Skip those who can't be emailed (opted out, no email): they stay
+  // queued until the two-week cutoff.
   const eligible = queued.filter((row) => {
     const id = row.mindbody_client_id as string;
-    return (!allowed || allowed.has(id)) && !optedOut.has(id) && Boolean(clientBy.get(id)?.email);
+    return !optedOut.has(id) && Boolean(clientBy.get(id)?.email);
   });
   const toSend = pickToSend(
     eligible.map((row) => ({ ...row, clientId: row.mindbody_client_id as string, classStart: row.class_start as string })),

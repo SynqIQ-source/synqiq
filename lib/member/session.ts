@@ -14,7 +14,7 @@ export type Studio = {
   name: string;
   siteId: number;
   timezone: string;
-  mode: "off" | "testers" | "open";
+  mode: "off" | "open";
   logoUrl: string | null;
   primaryColor: string;
 };
@@ -42,24 +42,16 @@ export async function findStudio(siteId: number): Promise<Studio | null> {
     name: data.name as string,
     siteId,
     timezone: (data.timezone as string | null) ?? "America/Chicago",
-    mode: (data.member_portal_mode as Studio["mode"]) ?? "testers",
+    mode: data.member_portal_mode === "open" ? "open" : "off",
     logoUrl: (data.logo_url as string | null) ?? null,
     primaryColor: (data.primary_color as string | null) ?? "#0f766e",
   };
 }
 
-// Can this client use member booking right now? 'off': nobody; 'testers':
-// only clients a Club Admin added; 'open': everyone.
-export async function memberPortalAllowed(studio: Pick<Studio, "id" | "mode">, mindbodyClientId: string): Promise<boolean> {
-  if (studio.mode === "open") return true;
-  if (studio.mode === "off") return false;
-  const { data } = await createSupabaseAdminClient()
-    .from("member_portal_testers")
-    .select("mindbody_client_id")
-    .eq("organization_id", studio.id)
-    .eq("mindbody_client_id", mindbodyClientId)
-    .maybeSingle();
-  return Boolean(data);
+// Can this client use member booking right now? 'off': nobody; 'open':
+// every member (the parallel-run tester list was retired 2026-11-18).
+export async function memberPortalAllowed(studio: Pick<Studio, "mode">): Promise<boolean> {
+  return studio.mode === "open";
 }
 
 // The signed-in member for this studio, or null.
@@ -78,7 +70,7 @@ export async function getCurrentMember(studio: Studio): Promise<Member | null> {
     }>();
   if (!session || Date.parse(session.expires_at) <= Date.now()) return null;
   if (session.account.organization_id !== studio.id) return null;
-  if (!(await memberPortalAllowed(studio, session.account.mindbody_client_id))) return null;
+  if (!(await memberPortalAllowed(studio))) return null;
   const { data: client } = await admin
     .from("clients")
     .select("first_name, last_name")

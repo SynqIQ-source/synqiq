@@ -136,7 +136,7 @@ export default async function RatingsPage({ searchParams }: Props) {
       }
     >
       <div className="space-y-6">
-        {isAdmin ? <RatingsMode mode={(orgRow?.ratings_mode as string | null) ?? "testers"} /> : null}
+        {isAdmin ? <RatingsMode mode={(orgRow?.ratings_mode as string | null) ?? "off"} /> : null}
 
         <Card>
           <CardHeader>

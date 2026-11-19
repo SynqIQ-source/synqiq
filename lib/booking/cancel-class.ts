@@ -9,9 +9,8 @@ import { getOptionalEnv } from "@/lib/env";
 // (with the reason, for staff only: catalog change log + class page; never
 // in the member email), everyone booked or on the
 // waitlist in SynqIQ has their spot cancelled -- never a late cancel or a
-// fee -- and is emailed. During the parallel run only members with access to
-// SynqIQ's booking (testers) are emailed; Mindbody's own bookings for the
-// class are Mindbody's to handle until the switch.
+// fee -- and is emailed while member booking is open. Mindbody's own
+// bookings for the class are Mindbody's to handle until the switch.
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -102,7 +101,7 @@ export async function releaseCancelledClass(
   for (const client of clients ?? []) {
     const id = client.mindbody_client_id as string;
     const email = edited.get(id) !== undefined ? edited.get(id) : (client.email as string | null);
-    if (!email || !studio || !(await memberPortalAllowed(studio, id))) continue;
+    if (!email || !studio || !(await memberPortalAllowed(studio))) continue;
     await sendEmailToRecipients([{ email }], {
       from: `${studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`,
       ...cancelledClassEmail({

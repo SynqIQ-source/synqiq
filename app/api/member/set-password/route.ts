@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   const problem = passwordProblem(password, row.account.email);
   if (problem) return NextResponse.json({ success: false, error: problem }, { status: 400 });
   const studio = await findStudio(Number(row.account.organization.mindbody_site_id));
-  if (!studio || !(await memberPortalAllowed(studio, row.account.mindbody_client_id))) {
+  if (!studio || !(await memberPortalAllowed(studio))) {
     return NextResponse.json({ success: false, error: "Online booking isn't open for your account yet." }, { status: 403 });
   }
 

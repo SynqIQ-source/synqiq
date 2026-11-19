@@ -1,6 +1,6 @@
 -- Member accounts, sessions and sign-in links are server-only: even a Club
 -- Admin signed in through RLS can't read password hashes, sessions or
--- tokens. Testers are readable by the studio's staff.
+-- tokens.
 --
 -- Runs inside one transaction and ROLLS BACK, so it is safe against
 -- production. Any failed check raises an exception.
@@ -24,7 +24,6 @@ begin
     returning id into account;
   insert into member_sessions (account_id, token_hash, expires_at) values (account, 'test-session-hash', now() + interval '1 day');
   insert into member_tokens (account_id, token_hash, expires_at) values (account, 'test-token-hash', now() + interval '1 hour');
-  insert into member_portal_testers (organization_id, mindbody_client_id, client_name) values (preserve, 'test-member-0001', 'Test Member');
   perform set_config('mem.admin_user', admin_user::text, true);
 end $$;
 
@@ -38,16 +37,6 @@ begin
   if exists (select 1 from member_sessions) or exists (select 1 from member_tokens) then
     raise exception 'Club Admin can read member sessions or sign-in links';
   end if;
-  if not exists (select 1 from member_portal_testers where mindbody_client_id = 'test-member-0001') then
-    raise exception 'Club Admin cannot see the testers list';
-  end if;
-  begin
-    insert into member_portal_testers (organization_id, mindbody_client_id, client_name)
-      values ((select organization_id from member_portal_testers limit 1), 'test-member-0002', 'Sneaky');
-    raise exception 'Staff could add a tester directly (should go through the API)';
-  exception when insufficient_privilege then
-    null;
-  end;
 end $$;
 
 rollback;

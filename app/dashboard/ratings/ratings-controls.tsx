@@ -107,7 +107,6 @@ export function RatingsMode({ mode }: { mode: string }) {
             } else setError("Couldn't save. Try again.");
           }}
         >
-          <option value="testers">Testers only (member booking testers)</option>
           <option value="everyone">Every member</option>
           <option value="off">Nobody (off)</option>
         </select>
