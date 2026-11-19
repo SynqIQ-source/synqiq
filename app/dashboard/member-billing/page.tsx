@@ -10,6 +10,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { upcomingPaymentDates } from "@/lib/pos/packages";
 import { cardExpiry, RETRY_DAYS } from "@/lib/billing/renewals";
 import { RunRenewals } from "./run-renewals";
+import { ChargeControls } from "./charge-controls";
 import { stripeLivemode } from "@/lib/payments/connect";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -39,9 +40,9 @@ export default async function MemberBillingPage() {
       .limit(5000),
     admin
       .from("membership_charges")
-      .select("id, schedule_id, mindbody_client_id, due_date, total_cents, status, attempts, next_attempt_on, last_decline")
+      .select("id, schedule_id, mindbody_client_id, due_date, total_cents, status, attempts, next_attempt_on, last_decline, moved_at")
       .eq("organization_id", org)
-      .in("status", ["declined", "failed"])
+      .in("status", ["declined", "failed", "scheduled"])
       .order("due_date", { ascending: false })
       .limit(500),
     admin.from("card_expiry_notices").select("schedule_id, card_exp_month, card_exp_year, notice, sent_at").eq("organization_id", org),
@@ -49,12 +50,20 @@ export default async function MemberBillingPage() {
   // Practice schedules count only when a test card is on them.
   const schedules = (scheduleRows ?? []).filter((row) => row.status === "active" || row.stripe_payment_method_id);
   const scheduleBy = new Map(schedules.map((row) => [row.id as string, row]));
+  const declined = (charges ?? []).filter((charge) => charge.status !== "scheduled");
+  // Upcoming payments a Club Admin moved to another day.
+  const movedBy = new Map(
+    (charges ?? []).filter((charge) => charge.status === "scheduled").map((charge) => [`${charge.schedule_id}|${charge.due_date}`, charge]),
+  );
 
   const upcoming = schedules
     .flatMap((row) =>
       upcomingPaymentDates(row.first_bill_date as string, row.autopay_count as number | null, Boolean(row.auto_renews), today, 1)
-        .filter((payment) => payment.date <= until)
-        .map((payment) => ({ row, date: payment.date })),
+        .map((payment) => {
+          const moved = movedBy.get(`${row.id}|${payment.date}`);
+          return { row, due: payment.date, date: (moved?.next_attempt_on as string | null) ?? payment.date, moved: Boolean(moved) };
+        })
+        .filter((payment) => payment.date <= until || payment.due <= until),
     )
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -88,7 +97,7 @@ export default async function MemberBillingPage() {
     <DashboardShell
       title="Member Billing"
       actions={<RunRenewals />}
-      description={`Monthly dues SynqIQ will charge on the studio's Stripe account. Declines retry ${RETRY_DAYS.join(", ")} days after the billing date, then booking is frozen (red). Cards expiring within a month show yellow. Renewals run nightly at 4 AM; live charging isn't switched on yet (test cards only).`}
+      description={`Monthly dues SynqIQ will charge on the studio's Stripe account. A decline pauses booking (red) and emails the member; it retries ${RETRY_DAYS.join(", ")} days after the billing date, then the membership is frozen. Move any single payment date or retry a decline below. Cards expiring within a month show yellow. Renewals run nightly at 4 AM; live charging isn't switched on yet (test cards only).`}
     >
       <div className="space-y-6">
         <Card className="py-0">
@@ -106,13 +115,17 @@ export default async function MemberBillingPage() {
                     <TableHead>Member</TableHead>
                     <TableHead>Membership</TableHead>
                     <TableHead>Card</TableHead>
-                    <TableHead className="pr-6 text-right">Amount</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="pr-6">Move this payment</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {upcoming.map(({ row, date: due }) => (
+                  {upcoming.map(({ row, due, date: on, moved }) => (
                     <TableRow key={`${row.id}-${due}`}>
-                      <TableCell className="pl-6 whitespace-nowrap">{date(due)}</TableCell>
+                      <TableCell className="pl-6 whitespace-nowrap">
+                        {date(on)}
+                        {moved ? <span className="block text-xs text-muted-foreground">moved from {date(due)}</span> : null}
+                      </TableCell>
                       <TableCell>{member(row.mindbody_client_id as string, row.client_name as string | null)}</TableCell>
                       <TableCell>
                         {row.name as string}
@@ -121,7 +134,10 @@ export default async function MemberBillingPage() {
                         ) : null}
                       </TableCell>
                       <TableCell>{card(row) ?? <Badge variant="destructive">No card</Badge>}</TableCell>
-                      <TableCell className="pr-6 text-right tabular-nums">{money(Number(row.recurring_total_cents))}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(Number(row.recurring_total_cents))}</TableCell>
+                      <TableCell className="pr-6">
+                        <ChargeControls scheduleId={row.id as string} dueDate={due} date={on} min={today} />
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -135,7 +151,7 @@ export default async function MemberBillingPage() {
             <CardTitle className="text-base">Declined and frozen</CardTitle>
           </CardHeader>
           <CardContent className="px-0">
-            {(charges ?? []).length === 0 ? (
+            {declined.length === 0 ? (
               <p className="px-6 pb-6 text-sm text-muted-foreground">No declined payments.</p>
             ) : (
               <Table>
@@ -144,12 +160,12 @@ export default async function MemberBillingPage() {
                     <TableHead className="pl-6">Due</TableHead>
                     <TableHead>Member</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Next try</TableHead>
-                    <TableHead className="pr-6 text-right">Amount</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="pr-6">Next try (move or retry now)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(charges ?? []).map((charge) => {
+                  {declined.map((charge) => {
                     const schedule = scheduleBy.get(charge.schedule_id as string);
                     return (
                       <TableRow key={charge.id as string}>
@@ -167,8 +183,16 @@ export default async function MemberBillingPage() {
                             <span className="ml-2 text-xs text-muted-foreground">{charge.last_decline as string}</span>
                           ) : null}
                         </TableCell>
-                        <TableCell>{charge.next_attempt_on ? date(charge.next_attempt_on as string) : "—"}</TableCell>
-                        <TableCell className="pr-6 text-right tabular-nums">{money(Number(charge.total_cents))}</TableCell>
+                        <TableCell className="text-right tabular-nums">{money(Number(charge.total_cents))}</TableCell>
+                        <TableCell className="pr-6">
+                          <ChargeControls
+                            chargeId={charge.id as string}
+                            date={(charge.next_attempt_on as string | null) ?? null}
+                            min={today}
+                            canRetry
+                          />
+                          {charge.moved_at ? <span className="text-xs text-muted-foreground">Date moved by a Club Admin</span> : null}
+                        </TableCell>
                       </TableRow>
                     );
                   })}

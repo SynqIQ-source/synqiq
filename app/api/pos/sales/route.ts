@@ -98,6 +98,8 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (!sale) return NextResponse.json({ success: false, error: "Sale not found." }, { status: 404 });
     if (sale.status === "voided") return NextResponse.json({ success: false, error: "Already voided." }, { status: 400 });
+    if (!sale.staff_id)
+      return NextResponse.json({ success: false, error: "Automatic renewals can't be voided here yet." }, { status: 400 });
     if (!canVoidSale(currentStaff, { staffId: sale.staff_id as string, createdAt: sale.created_at as string }, new Date()))
       return NextResponse.json({ success: false, error: "Only a Club Admin or Sales Lead can void this sale." }, { status: 403 });
     // A card sale is refunded to the card first; if Stripe can't, it stays.

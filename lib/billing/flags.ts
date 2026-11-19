@@ -3,12 +3,14 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { billingFlag, cardExpiry, type BillingFlag, type CardExpiry } from "@/lib/billing/renewals";
 
 // Red / yellow billing flags for members, from their SynqIQ payment schedules
-// (lib/billing/renewals.ts): red = a payment failed every retry and booking is
-// frozen; yellow = the card on file expires within a month.
+// (lib/billing/renewals.ts): red = a monthly payment is declined and unpaid
+// (booking paused; "frozen" once every retry has failed); yellow = the card on
+// file expires within a month.
 
 export type MemberBilling = {
   flag: BillingFlag;
-  frozen: boolean;
+  frozen: boolean; // booking paused: declined and unpaid
+  finalFailure: boolean; // every retry failed
   card: (CardExpiry & { brand: string | null; last4: string | null }) | null;
 };
 
@@ -31,7 +33,8 @@ export async function memberBillingFlags(
     .in("mindbody_client_id", clientIds.slice(0, 1000));
   for (const row of data ?? []) {
     const clientId = row.mindbody_client_id as string;
-    const frozen = row.billing_state === "frozen";
+    const frozen = row.billing_state === "past_due" || row.billing_state === "frozen";
+    const finalFailure = row.billing_state === "frozen";
     const card =
       row.card_exp_month && row.card_exp_year
         ? {
@@ -43,6 +46,7 @@ export async function memberBillingFlags(
     const previous = out.get(clientId);
     const merged = {
       frozen: frozen || Boolean(previous?.frozen),
+      finalFailure: finalFailure || Boolean(previous?.finalFailure),
       // The card closest to expiring.
       card: previous?.card && (!card || previous.card.expiresOn < card.expiresOn) ? previous.card : card,
     };
@@ -59,9 +63,10 @@ export async function billingFrozen(organizationId: string, clientId: string): P
     .eq("organization_id", organizationId)
     .eq("mindbody_client_id", clientId)
     .eq("status", "active")
-    .eq("billing_state", "frozen")
+    .in("billing_state", ["past_due", "frozen"])
     .limit(1);
   return Boolean(data?.length);
 }
 
-export const FROZEN_MESSAGE = "Booking is paused: the monthly payment didn't go through. Please update your card at the front desk.";
+export const FROZEN_MESSAGE =
+  "Booking is paused: your monthly payment didn't go through. Please contact the front desk to update your card.";

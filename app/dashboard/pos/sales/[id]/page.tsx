@@ -41,14 +41,20 @@ export default async function PosSalePage({ params }: { params: Promise<{ id: st
   const nameOf = new Map((people ?? []).map((row) => [row.id as string, (row.display_name as string | null) ?? "Unknown"]));
   const zone = (org?.timezone as string | null) ?? "America/Chicago";
   const voided = sale.status === "voided";
-  const mayVoid = !voided && canVoidSale(staff, { staffId: sale.staff_id as string, createdAt: sale.created_at as string }, new Date());
+  // Renewals are refunded from Member Billing (refunds step), not voided here.
+  const mayVoid =
+    !voided &&
+    sale.staff_id !== null &&
+    canVoidSale(staff, { staffId: sale.staff_id as string, createdAt: sale.created_at as string }, new Date());
 
   return (
     <DashboardShell
       title={`Sale #${sale.sale_number}`}
       description={`${DateTime.fromISO(sale.created_at as string)
         .setZone(zone)
-        .toFormat("cccc, LLL d, yyyy 'at' h:mm a")} · rung up by ${nameOf.get(sale.staff_id as string) ?? "Unknown"}`}
+        .toFormat(
+          "cccc, LLL d, yyyy 'at' h:mm a",
+        )} · ${sale.staff_id ? `rung up by ${nameOf.get(sale.staff_id as string) ?? "Unknown"}` : "automatic monthly renewal"}`}
       actions={
         <div className="flex gap-2 print:hidden">
           <Button asChild variant="outline" size="sm">

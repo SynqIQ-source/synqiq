@@ -5,6 +5,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { stripeLivemode } from "@/lib/payments/connect";
 import { applicationFeeCents } from "@/lib/payments/checkout";
 import { afterDecline, datesToCharge } from "@/lib/billing/renewals";
+import { recordRenewalSale } from "@/lib/billing/renewal-sale";
+import { emailDecline } from "@/lib/billing/notify";
 
 // The nightly membership renewal run (rules in lib/billing/renewals.ts).
 // For each schedule with a saved card it charges the billing dates that are
@@ -50,7 +52,11 @@ type Charge = {
   total_cents: number;
   attempts: number;
   status: string;
+  retry_from: string | null;
+  retry_base_attempts: number;
 };
+
+const CHARGE_FIELDS = "id, schedule_id, due_date, total_cents, attempts, status, retry_from, retry_base_attempts";
 
 export type RenewalSummary = { due: number; paid: number; declined: number; frozen: number; pending: number; errors: number };
 
@@ -113,7 +119,7 @@ export async function runRenewals(organizationId: string, options: { now?: Date 
           },
           { onConflict: "schedule_id,due_date", ignoreDuplicates: true },
         )
-        .select("id, schedule_id, due_date, total_cents, attempts, status");
+        .select(CHARGE_FIELDS);
       for (const charge of (claimed ?? []) as Charge[]) {
         summary.due += 1;
         tally(summary, await attempt(admin, schedule, charge, today));
@@ -125,7 +131,7 @@ export async function runRenewals(organizationId: string, options: { now?: Date 
   // moving it to processing.
   const { data: retries } = await admin
     .from("membership_charges")
-    .select("id, schedule_id, due_date, total_cents, attempts, status")
+    .select(CHARGE_FIELDS)
     .eq("organization_id", organizationId)
     .in("status", ["declined", "scheduled"])
     .lte("next_attempt_on", today)
@@ -146,7 +152,7 @@ export async function runRenewals(organizationId: string, options: { now?: Date 
   return summary;
 }
 
-type Outcome = "paid" | "declined" | "frozen" | "pending" | "error";
+export type Outcome = "paid" | "declined" | "frozen" | "pending" | "error";
 
 function tally(summary: RenewalSummary, outcome: Outcome) {
   if (outcome === "error") summary.errors += 1;
@@ -223,7 +229,7 @@ async function attempt(admin: Admin, schedule: Schedule, charge: Charge, today: 
 
 export async function markPaid(admin: Admin, chargeId: string, scheduleId: string, paymentIntentId: string, attempts?: number) {
   const now = new Date().toISOString();
-  await admin
+  const { data: updated } = await admin
     .from("membership_charges")
     .update({
       status: "paid",
@@ -234,8 +240,11 @@ export async function markPaid(admin: Admin, chargeId: string, scheduleId: strin
       updated_at: now,
     })
     .eq("id", chargeId)
-    .neq("status", "paid");
-  // Back to current unless another month is still unpaid.
+    .neq("status", "paid")
+    .select("id");
+  // The month's dues as a sale (for the reports and the member's purchases).
+  if (updated?.length) await recordRenewalSale(admin, chargeId);
+  // Booking back on unless another month is still unpaid.
   const { data: open } = await admin
     .from("membership_charges")
     .select("id")
@@ -246,15 +255,20 @@ export async function markPaid(admin: Admin, chargeId: string, scheduleId: strin
     await admin.from("member_billing_schedules").update({ billing_state: "current", frozen_at: null }).eq("id", scheduleId);
 }
 
+// A declined attempt: booking is paused from the first decline (past due),
+// retries follow 3, 6 and 10 days after the billing date (or after the date a
+// Club Admin moved it to), and after the last one the membership is frozen.
+// The member is emailed at the first decline and when it's frozen.
 export async function recordDecline(
   admin: Admin,
-  charge: { id: string; due_date: string },
+  charge: { id: string; due_date: string; retry_from?: string | null; retry_base_attempts?: number | null },
   scheduleId: string,
   attempts: number,
   reason: string,
   paymentIntentId: string | null,
 ): Promise<"declined" | "frozen"> {
-  const next = afterDecline(charge.due_date, attempts);
+  const base = charge.retry_from ?? charge.due_date;
+  const next = afterDecline(base, Math.max(1, attempts - Number(charge.retry_base_attempts ?? 0)));
   const now = new Date().toISOString();
   const frozen = "freeze" in next;
   await admin
@@ -273,7 +287,140 @@ export async function recordDecline(
     .update(frozen ? { billing_state: "frozen", frozen_at: now } : { billing_state: "past_due" })
     .eq("id", scheduleId)
     .neq("billing_state", "frozen");
+  try {
+    await emailDecline(admin, charge.id, frozen ? null : next.retryOn);
+  } catch (error) {
+    console.error("[billing/renewals] decline email failed:", charge.id, error);
+  }
   return frozen ? "frozen" : "declined";
+}
+
+const SCHEDULE_FIELDS =
+  "id, organization_id, mindbody_client_id, client_name, name, status, first_bill_date, autopay_count, auto_renews, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, stripe_account_id, stripe_customer_id, stripe_payment_method_id";
+
+async function todayFor(admin: Admin, organizationId: string) {
+  const { data: org } = await admin.from("organizations").select("timezone").eq("id", organizationId).maybeSingle();
+  return DateTime.now()
+    .setZone((org?.timezone as string | null) ?? "America/Chicago")
+    .toISODate()!;
+}
+
+// Club Admin, from Member Billing: try a declined, frozen or scheduled charge
+// right now (e.g. after the member's bank cleared it).
+export async function retryChargeNow(organizationId: string, chargeId: string): Promise<{ error: string } | { outcome: Outcome }> {
+  const admin = createSupabaseAdminClient();
+  const { data: row } = await admin
+    .from("membership_charges")
+    .select(CHARGE_FIELDS)
+    .eq("id", chargeId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (!row) return { error: "Charge not found." };
+  const charge = row as unknown as Charge;
+  if (!["declined", "failed", "scheduled"].includes(charge.status)) return { error: "This charge isn't waiting to be paid." };
+  const { data: scheduleRow } = await admin
+    .from("member_billing_schedules")
+    .select(SCHEDULE_FIELDS)
+    .eq("id", charge.schedule_id)
+    .maybeSingle();
+  const schedule = scheduleRow as Schedule | null;
+  if (!schedule?.stripe_customer_id || !schedule.stripe_payment_method_id) return { error: "There's no card on file." };
+  const { data: account } = await admin
+    .from("stripe_connected_accounts")
+    .select("livemode")
+    .eq("stripe_account_id", schedule.stripe_account_id)
+    .maybeSingle();
+  if (!account || !renewalsMayCharge(Boolean(account.livemode)))
+    return { error: "Renewal charging isn't switched on for this studio yet." };
+  // A manual try doesn't use up one of the automatic retries: if it's declined
+  // the next automatic retry stays on the same day.
+  const manual = { ...charge, retry_base_attempts: Number(charge.retry_base_attempts ?? 0) + 1 };
+  const { data: claimed } = await admin
+    .from("membership_charges")
+    .update({ status: "processing", retry_base_attempts: manual.retry_base_attempts, updated_at: new Date().toISOString() })
+    .eq("id", charge.id)
+    .eq("status", charge.status)
+    .select("id");
+  if (!claimed?.length) return { error: "This charge is already being processed." };
+  return { outcome: await attempt(admin, schedule, manual, await todayFor(admin, organizationId)) };
+}
+
+// Club Admin: move one billing date (a declined charge's next try, or an
+// upcoming billing date) to another day, once, without changing the
+// schedule. Retries then count from the new date.
+export async function moveChargeDate(
+  organizationId: string,
+  staffId: string,
+  target: { chargeId: string } | { scheduleId: string; dueDate: string },
+  newDate: string,
+): Promise<{ error: string } | { ok: true }> {
+  const admin = createSupabaseAdminClient();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) return { error: "Pick a date." };
+  const today = await todayFor(admin, organizationId);
+  if (newDate < today) return { error: "Pick today or a later date." };
+  if (newDate > DateTime.fromISO(today).plus({ days: 90 }).toISODate()!) return { error: "Pick a date within 90 days." };
+  const now = new Date().toISOString();
+  const moved = { next_attempt_on: newDate, retry_from: newDate, moved_by_staff_id: staffId, moved_at: now, updated_at: now };
+
+  if ("chargeId" in target) {
+    const { data: charge } = await admin
+      .from("membership_charges")
+      .select("id, status, attempts")
+      .eq("id", target.chargeId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (!charge) return { error: "Charge not found." };
+    const status = charge.status as string;
+    if (!["declined", "failed", "scheduled"].includes(status)) return { error: "This charge isn't waiting to be paid." };
+    // A frozen charge goes back on the schedule; its retries start over from the new date.
+    const { data: updated } = await admin
+      .from("membership_charges")
+      .update({ ...moved, status: status === "failed" ? "declined" : status, retry_base_attempts: Number(charge.attempts) })
+      .eq("id", charge.id)
+      .eq("status", status)
+      .select("id");
+    return updated?.length ? { ok: true } : { error: "This charge changed. Refresh and try again." };
+  }
+
+  // An upcoming billing date: hold it as a scheduled charge on the new day.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(target.dueDate) || target.dueDate < today) return { error: "That billing date has passed." };
+  const { data: schedule } = await admin
+    .from("member_billing_schedules")
+    .select("id, mindbody_client_id, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, stripe_account_id")
+    .eq("id", target.scheduleId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (!schedule) return { error: "Schedule not found." };
+  const { data: existing } = await admin
+    .from("membership_charges")
+    .select("id, status")
+    .eq("schedule_id", schedule.id)
+    .eq("due_date", target.dueDate)
+    .maybeSingle();
+  if (existing) {
+    if (existing.status !== "scheduled") return { error: "This month has already been charged." };
+    await admin.from("membership_charges").update(moved).eq("id", existing.id);
+    return { ok: true };
+  }
+  const { data: account } = await admin
+    .from("stripe_connected_accounts")
+    .select("livemode")
+    .eq("stripe_account_id", (schedule.stripe_account_id as string | null) ?? "")
+    .maybeSingle();
+  const { error } = await admin.from("membership_charges").insert({
+    organization_id: organizationId,
+    schedule_id: schedule.id,
+    mindbody_client_id: schedule.mindbody_client_id,
+    due_date: target.dueDate,
+    subtotal_cents: schedule.recurring_subtotal_cents,
+    tax_cents: schedule.recurring_tax_cents,
+    total_cents: schedule.recurring_total_cents,
+    status: "scheduled",
+    livemode: Boolean(account?.livemode),
+    stripe_account_id: schedule.stripe_account_id,
+    ...moved,
+  });
+  return error ? { error: "Couldn't move the date. Try again." } : { ok: true };
 }
 
 // Payments webhook: a renewal Stripe finished after the nightly run (e.g. it
@@ -284,7 +431,7 @@ export async function finishRenewalFromEvent(event: Stripe.PaymentIntent, accoun
   if (!chargeId) return;
   const { data: charge } = await admin
     .from("membership_charges")
-    .select("id, schedule_id, due_date, attempts, status, stripe_account_id, total_cents")
+    .select("id, schedule_id, due_date, attempts, status, stripe_account_id, total_cents, retry_from, retry_base_attempts")
     .eq("id", chargeId)
     .maybeSingle();
   if (!charge || charge.stripe_account_id !== accountId || charge.status === "paid") return;
@@ -295,7 +442,12 @@ export async function finishRenewalFromEvent(event: Stripe.PaymentIntent, accoun
   } else if (intent.status === "requires_payment_method" && charge.status === "processing") {
     await recordDecline(
       admin,
-      { id: charge.id as string, due_date: charge.due_date as string },
+      {
+        id: charge.id as string,
+        due_date: charge.due_date as string,
+        retry_from: charge.retry_from as string | null,
+        retry_base_attempts: Number(charge.retry_base_attempts),
+      },
       charge.schedule_id as string,
       Math.max(1, Number(charge.attempts)),
       intent.last_payment_error?.decline_code ?? intent.last_payment_error?.code ?? "declined",

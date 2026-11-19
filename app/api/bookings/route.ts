@@ -38,13 +38,13 @@ export async function POST(request: NextRequest) {
   if (!context) return NextResponse.json({ success: false, error: "Class not found." }, { status: 404 });
   if (!person) return NextResponse.json({ success: false, error: "Unknown person." }, { status: 404 });
 
-  // Frozen for a failed monthly payment: staff can still book with a reason.
+  // Paused for a declined monthly payment: staff can still book with a reason.
   if (!note && (await billingFrozen(orgId, clientId))) {
     return NextResponse.json(
       {
         success: false,
         needsReason: true,
-        error: `${person.client.name}'s booking is frozen: their monthly payment failed every retry. Add a reason to book anyway.`,
+        error: `${person.client.name}'s booking is paused: their monthly payment was declined. Add a reason to book anyway.`,
       },
       { status: 400 },
     );

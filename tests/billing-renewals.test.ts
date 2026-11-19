@@ -97,3 +97,50 @@ describe("who must be named on a sale", () => {
     expect(needsBuyer("product", ["drinks"])).toBe(false);
   });
 });
+
+describe("renewal sales and decline emails", () => {
+  it("splits a renewal into dues lines that add up exactly", async () => {
+    const { renewalLines } = await import("@/lib/billing/renewal-sale");
+    const lines = renewalLines(
+      [
+        { label: "Dues", revenueCategoryId: "c1", amountCents: 20000, taxable: true, taxCents: 1650 },
+        { label: "Locker", revenueCategoryId: "c2", amountCents: 1900, taxable: false, taxCents: 0 },
+      ],
+      21900,
+      1651,
+    );
+    expect(lines.reduce((sum, line) => sum + line.amountCents, 0)).toBe(21900);
+    expect(lines.reduce((sum, line) => sum + line.taxCents, 0)).toBe(1651);
+    expect(lines[0].taxCents).toBe(1651);
+    expect(renewalLines([], 21900, 0)).toEqual([
+      { label: "Monthly dues", revenueCategoryId: null, revenueCategory: null, amountCents: 21900, taxable: false, taxCents: 0 },
+    ]);
+  });
+
+  it("tells the member booking is paused and when the card is retried", async () => {
+    const { declinedPaymentEmail } = await import("@/lib/billing/notify");
+    const first = declinedPaymentEmail({
+      studioName: "The Preserve",
+      firstName: "Sam",
+      membership: "Monthly <Gold>",
+      amountCents: 23707,
+      card: "Visa ending 4242",
+      retryOn: "2026-12-04",
+    });
+    expect(first.subject).toBe("Your The Preserve membership payment didn't go through");
+    expect(first.html).toContain("Monthly &lt;Gold&gt;");
+    expect(first.html).toContain("$237.07");
+    expect(first.html).toContain("booking is paused");
+    expect(first.html).toContain("Friday, December 4");
+    const last = declinedPaymentEmail({
+      studioName: "The Preserve",
+      firstName: "",
+      membership: "Gold",
+      amountCents: 100,
+      card: null,
+      retryOn: null,
+    });
+    expect(last.subject).toBe("Your The Preserve membership is on hold");
+    expect(last.html).not.toContain("try your card again");
+  });
+});

@@ -62,7 +62,7 @@ export default async function PosSalesPage({ searchParams }: Props) {
     (sales ?? []).map((sale) => ({
       status: sale.status as string,
       paymentMethod: PAYMENT_LABELS[sale.payment_method as string] ?? (sale.payment_method as string),
-      staffName: nameOf.get(sale.staff_id as string) ?? "Unknown",
+      staffName: sale.staff_id ? (nameOf.get(sale.staff_id as string) ?? "Unknown") : "Automatic renewal",
       totalCents: Number(sale.total_cents),
       lines: (lines ?? [])
         .filter((line) => line.sale_id === sale.id)
@@ -177,7 +177,9 @@ export default async function PosSalesPage({ searchParams }: Props) {
                         .toFormat("LLL d, h:mm a")}
                     </TableCell>
                     <TableCell>{(sale.client_name as string | null) ?? "Walk-in"}</TableCell>
-                    <TableCell className="text-sm">{nameOf.get(sale.staff_id as string) ?? "Unknown"}</TableCell>
+                    <TableCell className="text-sm">
+                      {sale.staff_id ? (nameOf.get(sale.staff_id as string) ?? "Unknown") : "Automatic renewal"}
+                    </TableCell>
                     <TableCell className="text-sm">
                       {PAYMENT_LABELS[sale.payment_method as string] ?? (sale.payment_method as string)}
                       {sale.status === "voided" ? (

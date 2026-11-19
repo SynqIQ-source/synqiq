@@ -1,3 +1,4 @@
+import { ChargeControls } from "@/app/dashboard/member-billing/charge-controls";
 import { memberBillingFlags } from "@/lib/billing/flags";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -340,7 +341,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     supabase
       .from("member_billing_schedules")
       .select(
-        "id, sale_id, source, name, status, start_date, first_bill_date, recurring_lines, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, autopay_count, auto_renews, created_at",
+        "id, sale_id, source, name, status, start_date, first_bill_date, recurring_lines, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, autopay_count, auto_renews, created_at, stripe_payment_method_id",
       )
       .eq("organization_id", orgId)
       .eq("mindbody_client_id", clientId)
@@ -476,6 +477,22 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
     .limit(50);
 
   const billing = (await memberBillingFlags(createSupabaseAdminClient(), orgId, [clientId], timezone)).get(clientId) ?? null;
+  // Upcoming payments a Club Admin moved to another day (Member Billing rules).
+  const movedCharges =
+    isAdmin && posSchedules?.length
+      ? ((
+          await createSupabaseAdminClient()
+            .from("membership_charges")
+            .select("schedule_id, due_date, next_attempt_on")
+            .eq("organization_id", orgId)
+            .eq("status", "scheduled")
+            .in(
+              "schedule_id",
+              posSchedules.map((row) => row.id as string),
+            )
+        ).data ?? [])
+      : [];
+  const movedTo = new Map(movedCharges.map((row) => [`${row.schedule_id}|${row.due_date}`, row.next_attempt_on as string]));
 
   return (
     <DashboardShell
@@ -500,8 +517,16 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
       <div className="space-y-6">
         {billing?.flag === "red" ? (
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
-            <span className="font-medium">Payment failed, booking frozen.</span> The monthly payment was declined on every retry. Update the
-            card and take the payment to unfreeze.
+            {billing.finalFailure ? (
+              <>
+                <span className="font-medium">Payment failed, membership frozen.</span> The monthly payment was declined on every retry.
+              </>
+            ) : (
+              <>
+                <span className="font-medium">Payment declined, booking paused.</span> SynqIQ will retry on the schedule.
+              </>
+            )}{" "}
+            Update the card and retry the payment on Member Billing to restore booking.
           </div>
         ) : billing?.flag === "yellow" && billing.card ? (
           <div className="rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-200">
@@ -772,13 +797,27 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                                       className={`rounded-md px-2 py-1 text-xs ${i === 0 ? "bg-primary/10 font-medium" : "bg-muted"}`}
                                     >
                                       {i === 0 ? "Next: " : ""}
-                                      {day(payment.date)} · {money(Number(schedule.recurring_total_cents))}
+                                      {movedTo.get(`${schedule.id}|${payment.date}`)
+                                        ? `${day(movedTo.get(`${schedule.id}|${payment.date}`)!)} (moved from ${day(payment.date)})`
+                                        : day(payment.date)}{" "}
+                                      · {money(Number(schedule.recurring_total_cents))}
                                       {payment.renewal ? " · month to month" : ""}
                                     </span>
                                   ))}
                                 </div>
                               ) : live ? (
                                 <p className="text-xs text-muted-foreground">All payments made.</p>
+                              ) : null}
+                              {next[0] && schedule.stripe_payment_method_id ? (
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  Move the next payment (this one only):
+                                  <ChargeControls
+                                    scheduleId={schedule.id as string}
+                                    dueDate={next[0].date}
+                                    date={movedTo.get(`${schedule.id}|${next[0].date}`) ?? next[0].date}
+                                    min={today}
+                                  />
+                                </div>
                               ) : null}
                             </div>
                           );
