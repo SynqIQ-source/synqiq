@@ -42,18 +42,13 @@ export async function fetchReceivedEmail(emailId: string): Promise<ReceivedEmail
       cache: "no-store",
     });
   } catch (fetchError) {
-    console.error(
-      `[followup] receiving API fetch failed for ${emailId}:`,
-      fetchError instanceof Error ? fetchError.message : fetchError,
-    );
+    console.error(`[followup] receiving API fetch failed for ${emailId}:`, fetchError instanceof Error ? fetchError.message : fetchError);
     return null;
   }
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => "");
-    console.error(
-      `[followup] receiving API ${response.status} ${response.statusText} for ${emailId} -- ${bodyText}`,
-    );
+    console.error(`[followup] receiving API ${response.status} ${response.statusText} for ${emailId} -- ${bodyText}`);
     return null;
   }
 
@@ -65,20 +60,9 @@ export async function fetchReceivedEmail(emailId: string): Promise<ReceivedEmail
   const from = typeof data.from === "string" ? data.from : "";
   const to = Array.isArray(data.to) ? data.to.filter((entry): entry is string => typeof entry === "string") : [];
   const subject = typeof data.subject === "string" ? data.subject : "";
-  const text =
-    typeof data.text === "string" && data.text.trim()
-      ? data.text
-      : typeof data.html === "string"
-        ? stripHtml(data.html)
-        : "";
-  const messageId =
-    typeof data.message_id === "string" && data.message_id
-      ? data.message_id
-      : headerValue(data.headers, "message-id");
-  const headers =
-    data.headers && typeof data.headers === "object"
-      ? (data.headers as Record<string, string>)
-      : null;
+  const text = typeof data.text === "string" && data.text.trim() ? data.text : typeof data.html === "string" ? stripHtml(data.html) : "";
+  const messageId = typeof data.message_id === "string" && data.message_id ? data.message_id : headerValue(data.headers, "message-id");
+  const headers = data.headers && typeof data.headers === "object" ? (data.headers as Record<string, string>) : null;
 
   if (!from || to.length === 0) {
     console.error(`[followup] receiving API payload for ${emailId} missing from/to (keys: ${Object.keys(data).join(",")})`);

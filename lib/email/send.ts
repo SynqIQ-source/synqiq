@@ -28,10 +28,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 // Best-effort, never throws -- same convention as lib/push/send.ts. A
 // failed email must never fail whatever caller-side action (creating a
 // substitution request, running the nightly reminder check) triggered it.
-export async function sendEmailToRecipients(
-  recipients: EmailRecipient[],
-  payload: EmailPayload,
-): Promise<void> {
+export async function sendEmailToRecipients(recipients: EmailRecipient[], payload: EmailPayload): Promise<void> {
   const uniqueByEmail = new Map(recipients.map((r) => [r.email.toLowerCase(), r]));
   const unique = [...uniqueByEmail.values()];
 
@@ -67,4 +64,33 @@ export async function sendEmailToRecipients(
       console.error("[email] Send failed:", sendError instanceof Error ? sendError.message : sendError);
     }
   }
+}
+
+// Individually addressed messages (each its own body and headers, e.g. a
+// newsletter's per-person unsubscribe link), in batches of 100. Unlike
+// sendEmailToRecipients this reports how many Resend accepted.
+export type EmailMessage = { to: string; from: string; subject: string; html: string; headers?: Record<string, string> };
+export async function sendEmailMessages(messages: EmailMessage[]): Promise<{ sent: string[]; failed: string[] }> {
+  const sent: string[] = [];
+  const failed: string[] = [];
+  if (!messages.length) return { sent, failed };
+  const apiKey = getEnv("RESEND_API_KEY");
+  for (const batch of chunk(messages, BATCH_LIMIT)) {
+    try {
+      const response = await fetch(RESEND_BATCH_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(batch.map((message) => ({ ...message, to: [message.to] }))),
+      });
+      if (response.ok) sent.push(...batch.map((message) => message.to));
+      else {
+        console.error(`[email] Resend batch send failed: ${response.status} ${await response.text().catch(() => "")}`);
+        failed.push(...batch.map((message) => message.to));
+      }
+    } catch (sendError) {
+      console.error("[email] Send failed:", sendError instanceof Error ? sendError.message : sendError);
+      failed.push(...batch.map((message) => message.to));
+    }
+  }
+  return { sent, failed };
 }

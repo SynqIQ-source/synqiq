@@ -113,12 +113,7 @@ function parseWebhook(payload: unknown): ParsedWebhook | null {
   }
 
   const data = root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : root;
-  const emailId =
-    typeof data.email_id === "string"
-      ? data.email_id
-      : typeof data.id === "string"
-        ? data.id
-        : null;
+  const emailId = typeof data.email_id === "string" ? data.email_id : typeof data.id === "string" ? data.id : null;
 
   return emailId ? { emailId } : null;
 }

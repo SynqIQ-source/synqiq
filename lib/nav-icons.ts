@@ -28,6 +28,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Mail,
+  Newspaper,
   MailCheck,
   Mails,
   MessageSquare,
@@ -112,4 +113,5 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/attendance-fees": CalendarX,
   "/dashboard/member-billing": CreditCard,
   "/dashboard/email": Mail,
+  "/dashboard/email/newsletters": Newspaper,
 };

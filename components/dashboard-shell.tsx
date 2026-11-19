@@ -135,7 +135,12 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
           { href: "/dashboard/settings/eligibility", label: "Class Eligibility", who: isClubAdmin, modules: ["group_fitness"] },
         ],
       },
-      { href: "/dashboard/email", label: "Email", who: isClubAdmin },
+      {
+        href: "/dashboard/email",
+        label: "Email",
+        who: isClubAdmin,
+        children: [{ href: "/dashboard/email/newsletters", label: "Newsletters", who: isClubAdmin }],
+      },
       { href: "/dashboard/settings/payments", label: "Payments", who: isClubAdmin },
       { href: "/dashboard/settings/crm", label: "CRM", who: isClubAdmin, crm: true },
       { href: "/dashboard/settings/sales-targets", label: "Sales Targets", who: isClubAdmin, crm: true },

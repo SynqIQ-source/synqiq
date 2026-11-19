@@ -23,9 +23,7 @@ export type RelaySendParams = {
   references?: string[];
 };
 
-export type RelaySendResult =
-  | { ok: true; resendMessageId: string }
-  | { ok: false; error: string };
+export type RelaySendResult = { ok: true; resendMessageId: string } | { ok: false; error: string };
 
 export async function sendRelayEmail(params: RelaySendParams): Promise<RelaySendResult> {
   const apiKey = getEnv("RESEND_API_KEY");
