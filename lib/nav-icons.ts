@@ -1,5 +1,8 @@
 import {
   Activity,
+  CalendarX,
+  Waves,
+  Wrench,
   FileSignature,
   Banknote,
   Dumbbell,
@@ -103,4 +106,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/memberships/price-increases": Percent,
   "/dashboard/services/packs": Package,
   "/dashboard/services/products": ShoppingBag,
+  "/dashboard/pool-lanes": Waves,
+  "/dashboard/maintenance": Wrench,
+  "/dashboard/attendance-fees": CalendarX,
 };
