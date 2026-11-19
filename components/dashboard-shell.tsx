@@ -10,7 +10,16 @@ import { AccountMenu } from "@/components/account-menu";
 import { ShellFrame } from "@/components/shell-frame";
 import { isCrmEnabled } from "@/lib/crm/module";
 import type { CurrentStaff } from "@/lib/current-staff";
-import { canUseCrm, canViewOverview, isClubAdmin, isInstructorAccess, canCheckIn, canCheckout, isTrainerAccess } from "@/lib/permissions";
+import {
+  canUseCrm,
+  canViewMembers,
+  canViewOverview,
+  isClubAdmin,
+  isInstructorAccess,
+  canCheckIn,
+  canCheckout,
+  isTrainerAccess,
+} from "@/lib/permissions";
 import { unreadGuestMessageCount } from "@/lib/crm/unread";
 import { TimeClockButton } from "@/components/time-clock-button";
 import { signsOutOnClockOut } from "@/lib/time-clock/hours";
@@ -41,7 +50,6 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     items: [
       { href: "/dashboard", label: "Class Dashboard", who: canViewOverview },
       { href: "/dashboard/schedule", label: "My Schedule", who: isInstructorAccess, modules: ["group_fitness"] },
-      { href: "/dashboard/classes", label: "Classes", modules: ["group_fitness"] },
       { href: "/dashboard/sub-requests", label: "Sub Requests", who: isInstructorAccess, modules: ["group_fitness"] },
       { href: "/dashboard/ratings", label: "Ratings", who: isInstructorAccess, modules: ["group_fitness"] },
       { href: "/dashboard/follow-up", label: "Follow Up", who: instructorOrTrainer, modules: ["group_fitness", "trainer"] },
@@ -54,8 +62,6 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
   {
     label: "Sales",
     items: [
-      { href: "/dashboard/check-in", label: "Check-in", who: canCheckIn },
-      { href: "/dashboard/pos", label: "POS", who: canCheckout },
       { href: "/dashboard/sales", label: "Sales Dashboard", who: canUseCrm, crm: true },
       { href: "/dashboard/sales/history", label: "Sales History", who: canUseCrm, crm: true },
       { href: "/dashboard/guests", label: "Guests", who: canUseCrm, crm: true },
@@ -76,8 +82,15 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
     ],
   },
   {
+    // The front desk and the floor: arrivals, sales, rosters, members.
     label: "Operations",
-    items: [{ href: "/dashboard/maintenance", label: "Maintenance" }],
+    items: [
+      { href: "/dashboard/check-in", label: "Check-in", who: canCheckIn },
+      { href: "/dashboard/pos", label: "POS", who: canCheckout },
+      { href: "/dashboard/classes", label: "Classes", modules: ["group_fitness"] },
+      { href: "/dashboard/memberships", label: "Members", who: canViewMembers },
+      { href: "/dashboard/maintenance", label: "Maintenance" },
+    ],
   },
   {
     label: "Insights",
@@ -85,7 +98,6 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/heatmap", label: "Heat Map", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/instructors", label: "Instructors", who: isClubAdmin, modules: ["group_fitness"] },
       { href: "/dashboard/comp-audit", label: "Comp Audit", who: isClubAdmin },
-      { href: "/dashboard/memberships", label: "Memberships", who: isClubAdmin },
       { href: "/dashboard/shadow-billing", label: "Shadow Billing", who: isClubAdmin },
     ],
   },

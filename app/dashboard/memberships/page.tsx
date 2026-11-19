@@ -4,7 +4,7 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAccess } from "@/lib/require-access";
-import { isClubAdmin } from "@/lib/permissions";
+import { canViewMembers } from "@/lib/permissions";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { cleanQuery, searchMembers } from "@/lib/memberships/member-search";
 import { MemberSearch } from "./member-search";
@@ -20,9 +20,10 @@ const money = (cents: number | null) =>
         minimumFractionDigits: 2,
       });
 
-// Club Admins find a member to see and edit their billing.
+// The sales team and Club Admins find a member and open their profile
+// (billing edits are for Club Admins).
 export default async function MembershipsPage({ searchParams }: { searchParams: SearchParams }) {
-  const staff = await requireAccess(isClubAdmin);
+  const staff = await requireAccess(canViewMembers);
   const supabase = await getScopedClient(staff);
   const { q = "" } = await searchParams;
   const query = cleanQuery(q);
@@ -30,7 +31,7 @@ export default async function MembershipsPage({ searchParams }: { searchParams: 
 
   const today = DateTime.now().toISODate()!;
   return (
-    <DashboardShell title="Memberships" description="Find a member to see their memberships and billing, and make billing edits.">
+    <DashboardShell title="Members" description="Find a member to see their profile, memberships, visits and purchases.">
       <div className="space-y-6">
         <MemberSearch initialQuery={q} />
         <p className="text-sm text-muted-foreground">

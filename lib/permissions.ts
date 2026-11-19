@@ -42,6 +42,10 @@ export const isClubAdmin = (staff: Who) => staff.role === "admin";
 // Every guest and lead, reassigning, every salesperson's numbers.
 export const managesSales = (staff: Who) => staff.role === "admin" || staff.role === "sales_lead";
 
+// Members (lookup and profiles): Club Admins, Sales Leads and Sales.
+// Billing edits and price increases stay Club Admin only.
+export const canViewMembers = (staff: Who) => staff.role === "admin" || staff.role === "sales_lead" || staff.role === "sales";
+
 // Any CRM access at all (Sales pages, Guests).
 export const canUseCrm = (staff: Who) => managesSales(staff) || staff.role === "sales" || staff.canSell;
 

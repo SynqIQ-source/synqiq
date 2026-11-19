@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
-import { isClubAdmin } from "@/lib/permissions";
+import { canViewMembers } from "@/lib/permissions";
 import { getScopedClient } from "@/lib/supabase/scoped";
 import { syncMemberProfile } from "@/lib/sync/member-profile";
 
@@ -14,7 +14,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
   const { clientId: raw } = await params;
   const clientId = decodeURIComponent(raw);
   const currentStaff = await getCurrentStaff();
-  if (!currentStaff || !isClubAdmin(currentStaff)) {
+  if (!currentStaff || !canViewMembers(currentStaff)) {
     return NextResponse.json({ success: false, error: "Only a club admin can do this." }, { status: 403 });
   }
   if (!/^[\w-]{1,40}$/.test(clientId)) return NextResponse.json({ success: false, error: "Unknown member." }, { status: 404 });

@@ -1,8 +1,10 @@
--- Billing data, price increases and member profile history are Club Admin only (The Preserve).
+-- Billing data and price increases are Club Admin only; member profiles
+-- (contracts, visits, purchases, services, contact details) are also open
+-- to Sales Leads and Sales (Members, 2026-11-18) (The Preserve).
 --
 -- Runs inside one transaction and ROLLS BACK, so it is safe against
 -- production. Signed in through RLS:
---   - a Sales staff member sees no member contracts, plans, Mindbody
+--   - a Sales staff member sees member profiles but no plans, Mindbody
 --     AutoPay rows or billing edits, and can't add a billing edit
 --   - a Club Admin can see contracts and add + cancel a billing edit
 -- Any failed check raises an exception.
@@ -32,18 +34,20 @@ begin
   perform set_config('bill.client', (select mindbody_client_id from member_contracts where organization_id = preserve limit 1), true);
 end $$;
 
--- --- Sales: nothing ---------------------------------------------------------
+-- --- Sales: no billing ---------------------------------------------------------
 set local role authenticated;
 select set_config('request.jwt.claims', json_build_object('sub', current_setting('bill.sales_user'), 'role', 'authenticated')::text, true);
 do $$
 begin
-  if exists (select 1 from member_contracts) or exists (select 1 from membership_plans)
+  if exists (select 1 from membership_plans)
      or exists (select 1 from mbo_autopay_rows) or exists (select 1 from billing_adjustments)
      or exists (select 1 from price_increases) or exists (select 1 from price_increase_items)
-     or exists (select 1 from member_visits) or exists (select 1 from member_sales) or exists (select 1 from member_services)
-     or exists (select 1 from member_profile_sync) or exists (select 1 from member_personal) or exists (select 1 from member_personal_edits)
+     or exists (select 1 from member_personal_edits)
      or exists (select 1 from catalog_edits) then
     raise exception 'FAIL Sales can see billing data';
+  end if;
+  if not exists (select 1 from member_contracts) then
+    raise exception 'FAIL Sales cannot see member profiles (Members)';
   end if;
   begin
     insert into billing_adjustments (organization_id, mindbody_client_id, kind, amount_cents, starts_on, reason, created_by_staff_id)
