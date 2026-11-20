@@ -153,6 +153,17 @@ export async function savePracticeSale(
 
   // Commission can only be credited to people who earn it (Admin > Commissions).
   const staffIds = await commissionEarnerIds(admin, org);
+  // Online purchases: the buyer's assigned salesperson earns the commission
+  // (Adam, 2026-11-19), when they earn commission; otherwise none.
+  let onlineCredits: { staffId: string; share: number }[] = [];
+  if (online && (crmContactId || mindbodyClientId)) {
+    const lookup = admin.from("crm_contacts").select("assigned_staff_id").eq("organization_id", org).is("deleted_at", null);
+    const { data: owner } = await (crmContactId ? lookup.eq("id", crmContactId) : lookup.eq("mindbody_client_id", mindbodyClientId!))
+      .not("assigned_staff_id", "is", null)
+      .limit(1);
+    const assigned = (owner?.[0]?.assigned_staff_id as string | undefined) ?? null;
+    if (assigned && staffIds.has(assigned)) onlineCredits = [{ staffId: assigned, share: 100 }];
+  }
 
   const taxableFor = (categoryId: string) => Boolean(categoryBy.get(categoryId)?.taxable);
   // Package parts priced with their own category's tax.
@@ -350,8 +361,8 @@ export async function savePracticeSale(
         taxable: line.taxable,
         tax_cents: line.taxCents,
         total_cents: line.totalCents,
-        commission_credits: commissionable && !request.none && !online ? (request.credits ?? []) : [],
-        no_commission: commissionable ? Boolean(request.none) || online : false,
+        commission_credits: !commissionable ? [] : online ? onlineCredits : !request.none ? (request.credits ?? []) : [],
+        no_commission: commissionable ? (online ? onlineCredits.length === 0 : Boolean(request.none)) : false,
         package_item_id: source.part ? item.id : null,
         package_name: source.part ? item.name : null,
         recurring: source.part?.recurring ?? false,
