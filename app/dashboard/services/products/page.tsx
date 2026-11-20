@@ -27,7 +27,7 @@ export default async function ProductsPage() {
     admin
       .from("pos_items")
       .select(
-        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at, inventory_category_id, package_parts, autopay_count, auto_renews, open_price, members_only, par_level, reorder_level, agreement_template_id",
+        "id, kind, source, name, price_cents, revenue_category_id, taxable, barcode, image_url, sessions, active, mindbody_name, mindbody_price_cents, mindbody_group, mindbody_discontinued, synced_at, inventory_category_id, package_parts, autopay_count, auto_renews, open_price, members_only, sell_online, par_level, reorder_level, agreement_template_id",
       )
       .eq("organization_id", staff.organizationId)
       .is("deleted_at", null)
@@ -77,6 +77,7 @@ export default async function ProductsPage() {
     autoRenews: Boolean(row.auto_renews),
     openPrice: Boolean(row.open_price),
     membersOnly: Boolean(row.members_only),
+    sellOnline: Boolean(row.sell_online),
     agreementTemplateId: (row.agreement_template_id as string | null) ?? "",
   }));
   const { data: agreementRows } = await admin

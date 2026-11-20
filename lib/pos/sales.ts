@@ -96,6 +96,9 @@ export async function savePracticeSale(
     // Memberships: bill monthly from the sign-up day (default), or prorate
     // the rest of this month and draft on the 1st (lib/billing/renewals.ts).
     billingStart?: BillingStart;
+    // Bought online / in the member app (lib/online/buy.ts): no staff member,
+    // no commission, no discounts. `staff` is then ONLINE_ACTOR.
+    online?: boolean;
   },
 ): Promise<
   | { error: string }
@@ -145,7 +148,8 @@ export async function savePracticeSale(
   const timezone = (orgRow?.timezone as string | null) ?? "America/Chicago";
   const saleDate = DateTime.now().setZone(timezone).toISODate()!;
   const billingStart: BillingStart = input.billingStart === "prorated" ? "prorated" : "signup";
-  const mayDiscount = canDiscountAtCheckout(staff);
+  const online = input.online === true;
+  const mayDiscount = !online && canDiscountAtCheckout(staff);
 
   // Commission can only be credited to people who earn it (Admin > Commissions).
   const staffIds = await commissionEarnerIds(admin, org);
@@ -186,7 +190,7 @@ export async function savePracticeSale(
       if (line.quantity !== 1) return { error: `Sell one ${item.name} at a time.` };
       if (!input.clientId) return { error: `Pick the member for ${item.name}.` };
     }
-    if (isCommissionable(item.id as string)) {
+    if (isCommissionable(item.id as string) && !online) {
       const credits = line.credits ?? [];
       if (!line.none && credits.length === 0) return { error: `Choose who earns commission on ${item.name}, or None.` };
       const total = credits.reduce((sum, credit) => sum + credit.share, 0);
@@ -307,7 +311,8 @@ export async function savePracticeSale(
       mindbody_client_id: mindbodyClientId,
       crm_contact_id: crmContactId,
       client_name: input.clientName?.slice(0, 200) ?? null,
-      staff_id: staff.id,
+      staff_id: staff.id || null,
+      source: online ? "online" : "pos",
       subtotal_cents: cart.subtotalCents,
       discount_cents: cart.discountCents,
       tax_cents: cart.taxCents,
@@ -345,8 +350,8 @@ export async function savePracticeSale(
         taxable: line.taxable,
         tax_cents: line.taxCents,
         total_cents: line.totalCents,
-        commission_credits: commissionable && !request.none ? (request.credits ?? []) : [],
-        no_commission: commissionable ? Boolean(request.none) : false,
+        commission_credits: commissionable && !request.none && !online ? (request.credits ?? []) : [],
+        no_commission: commissionable ? Boolean(request.none) || online : false,
         package_item_id: source.part ? item.id : null,
         package_name: source.part ? item.name : null,
         recurring: source.part?.recurring ?? false,
@@ -412,8 +417,8 @@ export async function savePracticeSale(
           mindbodyClientId,
           crmContactId,
           clientName: input.clientName?.slice(0, 200) ?? null,
-          staffId: staff.id,
-          staffName: staff.displayName ?? null,
+          staffId: staff.id || null,
+          staffName: online ? "Online purchase" : (staff.displayName ?? null),
           ip: input.evidence?.ip ?? null,
           userAgent: input.evidence?.userAgent ?? null,
         },

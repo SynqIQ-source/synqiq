@@ -129,7 +129,7 @@ export async function saveSignatures(
     mindbodyClientId: string | null;
     crmContactId: string | null;
     clientName: string | null;
-    staffId: string;
+    staffId: string | null; // null: bought online
     staffName: string | null;
     ip: string | null;
     userAgent: string | null;

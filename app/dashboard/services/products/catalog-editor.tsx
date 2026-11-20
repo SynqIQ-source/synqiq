@@ -36,6 +36,7 @@ export type CatalogItem = {
   autoRenews: boolean;
   openPrice: boolean;
   membersOnly: boolean;
+  sellOnline: boolean;
   agreementTemplateId: string;
 };
 export type AgreementOption = { id: string; name: string };
@@ -509,6 +510,7 @@ function ItemEditor({
   const [active, setActive] = useState(item?.active ?? true);
   const [openPrice, setOpenPrice] = useState(item?.openPrice ?? false);
   const [membersOnly, setMembersOnly] = useState(item?.membersOnly ?? false);
+  const [sellOnline, setSellOnline] = useState(item?.sellOnline ?? false);
   const [agreementId, setAgreementId] = useState(item?.agreementTemplateId ?? "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
@@ -546,6 +548,7 @@ function ItemEditor({
       inventoryCategoryId: inventoryCategoryId || null,
       openPrice,
       membersOnly,
+      sellOnline,
       agreementTemplateId: agreementId || null,
       packageParts: parts
         ? parts.map((part) => ({
@@ -714,6 +717,12 @@ function ItemEditor({
             <input type="checkbox" checked={membersOnly} onChange={(e) => setMembersOnly(e.target.checked)} />
             Members only (needs an active membership, or one bought in the same sale)
           </label>
+          {kind !== "product" && !openPrice ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={sellOnline} onChange={(e) => setSellOnline(e.target.checked)} />
+              Sell online (member app and website Buy page)
+            </label>
+          ) : null}
           {kind !== "product" ? (
             <label className="text-sm">
               Agreement the member signs at checkout

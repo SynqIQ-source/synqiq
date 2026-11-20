@@ -34,7 +34,28 @@ export type CardSaleRequest = {
   note: string | null;
   agreements: AgreementSignatureRequest[];
   evidence: { ip: string | null; userAgent: string | null };
+  billingStart?: "signup" | "prorated";
+  // Bought online / in the member app (no staff member; lib/online/buy.ts).
+  online?: boolean;
 };
+
+// Stands in for the staff member on online purchases: the sale and card
+// payment are saved with no staff_id and source "online".
+export function onlineActor(organizationId: string): CurrentStaff {
+  return {
+    id: "",
+    displayName: "Online purchase",
+    role: "staff",
+    organizationId,
+    title: null,
+    photoUrl: null,
+    canSell: false,
+    isInstructor: false,
+    isTrainer: false,
+    isFacilityTech: false,
+    mfa: "ok",
+  } as CurrentStaff;
+}
 
 // SynqIQ's application fee on studio card payments, in basis points: 0.5%
 // on top of Stripe's rate (Adam, 2026-11-18). The other 0.5% of SynqIQ's
@@ -95,7 +116,8 @@ export async function startCardPayment(
     .from("pos_card_payments")
     .insert({
       organization_id: staff.organizationId,
-      staff_id: staff.id,
+      staff_id: staff.id || null,
+      source: request.online ? "online" : "pos",
       stripe_account_id: account.stripeAccountId,
       livemode: account.livemode,
       stripe_customer_id: customerId,
@@ -109,9 +131,9 @@ export async function startCardPayment(
   const params: Stripe.PaymentIntentCreateParams = {
     amount: checked.totalCents,
     currency: "usd",
-    // Front desk: cards only (no bank debits or pay-later at the counter).
+    // Cards only (no bank debits or pay-later), at the desk and online.
     allowed_payment_method_types: ["card"],
-    description: `SynqIQ checkout${request.clientName ? ` · ${request.clientName}` : ""}`,
+    description: `SynqIQ ${request.online ? "online purchase" : "checkout"}${request.clientName ? ` · ${request.clientName}` : ""}`,
     metadata: { synqiq_payment_id: row.id as string, synqiq_organization_id: staff.organizationId },
     ...(customerId ? { customer: customerId, setup_future_usage: "off_session" as const } : {}),
     ...(fee > 0 ? { application_fee_amount: fee } : {}),
@@ -176,19 +198,25 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
     .select("id");
   if (!claimed?.length) return { error: "This payment is already being saved.", paid: true };
 
-  const { data: staffRow } = await admin
-    .from("staff")
-    .select("id, display_name, role, organization_id")
-    .eq("id", row.staff_id)
-    .maybeSingle();
-  if (!staffRow) return markAttention(admin, row.id as string, "Staff member not found");
-  // Only the fields the sale saver reads; permissions were checked at start.
-  const staff = {
-    id: staffRow.id as string,
-    displayName: (staffRow.display_name as string | null) ?? "Staff",
-    role: staffRow.role,
-    organizationId: staffRow.organization_id as string,
-  } as CurrentStaff;
+  let staff: CurrentStaff;
+  if (!row.staff_id) {
+    // Online purchase: no staff member.
+    staff = onlineActor(row.organization_id as string);
+  } else {
+    const { data: staffRow } = await admin
+      .from("staff")
+      .select("id, display_name, role, organization_id")
+      .eq("id", row.staff_id)
+      .maybeSingle();
+    if (!staffRow) return markAttention(admin, row.id as string, "Staff member not found");
+    // Only the fields the sale saver reads; permissions were checked at start.
+    staff = {
+      id: staffRow.id as string,
+      displayName: (staffRow.display_name as string | null) ?? "Staff",
+      role: staffRow.role,
+      organizationId: staffRow.organization_id as string,
+    } as CurrentStaff;
+  }
   const paymentMethodId = typeof intent.payment_method === "string" ? intent.payment_method : (intent.payment_method?.id ?? null);
   const saved = await savePracticeSale(staff, {
     ...(row.sale_request as CardSaleRequest),
@@ -223,8 +251,8 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
       customerId: row.stripe_customer_id as string,
       paymentMethodId,
       card,
-      via: "pos",
-      staffId: row.staff_id as string,
+      via: row.staff_id ? "pos" : "app",
+      staffId: (row.staff_id as string | null) ?? null,
     }).catch((error) => console.error("[payments/checkout] card on file not saved:", error));
   }
   await admin

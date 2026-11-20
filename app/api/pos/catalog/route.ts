@@ -152,6 +152,7 @@ export async function POST(request: NextRequest) {
         active: body.active !== false,
         open_price: body.openPrice === true,
         members_only: body.membersOnly === true,
+        sell_online: body.sellOnline === true && body.openPrice !== true,
         updated_at: now,
         updated_by_staff_id: currentStaff.id,
       };

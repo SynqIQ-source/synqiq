@@ -101,6 +101,7 @@ export default async function MorePage({ params }: { params: Promise<{ studio: s
       <MemberSection>
         <ul className="divide-y px-4">
           {[
+            { href: `/m/${studio.siteId}/buy`, label: "Buy a membership or class pack" },
             { href: `/m/${studio.siteId}/my-classes`, label: "My schedule" },
             { href: `/m/${studio.siteId}/wallet`, label: "Payment methods & receipts" },
             { href: `/m/${studio.siteId}/get-link`, label: "Change my password" },
