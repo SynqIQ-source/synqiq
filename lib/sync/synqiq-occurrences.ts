@@ -69,9 +69,34 @@ export async function syncSynqiqOccurrences(organizationId: string) {
     }
   }
 
+  // Adopted Mindbody series (schedule takeover): while Mindbody still reports a
+  // date (its class sync, until it's switched off), that date keeps
+  // Mindbody's record -- no second record for the same class.
+  const mindbodyDates = new Set<string>();
+  const adoptedIds = [...new Set(sessions.map((row) => row.mindbody_class_schedule_id).filter(Boolean))] as number[];
+  for (let index = 0; index < adoptedIds.length; index += 200) {
+    const { data } = await admin
+      .from("class_occurrences")
+      .select("mindbody_class_schedule_id, start_datetime")
+      .eq("organization_id", organizationId)
+      .not("mindbody_occurrence_id", "is", null)
+      .in("mindbody_class_schedule_id", adoptedIds.slice(index, index + 200))
+      .gte("start_datetime", from)
+      .lte("start_datetime", to);
+    for (const row of data ?? [])
+      mindbodyDates.add(`${Number(row.mindbody_class_schedule_id)}|${Date.parse(row.start_datetime as string)}`);
+  }
+
   const rows: Record<string, unknown>[] = [];
   const gone: string[] = [];
   for (const raw of sessions) {
+    if (
+      raw.mindbody_class_schedule_id &&
+      mindbodyDates.has(`${Number(raw.mindbody_class_schedule_id)}|${Date.parse(raw.starts_at as string)}`)
+    ) {
+      gone.push(raw.id as string);
+      continue;
+    }
     const session = effective("class_session", raw as Record<string, unknown> & { edits: Record<string, CatalogValue> | null });
     if (session.active === false || raw.removed_from_schedule_at) {
       gone.push(raw.id as string);

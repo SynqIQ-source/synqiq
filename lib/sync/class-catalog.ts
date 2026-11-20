@@ -41,7 +41,11 @@ export async function syncClassCatalog(options: { siteId?: number } = {}): Promi
   try {
     const siteId = siteIdOr(options.siteId);
     const supabase = createSupabaseAdminClient();
-    const { data: org, error: orgError } = await supabase.from("organizations").select("id").eq("mindbody_site_id", siteId).maybeSingle();
+    const { data: org, error: orgError } = await supabase
+      .from("organizations")
+      .select("id, classes_taken_over_at")
+      .eq("mindbody_site_id", siteId)
+      .maybeSingle();
     if (orgError || !org) throw new Error(orgError?.message ?? `No studio for Mindbody site ${siteId}.`);
     const mindbody = createMindbodyClient({ siteId: String(siteId) });
     const accessToken = await mindbody.requireAccessToken();
@@ -52,6 +56,18 @@ export async function syncClassCatalog(options: { siteId?: number } = {}): Promi
         if (error) throw new Error(`Saving ${table} failed: ${error.message}`);
       }
     };
+
+    // SynqIQ owns the class schedule (taken over): only appointment types import.
+    if (org.classes_taken_over_at) {
+      const sessionTypes =
+        ((await withRetry(() => mindbody.getSessionTypes(accessToken))) as { SessionTypes?: MindbodySessionType[] }).SessionTypes ?? [];
+      await save(
+        "session_types",
+        sessionTypes.map((sessionType) => ({ ...toSessionTypeRow(org.id, sessionType), synced_at: syncedAt })),
+        "organization_id,mindbody_session_type_id",
+      );
+      return { success: true, programs: 0, rooms: 0, classTypes: 0, schedules: 0, sessionTypes: sessionTypes.length };
+    }
 
     const programs = ((await withRetry(() => mindbody.getPrograms(accessToken))) as { Programs?: MindbodyProgram[] }).Programs ?? [];
     await save(

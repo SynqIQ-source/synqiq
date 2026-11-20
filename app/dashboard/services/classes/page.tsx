@@ -261,6 +261,9 @@ export default async function ClassesPage() {
           <Link href="/dashboard/class-catalog" className="text-sm underline">
             Weekly schedule &amp; calendar
           </Link>
+          <Link href="/dashboard/services/classes/takeover" className="text-sm underline">
+            Take over the schedule from Mindbody
+          </Link>
         </div>
 
         {categories.map((category) => {
