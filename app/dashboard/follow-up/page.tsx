@@ -23,7 +23,7 @@ export default async function FollowUpPage() {
   // Class follow-ups are the group fitness module; a Trainer-only studio's
   // trainers land on their New members tab instead.
   const moduleStaff = await requireModule("group_fitness", "trainer");
-  // Class check-ins are for instructors (and club admins); a trainer who
+  // Class milestones are for instructors (and club admins); a trainer who
   // doesn't teach classes goes to their New members tab.
   if (!(await getEnabledModules(moduleStaff.organizationId)).has("group_fitness") || !isInstructorAccess(moduleStaff)) {
     redirect(isTrainerAccess(moduleStaff) ? "/dashboard/follow-up/new-members" : homePath(moduleStaff));

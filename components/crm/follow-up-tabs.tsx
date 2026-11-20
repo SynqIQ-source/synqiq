@@ -15,7 +15,7 @@ export function FollowUpTabs({
   showClasses?: boolean;
 }) {
   const tabs = [
-    { key: "classes", href: "/dashboard/follow-up", label: "Class check-ins" },
+    { key: "classes", href: "/dashboard/follow-up", label: "Class milestones" },
     { key: "new-members", href: "/dashboard/follow-up/new-members", label: "New members" },
   ].filter((tab) => showClasses || tab.key !== "classes");
   if (tabs.length < 2) return null;
