@@ -8,6 +8,8 @@ import { sendEmailToRecipients } from "@/lib/email/send";
 import { postClassFollowUpEmail } from "@/lib/email/templates";
 import { loadEmailKit } from "@/lib/email/studio-kit";
 import { getOptionalEnv } from "@/lib/env";
+import { queueMilestones } from "@/lib/email/milestones";
+import { ordinal } from "@/lib/email/milestone-content";
 
 // Local hours (in each studio's own time zone) when reminders go out:
 // noon covers the morning's classes, 8 PM the ones that ended since noon.
@@ -34,6 +36,7 @@ export type PostClassReminderResult = {
   classesChecked: number;
   remindersSent: number;
   skippedNoCheckIns: number;
+  skippedNoMilestones: number;
   failed: number;
 };
 
@@ -43,12 +46,13 @@ export type PostClassReminderResult = {
 // For each group fitness class that ended since the last run: pull its
 // attendance from Mindbody now (the nightly visits sync hasn't run yet, and
 // Follow Up lists only synced check-ins), then remind the instructor who
-// taught it -- by push and email -- to follow up with the members who
-// came. Classes nobody checked in to are marked done without a reminder.
+// taught it -- by push and email -- to follow up, but only when a member
+// reached a class milestone in it (Follow Up lists just those; see
+// lib/email/milestones.ts). Other classes are marked done without a reminder.
 export async function runPostClassReminders(): Promise<PostClassReminderResult> {
   const supabase = createSupabaseAdminClient();
   const now = DateTime.utc();
-  const result: PostClassReminderResult = { classesChecked: 0, remindersSent: 0, skippedNoCheckIns: 0, failed: 0 };
+  const result: PostClassReminderResult = { classesChecked: 0, remindersSent: 0, skippedNoCheckIns: 0, skippedNoMilestones: 0, failed: 0 };
 
   const { data: moduleRows, error: moduleError } = await supabase
     .from("org_modules")
@@ -109,6 +113,7 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
       continue;
     }
 
+    const attended: { occurrence: DueOccurrence; signedInCount: number }[] = [];
     for (const occurrence of orgClasses) {
       result.classesChecked++;
 
@@ -144,7 +149,20 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
         result.skippedNoCheckIns++;
         continue;
       }
+      attended.push({ occurrence, signedInCount });
+    }
 
+    // Milestones reached in these classes go on the instructors' Follow Up
+    // lists now (the nightly run only catches them the next morning).
+    if (attended.length) {
+      try {
+        await queueMilestones(org.id);
+      } catch (queueError) {
+        console.error(`[post-class-reminders] Milestones failed for org ${org.id}:`, queueError);
+      }
+    }
+
+    for (const { occurrence, signedInCount } of attended) {
       // Whoever actually taught it: the approved sub, else the scheduled instructor.
       const instructorId = occurrence.substitute_staff_id ?? occurrence.staff_id;
       if (!instructorId) continue;
@@ -156,13 +174,32 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
         .maybeSingle();
       if (!instructor || instructor.archived_at) continue;
 
+      const { data: reached } = await supabase
+        .from("milestone_emails")
+        .select("client_name, class_count")
+        .eq("organization_id", org.id)
+        .eq("staff_id", instructorId)
+        .eq("status", "pending")
+        .eq("class_start", occurrence.start_datetime);
+      if (!reached?.length) {
+        result.skippedNoMilestones++;
+        continue;
+      }
+      const milestones = reached.map((row) => ({
+        firstName: ((row.client_name as string | null) ?? "").trim().split(" ")[0] || "A member",
+        count: ordinal(row.class_count as number),
+      }));
+
       const className = occurrence.class_name?.trim() || "your class";
-      const people = signedInCount === 1 ? "1 member" : `${signedInCount} members`;
+      const pushBody =
+        milestones.length === 1
+          ? `${milestones[0].firstName} reached their ${milestones[0].count} class in ${className}. Send a quick note.`
+          : `${milestones.length} members reached a class milestone in ${className}. Send them a quick note.`;
 
       try {
         await sendPushToStaff([instructor.id], {
           title: "Follow up with your class",
-          body: `${people} checked in to ${className}. Send them a quick note.`,
+          body: pushBody,
           url: "/dashboard/follow-up",
         });
       } catch (pushError) {
@@ -179,6 +216,7 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
               timezone: org.timezone ?? "utc",
               siteUrl,
               checkedInCount: signedInCount,
+              milestones,
             },
             kit,
           ),

@@ -160,11 +160,11 @@ Tap a star to rate it. You can add a comment on the next page if you like.`,
   class_followup_reminder: {
     label: "After-class follow-up reminder",
     audience: "Instructors",
-    when: "About 2 hours after a class ends, to the instructor who taught it.",
+    when: "At noon or 8 PM after a class where a member reached a class milestone, to the instructor who taught it.",
     subject: "Follow up with your {{class_name}} class",
-    body: `Thanks for teaching **{{class_name}}** on {{class_time}}. {{checked_in}} checked in.
+    body: `Thanks for teaching **{{class_name}}** on {{class_time}}. {{milestones}}
 
-A quick personal note after class goes a long way. Send a follow-up to the people who attended:
+Your milestone note is ready to send. Open Follow Up to send or edit it:
 
 [button]
 
@@ -174,6 +174,7 @@ Members see your name and the studio. Your email address stays private.`,
       class_name: { label: "Class", sample: "Power Flow" },
       class_time: { label: "Class day and time", sample: "Tuesday, December 1 at 6:00 AM" },
       checked_in: { label: "How many checked in", sample: "12 members" },
+      milestones: { label: "Who reached a milestone", sample: "Sam reached their 10th class." },
     },
     staff: true,
   },

@@ -2,12 +2,16 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { memberEmail } from "@/lib/billing/notify";
 import { sendEmailMessages } from "@/lib/email/send";
 import { loadEmailKit, studioFrom } from "@/lib/email/studio-kit";
-import { fillMilestone, milestoneFor, ordinal, renderMilestoneEmail } from "@/lib/email/milestone-content";
+import { sendInstructorFollowup } from "@/lib/followup/relay";
+import { SUGGESTED, fillMilestone, milestoneFor, milestoneOn, ordinal, renderMilestoneEmail } from "@/lib/email/milestone-content";
 
-// Nightly: members who reached a class milestone in the last few days get a
-// pending email from the instructor who taught that class, if that
-// instructor has that milestone turned on. Nothing is sent until the
-// instructor (or a Club Admin) approves it. Pending emails expire after 14 days.
+// Nightly, and right after classes (post-class reminders): members who
+// reached a class milestone in the last few days get a pending follow-up from
+// the instructor who taught that class -- the instructor's own wording, or
+// the suggested one until they save theirs -- unless that milestone is turned
+// off. These are the follow-ups on the instructor's Follow Up page; nothing is
+// sent until the instructor (or a Club Admin) sends it, and a sent or skipped
+// one leaves the list. Pending ones expire after 14 days.
 export const LOOKBACK_DAYS = 3;
 export const EXPIRE_DAYS = 14;
 
@@ -22,12 +26,9 @@ export async function queueMilestones(organizationId: string, now = new Date()) 
 
   const { data: templates } = await admin
     .from("milestone_templates")
-    .select("staff_id, milestone, subject, body")
-    .eq("organization_id", organizationId)
-    .eq("enabled", true)
-    .eq("disabled_by_admin", false);
-  if (!templates?.length) return { queued: 0 };
-  const templateFor = new Map(templates.map((row) => [`${row.staff_id}|${row.milestone}`, row]));
+    .select("staff_id, milestone, subject, body, enabled, disabled_by_admin")
+    .eq("organization_id", organizationId);
+  const templateFor = new Map((templates ?? []).map((row) => [`${row.staff_id}|${row.milestone}`, row]));
 
   const { data: hits, error } = await admin.rpc("class_milestones", {
     p_org: organizationId,
@@ -60,8 +61,10 @@ export async function queueMilestones(organizationId: string, now = new Date()) 
   let queued = 0;
   for (const hit of rows) {
     const milestone = milestoneFor(hit.class_count);
-    const template = milestone ? templateFor.get(`${hit.staff_id}|${milestone}`) : undefined;
-    if (!template || done.has(`${hit.mindbody_client_id}|${hit.class_count}`)) continue;
+    if (!milestone || !hit.staff_id || done.has(`${hit.mindbody_client_id}|${hit.class_count}`)) continue;
+    const saved = templateFor.get(`${hit.staff_id}|${milestone}`);
+    if (!milestoneOn(saved)) continue;
+    const template = saved ?? SUGGESTED[milestone];
     const contact = await memberEmail(admin, organizationId, hit.mindbody_client_id);
     const { data: client } = await admin
       .from("clients")
@@ -87,7 +90,10 @@ export async function queueMilestones(organizationId: string, now = new Date()) 
       subject: fillMilestone(template.subject as string, vars),
       body: fillMilestone(template.body as string, vars),
     });
-    if (!insertError) queued += 1;
+    if (!insertError) {
+      queued += 1;
+      done.add(`${hit.mindbody_client_id}|${hit.class_count}`);
+    }
   }
   return { queued };
 }
@@ -99,7 +105,7 @@ export async function sendMilestone(
   actor: { id: string; admin: boolean },
   id: string,
   edited: { subject: string; body: string },
-): Promise<{ error: string } | { email: string }> {
+): Promise<{ error: string } | { email: string; conversationId?: string }> {
   const admin = createSupabaseAdminClient();
   let claim = admin
     .from("milestone_emails")
@@ -130,10 +136,33 @@ export async function sendMilestone(
     .eq("email_normalized", contact.email.trim().toLowerCase())
     .maybeSingle();
   if (unsub) return fail("This member unsubscribed from the studio's emails.");
-  const [kit, { data: instructor }] = await Promise.all([
+  const [kit, { data: instructor }, { data: client }] = await Promise.all([
     loadEmailKit(admin, organizationId),
-    admin.from("staff").select("display_name").eq("id", row.staff_id).maybeSingle(),
+    admin.from("staff").select("display_name, auth_user_id").eq("id", row.staff_id).maybeSingle(),
+    admin
+      .from("clients")
+      .select("id, email")
+      .eq("organization_id", organizationId)
+      .eq("mindbody_client_id", row.mindbody_client_id)
+      .not("email", "is", null)
+      .limit(1)
+      .maybeSingle(),
   ]);
+  // Through the follow-up relay when it can (the member's reply comes back to
+  // the instructor, and it counts on Follow Up Performance): needs the
+  // instructor's login and the member's email on their client record.
+  if (instructor?.auth_user_id && client?.id) {
+    const relayed = await sendInstructorFollowup({
+      organizationId,
+      instructorId: row.staff_id as string,
+      clientId: client.id as string,
+      subject: edited.subject.replace(/\s+/g, " ").trim(),
+      bodyText: edited.body,
+    });
+    if (!relayed.ok) return fail(relayed.error ?? "The email didn't send. Try again later.");
+    await admin.from("milestone_emails").update({ sent_to: client.email }).eq("id", id);
+    return { email: client.email as string, conversationId: relayed.conversationId };
+  }
   const first = (((instructor?.display_name as string | null) ?? "").split(" ")[0] || "Your instructor").replace(/[<>"]/g, "");
   const email = renderMilestoneEmail(kit, edited.subject, edited.body);
   const result = await sendEmailMessages([

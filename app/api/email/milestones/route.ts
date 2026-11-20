@@ -5,7 +5,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendEmailMessages } from "@/lib/email/send";
 import { loadEmailKit } from "@/lib/email/studio-kit";
 import { sendMilestone } from "@/lib/email/milestones";
-import { fillMilestone, isMilestone, renderMilestoneEmail, unknownMilestoneFields } from "@/lib/email/milestone-content";
+import { SUGGESTED, fillMilestone, isMilestone, renderMilestoneEmail, unknownMilestoneFields } from "@/lib/email/milestone-content";
 
 // Instructors: their own milestone emails (templates, approve/edit, skip,
 // test to self). Club Admins: anyone's, and can turn any template off.
@@ -78,7 +78,20 @@ export async function POST(request: NextRequest) {
       .eq("milestone", body.milestone)
       .select("milestone");
     if (error) return fail(error.message, 500);
-    return data?.length ? NextResponse.json({ success: true }) : fail("Save the email first.");
+    if (data?.length) return NextResponse.json({ success: true });
+    // Never saved (on, with the suggested wording): save it turned off.
+    const { error: insertError } = await admin.from("milestone_templates").insert({
+      organization_id: org,
+      staff_id: owner,
+      milestone: body.milestone,
+      subject: SUGGESTED[body.milestone].subject,
+      body: SUGGESTED[body.milestone].body,
+      enabled: true,
+      disabled_by_admin: body.disabled === true,
+      updated_by_staff_id: staff.id,
+      updated_at: new Date().toISOString(),
+    });
+    return insertError ? fail(insertError.message, 500) : NextResponse.json({ success: true });
   }
 
   const id = typeof body?.id === "string" && UUID.test(body.id) ? body.id : null;

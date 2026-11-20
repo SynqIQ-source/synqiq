@@ -18,6 +18,13 @@ export function ordinal(n: number) {
   return `${n}${suffix}`;
 }
 
+// A milestone is on unless the instructor saved it turned off or a Club Admin
+// turned it off; one never saved is on, with the suggested wording.
+export function milestoneOn(saved: { enabled?: boolean | null; disabled_by_admin?: boolean | null } | null | undefined) {
+  if (!saved) return true;
+  return !saved.disabled_by_admin && Boolean(saved.enabled);
+}
+
 export const milestoneLabel = (milestone: Milestone) =>
   milestone === 200 ? "Every 100 after that (200th, 300th…)" : `${ordinal(milestone)} class`;
 

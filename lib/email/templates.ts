@@ -188,15 +188,32 @@ export function substitutionRequestSelectedEmail({ className, startDatetime, tim
 // approved sub when there was one), when at least one member checked in.
 // Points at Follow Up, where that class's attendees now appear.
 export function postClassFollowUpEmail(
-  { className, startDatetime, timezone, siteUrl, checkedInCount }: ClassInfo & { checkedInCount: number },
+  {
+    className,
+    startDatetime,
+    timezone,
+    siteUrl,
+    checkedInCount,
+    milestones,
+  }: ClassInfo & { checkedInCount: number; milestones: { firstName: string; count: string }[] },
   kit?: EmailKit,
 ): { subject: string; html: string } {
   const people = checkedInCount === 1 ? "1 member" : `${checkedInCount} members`;
   const used = kit ?? defaultKit("SynqIQ");
+  // "Sam reached their 10th class." / "Sam reached their 10th class and Ana their 3rd."
+  const parts = milestones.map((row, index) =>
+    index === 0 ? `${row.firstName} reached their ${row.count} class` : `${row.firstName} their ${row.count}`,
+  );
+  const reached = parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   // Studio wording (Admin > Email > Templates) when the studio's kit is passed.
   return renderStudioEmail(
     "class_followup_reminder",
-    { class_name: className, class_time: formatClassTime(startDatetime, timezone), checked_in: people },
+    {
+      class_name: className,
+      class_time: formatClassTime(startDatetime, timezone),
+      checked_in: people,
+      milestones: reached ? `${reached}.` : "",
+    },
     used,
     { action: emailButton(`${siteUrl}/dashboard/follow-up`, "Open Follow Up", used.branding.color) },
   );

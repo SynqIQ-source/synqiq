@@ -3,7 +3,8 @@ import { DashboardShell } from "@/components/dashboard-shell";
 import { StaffNotProvisioned } from "@/components/staff-not-provisioned";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { getScopedClient, type ScopedSupabaseClient } from "@/lib/supabase/scoped";
-import { FollowUpComposer } from "./follow-up-composer";
+import Link from "next/link";
+import { MilestoneFollowUp, type MilestoneFollowUpItem } from "./milestone-follow-up";
 import { FollowUpTabs } from "@/components/crm/follow-up-tabs";
 import { redirect } from "next/navigation";
 import { getEnabledModules, requireModule } from "@/lib/modules";
@@ -11,32 +12,7 @@ import { homePath, isInstructorAccess, isTrainerAccess } from "@/lib/permissions
 
 const TITLE = "Follow Up";
 const DESCRIPTION =
-  "Reach out to members who recently checked in to one of your classes. They see your name and the studio -- your email address stays private.";
-
-// How far back a check-in still shows up here as a follow-up prospect.
-const ROSTER_WINDOW_DAYS = 45;
-
-type OccurrenceRow = {
-  id: string;
-  class_name: string | null;
-  start_datetime: string | null;
-};
-
-type ClientRow = {
-  id: string;
-  mindbody_unique_id: number;
-  first_name: string;
-  last_name: string;
-  email: string | null;
-};
-
-type Prospect = {
-  clientId: string;
-  name: string;
-  lastClassName: string;
-  lastClassAt: string | null;
-  conversationId: string | null;
-};
+  "Send a note to members who just reached a class milestone with you. They see your name and the studio; your email address stays private.";
 
 async function getOrgTimezone(supabase: ScopedSupabaseClient) {
   const { data } = await supabase.from("organizations").select("timezone").limit(1).maybeSingle();
@@ -49,10 +25,7 @@ export default async function FollowUpPage() {
   const moduleStaff = await requireModule("group_fitness", "trainer");
   // Class check-ins are for instructors (and club admins); a trainer who
   // doesn't teach classes goes to their New members tab.
-  if (
-    !(await getEnabledModules(moduleStaff.organizationId)).has("group_fitness") ||
-    !isInstructorAccess(moduleStaff)
-  ) {
+  if (!(await getEnabledModules(moduleStaff.organizationId)).has("group_fitness") || !isInstructorAccess(moduleStaff)) {
     redirect(isTrainerAccess(moduleStaff) ? "/dashboard/follow-up/new-members" : homePath(moduleStaff));
   }
   const currentStaff = await getCurrentStaff();
@@ -67,108 +40,39 @@ export default async function FollowUpPage() {
 
   const supabase = await getScopedClient(currentStaff);
   const timezone = await getOrgTimezone(supabase);
-  const now = DateTime.now().setZone(timezone);
-  const windowStartIso = now.minus({ days: ROSTER_WINDOW_DAYS }).toUTC().toISO() ?? "";
-  const nowIso = now.toUTC().toISO() ?? "";
 
-  // This instructor's own past classes (plus any they covered as a sub),
-  // most recent first.
-  const { data: occurrenceData, error: occurrenceError } = await supabase
-    .from("class_occurrences")
-    .select("id, class_name, start_datetime")
-    .or(`staff_id.eq.${currentStaff.id},substitute_staff_id.eq.${currentStaff.id}`)
-    .not("mindbody_occurrence_id", "is", null)
-    .gte("start_datetime", windowStartIso)
-    .lt("start_datetime", nowIso)
-    .order("start_datetime", { ascending: false })
-    .returns<OccurrenceRow[]>();
-
-  if (occurrenceError) {
-    throw new Error(`Failed to load your classes: ${occurrenceError.message}`);
+  // Members who reached a class milestone in this instructor's class (their
+  // 1st, 3rd, 10th, 25th, 50th, 100th, every 100 after), waiting for a note.
+  // Queued nightly and right after class (lib/email/milestones.ts); sending
+  // or skipping one takes it off the list, and unsent ones expire in 14 days.
+  const { data: pendingData, error: pendingError } = await supabase
+    .from("milestone_emails")
+    .select("id, client_name, class_count, class_name, class_start, subject, body")
+    .eq("staff_id", currentStaff.id)
+    .eq("status", "pending")
+    .order("class_start", { ascending: false })
+    .limit(200);
+  if (pendingError) {
+    throw new Error(`Failed to load your follow-ups: ${pendingError.message}`);
   }
-
-  const occurrences = occurrenceData ?? [];
-  const occurrenceById = new Map(occurrences.map((o) => [o.id, o]));
-  const occurrenceIds = occurrences.map((o) => o.id);
-
-  let prospects: Prospect[] = [];
-
-  if (occurrenceIds.length > 0) {
-    // Checked-in attendance for those classes. One member can appear across
-    // several classes -- we keep only their most recent check-in (the
-    // occurrence list is already sorted newest-first).
-    const { data: visits, error: visitError } = await supabase
-      .from("class_visits")
-      .select("occurrence_id, client_mindbody_unique_id")
-      .eq("signed_in", true)
-      .in("occurrence_id", occurrenceIds);
-
-    if (visitError) {
-      throw new Error(`Failed to load class attendance: ${visitError.message}`);
-    }
-
-    // occurrences is newest-first, so its index is a recency rank. For each
-    // member keep the occurrence they most recently checked in to.
-    const occurrenceRank = new Map(occurrences.map((o, index) => [o.id, index]));
-    const latestVisitByUid = new Map<number, string>();
-    for (const visit of visits ?? []) {
-      const rank = occurrenceRank.get(visit.occurrence_id);
-      if (rank === undefined) {
-        continue;
-      }
-      const current = latestVisitByUid.get(visit.client_mindbody_unique_id);
-      if (current === undefined || rank < (occurrenceRank.get(current) ?? Infinity)) {
-        latestVisitByUid.set(visit.client_mindbody_unique_id, visit.occurrence_id);
-      }
-    }
-
-    const clientUids = [...latestVisitByUid.keys()];
-
-    if (clientUids.length > 0) {
-      // Only members with an email on file -- that's the whole roster the
-      // relay can actually reach (clients.email is populated only for
-      // checked-in members; see lib/sync/clients.ts).
-      const { data: clientData, error: clientError } = await supabase
-        .from("clients")
-        .select("id, mindbody_unique_id, first_name, last_name, email")
-        .in("mindbody_unique_id", clientUids)
-        .not("email", "is", null)
-        .returns<ClientRow[]>();
-
-      if (clientError) {
-        throw new Error(`Failed to load members: ${clientError.message}`);
-      }
-
-      const { data: conversationData } = await supabase
-        .from("followup_conversations")
-        .select("id, client_id")
-        .eq("instructor_id", currentStaff.id);
-
-      const conversationByClientId = new Map(
-        (conversationData ?? []).map((c) => [c.client_id, c.id as string]),
-      );
-
-      prospects = (clientData ?? [])
-        .map((client) => {
-          const occurrenceId = latestVisitByUid.get(client.mindbody_unique_id);
-          const occurrence = occurrenceId ? occurrenceById.get(occurrenceId) : undefined;
-          return {
-            clientId: client.id,
-            name: `${client.first_name} ${client.last_name}`.trim(),
-            lastClassName: occurrence?.class_name ?? "a class",
-            lastClassAt: occurrence?.start_datetime ?? null,
-            conversationId: conversationByClientId.get(client.id) ?? null,
-          };
-        })
-        .sort((a, b) => (b.lastClassAt ?? "").localeCompare(a.lastClassAt ?? ""));
-    }
-  }
+  const followUps: MilestoneFollowUpItem[] = (pendingData ?? []).map((row) => ({
+    id: row.id as string,
+    name: ((row.client_name as string | null) ?? "").trim() || "Member",
+    count: row.class_count as number,
+    className: ((row.class_name as string | null) ?? "").trim() || "class",
+    when: row.class_start
+      ? DateTime.fromISO(row.class_start as string, { zone: "utc" })
+          .setZone(timezone)
+          .toFormat("EEE, MMM d")
+      : "",
+    subject: row.subject as string,
+    body: row.body as string,
+  }));
 
   // With the CRM module, a second tab lists new members assigned to this
   // trainer; the badge counts the ones they haven't reached out to yet.
   // The New members tab is the Trainer module.
-  const newMembersTab =
-    isTrainerAccess(currentStaff) && (await getEnabledModules(currentStaff.organizationId)).has("trainer");
+  const newMembersTab = isTrainerAccess(currentStaff) && (await getEnabledModules(currentStaff.organizationId)).has("trainer");
   let awaitingOutreach = 0;
   if (newMembersTab) {
     const { data: assigned } = await supabase
@@ -193,8 +97,7 @@ export default async function FollowUpPage() {
       awaitingOutreach = assigned.filter(
         (row) =>
           !(sent ?? []).some(
-            (message) =>
-              message.contact_id === row.id && (!row.trainer_assigned_at || message.created_at >= row.trainer_assigned_at),
+            (message) => message.contact_id === row.id && (!row.trainer_assigned_at || message.created_at >= row.trainer_assigned_at),
           ),
       ).length;
     }
@@ -205,43 +108,26 @@ export default async function FollowUpPage() {
       {newMembersTab ? <FollowUpTabs active="classes" newMembersBadge={awaitingOutreach} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Checked in during the last {ROSTER_WINDOW_DAYS} days
+          Members who just reached a class milestone in your class. Your milestone note is filled in: edit it if you like, then send.{" "}
+          <Link href="/dashboard/email/milestones" className="underline">
+            Edit your milestone notes
+          </Link>
         </p>
       </div>
 
       <div className="mt-6">
-        {prospects.length === 0 ? (
+        {followUps.length === 0 ? (
           <section className="rounded-xl border border-border bg-card p-6">
-            <h2 className="text-base font-semibold text-foreground">No one to follow up with yet</h2>
+            <h2 className="text-base font-semibold text-foreground">You&apos;re all caught up</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Members show up here once they&apos;ve checked in to one of your classes and we have
-              an email address on file for them.
+              When a member reaches their 1st, 3rd, 10th, 25th, 50th or 100th class (or every 100 after) in one of your classes, they show
+              up here with your note ready to send.
             </p>
           </section>
         ) : (
           <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-            {prospects.map((prospect) => (
-              <li
-                key={prospect.clientId}
-                className="flex flex-wrap items-center justify-between gap-3 p-4"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">{prospect.name}</p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">
-                    Last checked in to {prospect.lastClassName}
-                    {prospect.lastClassAt
-                      ? ` on ${DateTime.fromISO(prospect.lastClassAt, { zone: "utc" })
-                          .setZone(timezone)
-                          .toFormat("EEE, MMM d")}`
-                      : ""}
-                  </p>
-                </div>
-                <FollowUpComposer
-                  clientId={prospect.clientId}
-                  clientName={prospect.name}
-                  conversationId={prospect.conversationId}
-                />
-              </li>
+            {followUps.map((item) => (
+              <MilestoneFollowUp key={item.id} item={item} staffId={currentStaff.id} />
             ))}
           </ul>
         )}

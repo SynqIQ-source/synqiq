@@ -146,7 +146,7 @@ function TemplateCard({ row, ownerId, isAdmin }: { row: TemplateRow; ownerId: st
         </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
-          Use this email (you still approve each one before it sends)
+          Put this on my Follow Up page when a member reaches it (you still send each one yourself)
         </label>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -172,7 +172,7 @@ function TemplateCard({ row, ownerId, isAdmin }: { row: TemplateRow; ownerId: st
           >
             Send me a test
           </Button>
-          {isAdmin && row.saved ? (
+          {isAdmin ? (
             <Button
               variant="ghost"
               disabled={busy}

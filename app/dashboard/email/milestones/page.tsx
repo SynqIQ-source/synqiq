@@ -50,7 +50,8 @@ export default async function MilestonesPage({ searchParams }: { searchParams: P
       milestone,
       subject: (saved?.subject as string | undefined) ?? SUGGESTED[milestone].subject,
       body: (saved?.body as string | undefined) ?? SUGGESTED[milestone].body,
-      enabled: Boolean(saved?.enabled),
+      // Not saved yet = on with the suggested wording (lib/email/milestone-content milestoneOn).
+      enabled: saved ? Boolean(saved.enabled) : true,
       disabledByAdmin: Boolean(saved?.disabled_by_admin),
       saved: Boolean(saved),
     };
@@ -71,7 +72,7 @@ export default async function MilestonesPage({ searchParams }: { searchParams: P
   return (
     <DashboardShell
       title="Milestone emails"
-      description="A personal note from the instructor when a member reaches their 1st, 3rd, 10th, 25th, 50th or 100th class (and every 100 after). Nothing sends until it's approved."
+      description="A personal note from the instructor when a member reaches their 1st, 3rd, 10th, 25th, 50th or 100th class (and every 100 after). These are the follow-ups on each instructor's Follow Up page; nothing sends until they send it."
     >
       <MilestonesEditor
         isAdmin={isAdmin}
