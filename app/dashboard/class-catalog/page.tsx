@@ -60,6 +60,7 @@ type Program = Edits & {
   cancel_window_minutes: number | null;
   booking_opens_days: number | null;
   booking_closes_minutes: number | null;
+  required_item_id: string | null;
 };
 type Room = Edits & { id: string; mindbody_resource_id: number; name: string; active: boolean };
 type SessionType = Edits & {
@@ -122,9 +123,13 @@ export default async function ClassCatalogPage() {
       .returns<Schedule[]>(),
     supabase
       .from("departments")
-      .select("id, mindbody_program_id, name, schedule_type, cancel_window_minutes, booking_opens_days, booking_closes_minutes, edits")
+      .select(
+        "id, mindbody_program_id, name, schedule_type, cancel_window_minutes, booking_opens_days, booking_closes_minutes, required_item_id, active, edits",
+      )
       .eq("organization_id", orgId)
-      .not("synced_at", "is", null)
+      // Mindbody's categories, and ones made in SynqIQ (negative program ids),
+      // the same list as Services & Pricing > Classes.
+      .or("synced_at.not.is.null,mindbody_program_id.lt.0")
       .order("name")
       .returns<Program[]>(),
     supabase
@@ -227,7 +232,12 @@ export default async function ClassCatalogPage() {
     const room = schedule.mindbody_resource_id as number | null;
     if (room) roomUse.set(room, (roomUse.get(room) ?? 0) + days(schedule).length);
   }
-  const bookable = programs.filter((program) => program.schedule_type === "Class" || program.schedule_type === "Appointment");
+  const bookable = programs.filter(
+    (program) => program.active !== false && (program.schedule_type === "Class" || program.schedule_type === "Appointment"),
+  );
+  // What each category needs to book (What's Included), as on Services & Pricing > Classes.
+  const { data: itemRows } = await supabase.from("included_items").select("id, name").eq("organization_id", orgId);
+  const itemName = new Map((itemRows ?? []).map((row) => [row.id as string, row.name as string]));
 
   // SynqIQ's calendar and Mindbody's classes over the same dates.
   const { data: org } = await supabase
@@ -449,10 +459,10 @@ export default async function ClassCatalogPage() {
           <TabsContent value="rules">
             <Card className="py-0">
               <CardHeader className="pt-6">
-                <CardTitle>Booking rules by program</CardTitle>
+                <CardTitle>Booking rules by category</CardTitle>
                 <CardDescription>
-                  Cancelling inside the late-cancel window counts as late. Programs not included in membership are paid separately (packs or
-                  drop-ins).
+                  The same rules as each category&apos;s Booking rules tab on Services &amp; Pricing &gt; Classes; a change in either place
+                  shows in both. Cancelling inside the late-cancel window counts as late.
                 </CardDescription>
               </CardHeader>
               <div className="overflow-x-auto">
@@ -460,7 +470,7 @@ export default async function ClassCatalogPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Program</TableHead>
-                      <TableHead>In membership</TableHead>
+                      <TableHead>Members need</TableHead>
                       <TableHead>Booking opens</TableHead>
                       <TableHead>Online booking closes</TableHead>
                       <TableHead>Late cancel</TableHead>
@@ -476,10 +486,12 @@ export default async function ClassCatalogPage() {
                           <span className="block text-xs text-muted-foreground">{program.schedule_type}</span>
                         </TableCell>
                         <TableCell>
-                          {program.included_in_membership === false ? (
+                          {program.required_item_id ? (
+                            <Badge variant="secondary">{itemName.get(program.required_item_id as string) ?? "—"}</Badge>
+                          ) : program.included_in_membership === false ? (
                             <Badge variant="outline">Paid separately</Badge>
                           ) : (
-                            <Badge variant="secondary">Included</Badge>
+                            <Badge variant="secondary">Membership</Badge>
                           )}
                         </TableCell>
                         <TableCell>
@@ -504,7 +516,8 @@ export default async function ClassCatalogPage() {
                               id={program.id}
                               title={`${program.name} booking rules`}
                               values={pick(program, [
-                                "included_in_membership",
+                                // The old switch only matters where What's Included doesn't decide.
+                                ...(program.required_item_id ? [] : ["included_in_membership"]),
                                 "booking_opens_days",
                                 "booking_closes_minutes",
                                 "cancel_window_minutes",

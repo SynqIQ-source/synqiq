@@ -245,7 +245,10 @@ export default async function ClassesPage() {
       </li>
     );
   };
-  const programFields = Object.keys(CATALOG_FIELDS.program);
+  // The rules -- the same fields as Class Catalog > Booking rules (the old
+  // membership switch only where What's Included doesn't decide).
+  const programFields = (category: Record<string, unknown>) =>
+    Object.keys(CATALOG_FIELDS.program).filter((field) => field !== "included_in_membership" || !category.required_item_id);
 
   return (
     <DashboardShell
@@ -440,7 +443,7 @@ export default async function ClassesPage() {
                       entity="program"
                       id={category.id as string}
                       title={`${category.name as string} booking rules`}
-                      values={pick(category, programFields)}
+                      values={pick(category, programFields(category))}
                       edited={category.edited}
                       triggerLabel="Edit rules"
                     />
