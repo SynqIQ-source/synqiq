@@ -77,9 +77,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
       }
 
       setEligibility((prev) => {
-        const withoutThisRow = prev.filter(
-          (row) => !(row.staff_id === staffId && row.class_name === className),
-        );
+        const withoutThisRow = prev.filter((row) => !(row.staff_id === staffId && row.class_name === className));
         return [...withoutThisRow, { staff_id: staffId, class_name: className, enabled: nextEnabled }];
       });
       setToggleState((prev) => ({ ...prev, [staffId]: { status: "idle" } }));
@@ -91,9 +89,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
     }
   }
 
-  const eligibleCount = className
-    ? instructors.filter((instructor) => isEnabled(instructor.id)).length
-    : 0;
+  const eligibleCount = className ? instructors.filter((instructor) => isEnabled(instructor.id)).length : 0;
 
   return (
     <div className="space-y-6">
@@ -135,9 +131,7 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
       {loadStatus === "error" && <p className="text-sm text-red-600">{loadError}</p>}
 
       {loadStatus === "loaded" && !className && (
-        <p className="text-sm text-muted-foreground">
-          Pick or type a class name above to see and toggle who gets notified for it.
-        </p>
+        <p className="text-sm text-muted-foreground">Pick or type a class name above to see and toggle who gets notified for it.</p>
       )}
 
       {loadStatus === "loaded" && className && (
@@ -145,8 +139,8 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
           <div className="border-b bg-muted/50 px-4 py-2 text-xs text-muted-foreground">
             {eligibleCount === 0 ? (
               <span className="font-medium text-amber-700">
-                No instructors are eligible for &quot;{className}&quot; in this department -- a substitution
-                request for it will notify no one.
+                No instructors are eligible for &quot;{className}&quot; in this department -- a substitution request for it will notify no
+                one.
               </span>
             ) : (
               <span>
@@ -185,12 +179,8 @@ export function EligibilityTable({ departments }: { departments: DepartmentRow[]
                             onChange={(event) => toggle(instructor.id, event.target.checked)}
                             className="h-4 w-4 rounded border-border"
                           />
-                          {rowToggleState === "saving" && (
-                            <span className="text-xs text-muted-foreground">Saving...</span>
-                          )}
-                          {rowToggleState === "error" && (
-                            <span className="text-xs text-red-600">{toggleState[instructor.id]?.error}</span>
-                          )}
+                          {rowToggleState === "saving" && <span className="text-xs text-muted-foreground">Saving...</span>}
+                          {rowToggleState === "error" && <span className="text-xs text-red-600">{toggleState[instructor.id]?.error}</span>}
                         </label>
                       </td>
                     </tr>

@@ -1,3 +1,4 @@
+import { capacityTaken } from "@/lib/booking/mindbody-state";
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
@@ -81,7 +82,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       admin.from("staff").select("mindbody_staff_id, display_name").eq("organization_id", orgId).not("mindbody_staff_id", "is", null),
       admin
         .from("class_occurrences")
-        .select("mindbody_class_schedule_id, start_datetime, total_booked")
+        .select("mindbody_class_schedule_id, start_datetime, total_booked, sync_timestamp, counts_read_at")
         .eq("organization_id", orgId)
         .gte("start_datetime", today.startOf("day").toUTC().toISO()!)
         .lte("start_datetime", today.plus({ days: CALENDAR_DAYS }).endOf("day").toUTC().toISO()!)
@@ -90,14 +91,20 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
 
   const sessionIds = (sessions ?? []).map((row) => row.id as string);
   const synqiqBooked = new Map<string, number>();
+  // SynqIQ bookings already copied into Mindbody (write-back), with when.
+  const pushed = new Map<string, string[]>();
   for (let index = 0; index < sessionIds.length; index += 300) {
     const { data } = await admin
       .from("class_bookings")
-      .select("class_session_id")
+      .select("class_session_id, status, mindbody_synced_state, mindbody_synced_at")
       .in("class_session_id", sessionIds.slice(index, index + 300))
-      .in("status", ["booked", "checked_in"]);
-    for (const row of data ?? [])
-      synqiqBooked.set(row.class_session_id as string, (synqiqBooked.get(row.class_session_id as string) ?? 0) + 1);
+      .in("status", ["booked", "checked_in", "no_show"]);
+    for (const row of data ?? []) {
+      const session = row.class_session_id as string;
+      if (row.status !== "no_show") synqiqBooked.set(session, (synqiqBooked.get(session) ?? 0) + 1);
+      if (row.mindbody_synced_state === "in" && row.mindbody_synced_at)
+        pushed.set(session, [...(pushed.get(session) ?? []), row.mindbody_synced_at as string]);
+    }
   }
 
   const programs = new Map(
@@ -155,7 +162,10 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
   const mindbodyBooked = new Map(
     (occurrences ?? []).map((row) => [
       `${row.mindbody_class_schedule_id}|${Date.parse(row.start_datetime as string)}`,
-      Number(row.total_booked ?? 0),
+      {
+        booked: Number(row.total_booked ?? 0),
+        readAt: [row.sync_timestamp, row.counts_read_at].filter(Boolean).sort().pop() as string | undefined,
+      },
     ]),
   );
   const clock = (time: string) => DateTime.fromFormat(time.slice(0, 5), "HH:mm").toFormat("h:mm a");
@@ -166,9 +176,11 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
     const merged = effective("class_session", row as Record<string, unknown> & { edits: Edits });
     const type = row.class_type_id ? types[row.class_type_id as string] : undefined;
     const capacity = (merged.capacity as number | null) ?? null;
-    const taken =
-      (mindbodyBooked.get(`${row.mindbody_class_schedule_id}|${Date.parse(row.starts_at as string)}`) ?? 0) +
-      (synqiqBooked.get(row.id as string) ?? 0);
+    const fromMindbody = mindbodyBooked.get(`${row.mindbody_class_schedule_id}|${Date.parse(row.starts_at as string)}`);
+    const pushedCounted = fromMindbody?.readAt
+      ? (pushed.get(row.id as string) ?? []).filter((at) => Date.parse(at) <= Date.parse(fromMindbody.readAt!)).length
+      : 0;
+    const taken = capacityTaken(fromMindbody?.booked ?? null, pushedCounted, synqiqBooked.get(row.id as string) ?? 0);
     const staffId = (merged.staff_mindbody_id as number | null) ?? null;
     const roomId = (merged.mindbody_resource_id as number | null) ?? null;
     classes.push({

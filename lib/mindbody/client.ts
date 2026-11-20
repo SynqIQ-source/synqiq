@@ -343,6 +343,39 @@ export class MindbodyClient {
     });
   }
 
+  // Dec 10 transition write-back (Adam approved, 2026-11-19): a SynqIQ booking
+  // copied into Mindbody. ClassId is the occurrence id (see getClassVisits).
+  // Never emails the member; no payment required (SynqIQ already checked
+  // what they can book). Test = Mindbody checks it without saving.
+  async addClientToClass(clientId: string, classId: number, options: { waitlist?: boolean; test?: boolean }, accessToken: string) {
+    return this.request("/class/addclienttoclass", {
+      method: "POST",
+      accessToken,
+      body: {
+        ClientId: clientId,
+        ClassId: classId,
+        Waitlist: Boolean(options.waitlist),
+        RequirePayment: false,
+        SendEmail: false,
+        Test: Boolean(options.test),
+      },
+    });
+  }
+
+  async removeClientFromClass(clientId: string, classId: number, options: { lateCancel?: boolean; test?: boolean }, accessToken: string) {
+    return this.request("/class/removeclientfromclass", {
+      method: "POST",
+      accessToken,
+      body: {
+        ClientId: clientId,
+        ClassId: classId,
+        LateCancel: Boolean(options.lateCancel),
+        SendEmail: false,
+        Test: Boolean(options.test),
+      },
+    });
+  }
+
   private async request(path: string, options: MindbodyRequestOptions = {}) {
     const url = new URL(`${this.baseUrl}${path}`);
 

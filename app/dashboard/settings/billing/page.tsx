@@ -33,16 +33,15 @@ export default async function BillingPage() {
   const [billing, modules] = await Promise.all([getStudioBilling(staff.organizationId), getEnabledModules(staff.organizationId)]);
   const moduleNames = MODULES.filter((module) => modules.has(module.key)).map((module) => module.name);
   const date = (iso: string | null) => (iso ? DateTime.fromISO(iso).toFormat("LLLL d, yyyy") : null);
-  const price =
-    billing.kind === "stripe" ? billing.amount : (billing.customPrice ?? listPrice([...modules]));
+  const price = billing.kind === "stripe" ? billing.amount : (billing.customPrice ?? listPrice([...modules]));
 
   return (
     <DashboardShell title="Billing" description="Your SynqIQ plan, payment method and invoices.">
       <div className="max-w-3xl space-y-6">
         {billing.kind === "stripe" && billing.cancelAt && billing.status !== "canceled" ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Your subscription is set to cancel on <span className="font-semibold">{date(billing.cancelAt)}</span>. You
-            keep full access until then.
+            Your subscription is set to cancel on <span className="font-semibold">{date(billing.cancelAt)}</span>. You keep full access
+            until then.
           </div>
         ) : null}
 
@@ -65,8 +64,8 @@ export default async function BillingPage() {
             </p>
             {modules.has("crm") ? (
               <p className="text-muted-foreground">
-                Includes {TEXTS_INCLUDED.toLocaleString("en-US")} texts a month; {Math.round(TEXT_OVERAGE * 100)}¢ per text
-                after that, added to the next bill.
+                Includes {TEXTS_INCLUDED.toLocaleString("en-US")} texts a month; {Math.round(TEXT_OVERAGE * 100)}¢ per text after that,
+                added to the next bill.
               </p>
             ) : null}
             {billing.kind === "stripe" && billing.periodEnd && !billing.cancelAt ? (

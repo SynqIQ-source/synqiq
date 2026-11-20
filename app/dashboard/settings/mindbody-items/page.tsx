@@ -19,10 +19,7 @@ export default async function MindbodyItemsPage() {
   if (staff.role !== "admin") notFound();
 
   const supabase = await getScopedClient(staff);
-  const { data, error } = await supabase
-    .from("mindbody_item_types")
-    .select("kind, name, counts, last_seen_at")
-    .order("name");
+  const { data, error } = await supabase.from("mindbody_item_types").select("kind, name, counts, last_seen_at").order("name");
   if (error) throw new Error("Failed to load Mindbody items.");
 
   const rows = (kind: ItemKind): ItemRow[] =>
@@ -48,10 +45,9 @@ export default async function MindbodyItemsPage() {
           <CardHeader>
             <CardTitle>Memberships</CardTitle>
             <CardDescription>
-              Ticked contracts count as a membership on New Members. A new member is someone whose ticked contract
-              starts and who has never had one, or whose last one ended over 90 days before (shown as Returning).
-              Automatic 12-month resells and re-signing within 90 days don&apos;t count. Contracts appear here as
-              Synq sees them on new members.
+              Ticked contracts count as a membership on New Members. A new member is someone whose ticked contract starts and who has never
+              had one, or whose last one ended over 90 days before (shown as Returning). Automatic 12-month resells and re-signing within 90
+              days don&apos;t count. Contracts appear here as Synq sees them on new members.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -62,8 +58,8 @@ export default async function MindbodyItemsPage() {
           <CardHeader>
             <CardTitle>Personal training</CardTitle>
             <CardDescription>
-              Ticked items are PT on Trainer Health: each PT sale is credited to the trainer who completed the most
-              sessions with that client in the 90 days after it. Items appear here from the nightly sales sync.
+              Ticked items are PT on Trainer Health: each PT sale is credited to the trainer who completed the most sessions with that
+              client in the 90 days after it. Items appear here from the nightly sales sync.
             </CardDescription>
           </CardHeader>
           <CardContent>

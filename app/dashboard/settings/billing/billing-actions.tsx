@@ -27,15 +27,7 @@ async function post(body: Record<string, unknown>) {
 
 // Billing portal, cancel (at the end of the paid period, with an optional
 // reason), and undo a pending cancellation.
-export function BillingActions({
-  canceling,
-  canceled,
-  periodEnd,
-}: {
-  canceling: boolean;
-  canceled: boolean;
-  periodEnd: string | null;
-}) {
+export function BillingActions({ canceling, canceled, periodEnd }: { canceling: boolean; canceled: boolean; periodEnd: string | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

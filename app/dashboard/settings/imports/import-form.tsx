@@ -71,10 +71,7 @@ export function ImportForm() {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6"
-    >
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
       <h2 className="text-sm font-semibold text-foreground">Upload a report</h2>
 
       <div className="flex flex-wrap gap-6">
@@ -84,9 +81,7 @@ export function ImportForm() {
             {REPORT_TYPES.map((type) => (
               <label
                 key={type.value}
-                className={`flex items-center gap-2 text-sm ${
-                  type.enabled ? "text-foreground" : "text-muted-foreground"
-                }`}
+                className={`flex items-center gap-2 text-sm ${type.enabled ? "text-foreground" : "text-muted-foreground"}`}
               >
                 <input
                   type="radio"
@@ -142,24 +137,22 @@ export function ImportForm() {
 
           {state.summary.warnings && (state.summary.warnings.unmatchedRows ?? 0) > 0 && (
             <p className="text-sm text-amber-700">
-              {state.summary.warnings.unmatchedRows} line(s) for {state.summary.warnings.unmatchedClients} member(s)
-              couldn&apos;t be matched to a Mindbody client by email or name. They&apos;re kept and shown as unmatched
-              in shadow billing.
+              {state.summary.warnings.unmatchedRows} line(s) for {state.summary.warnings.unmatchedClients} member(s) couldn&apos;t be
+              matched to a Mindbody client by email or name. They&apos;re kept and shown as unmatched in shadow billing.
             </p>
           )}
 
           {state.summary.warnings && (state.summary.warnings.excludedUncappedCount ?? 0) > 0 && (
             <p className="text-sm text-muted-foreground">
-              {state.summary.warnings.excludedUncappedCount} row(s) were on an uncapped/unlimited
-              plan and excluded from revenue attribution -- Rev. per Visit isn&apos;t a stable
-              per-visit fact for those.
+              {state.summary.warnings.excludedUncappedCount} row(s) were on an uncapped/unlimited plan and excluded from revenue attribution
+              -- Rev. per Visit isn&apos;t a stable per-visit fact for those.
             </p>
           )}
 
           {state.summary.warnings && (state.summary.warnings.zeroRevenueCappedCount ?? 0) > 0 && (
             <p className="text-sm font-medium text-amber-700">
-              {state.summary.warnings.zeroRevenueCappedCount} row(s) show $0 revenue on a package
-              that should carry real value -- often an unapproved comp or trade. Review them on the{" "}
+              {state.summary.warnings.zeroRevenueCappedCount} row(s) show $0 revenue on a package that should carry real value -- often an
+              unapproved comp or trade. Review them on the{" "}
               <Link href="/dashboard/comp-audit" className="underline">
                 Comp Audit
               </Link>{" "}

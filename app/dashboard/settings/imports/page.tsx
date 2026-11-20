@@ -101,9 +101,7 @@ export default async function ImportsPage() {
                         <td className="p-3">
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                              batch.status === "success"
-                                ? "bg-emerald-50 text-emerald-700"
-                                : "bg-red-50 text-red-700"
+                              batch.status === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
                             }`}
                           >
                             {batch.status}
@@ -118,9 +116,7 @@ export default async function ImportsPage() {
                               {zeroRevenueCappedCount} $0 comp{zeroRevenueCappedCount === 1 ? "" : "s"}
                             </Link>
                           ) : excludedUncappedCount > 0 ? (
-                            <span className="text-xs text-muted-foreground">
-                              {excludedUncappedCount} excluded (uncapped)
-                            </span>
+                            <span className="text-xs text-muted-foreground">{excludedUncappedCount} excluded (uncapped)</span>
                           ) : (
                             <span className="text-xs text-muted-foreground">--</span>
                           )}

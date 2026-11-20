@@ -5,11 +5,7 @@ import { useRouter } from "next/navigation";
 
 type SaveStatus = "idle" | "saving" | "error";
 
-export function TrainerHealthSettingsForm({
-  expectedRevenuePerSession,
-}: {
-  expectedRevenuePerSession: number;
-}) {
+export function TrainerHealthSettingsForm({ expectedRevenuePerSession }: { expectedRevenuePerSession: number }) {
   const router = useRouter();
   const [value, setValue] = useState(String(expectedRevenuePerSession));
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -41,16 +37,12 @@ export function TrainerHealthSettingsForm({
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="mt-8 flex flex-col gap-5 rounded-xl border border-border bg-card p-6"
-    >
+    <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
       <div>
         <h2 className="text-sm font-semibold text-foreground">Trainer health benchmark</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Expected revenue per session serviced -- used on the Trainer Health page to flag
-          trainers whose credited sales fall below this benchmark. Adjust this periodically as
-          real pricing changes; it isn&apos;t a fixed constant.
+          Expected revenue per session serviced -- used on the Trainer Health page to flag trainers whose credited sales fall below this
+          benchmark. Adjust this periodically as real pricing changes; it isn&apos;t a fixed constant.
         </p>
       </div>
 

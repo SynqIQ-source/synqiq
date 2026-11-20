@@ -19,11 +19,7 @@ export default async function EligibilitySettingsPage() {
   }
 
   const supabase = await getScopedClient(currentStaff);
-  const { data: departments, error } = await supabase
-    .from("departments")
-    .select("id, name")
-    .order("name")
-    .returns<DepartmentRow[]>();
+  const { data: departments, error } = await supabase.from("departments").select("id, name").order("name").returns<DepartmentRow[]>();
 
   if (error) {
     throw new Error(`Failed to load departments: ${error.message}`);
@@ -32,9 +28,7 @@ export default async function EligibilitySettingsPage() {
   // Pool Lanes doesn't use the substitution system at all -- see
   // lib/excluded-departments.ts. Configuring eligibility for it would be
   // pointless: a request for it can never be created in the first place.
-  const eligibleDepartments = (departments ?? []).filter(
-    (department) => !isExcludedDepartmentName(department.name),
-  );
+  const eligibleDepartments = (departments ?? []).filter((department) => !isExcludedDepartmentName(department.name));
 
   // Read-only, admin-visibility only -- instructors set this themselves
   // from /dashboard/notifications; there's no admin-side toggle here on
@@ -71,9 +65,8 @@ export default async function EligibilitySettingsPage() {
       <section className="mt-8">
         <h2 className="text-base font-semibold text-foreground">Opted out of reminder emails</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          These instructors still get the immediate email when a request opens, but have turned off
-          the every-4-days reminder for requests they haven&apos;t responded to yet. Set by each
-          instructor from their own Notifications page -- not editable here.
+          These instructors still get the immediate email when a request opens, but have turned off the every-4-days reminder for requests
+          they haven&apos;t responded to yet. Set by each instructor from their own Notifications page -- not editable here.
         </p>
 
         {optedOut.length === 0 ? (

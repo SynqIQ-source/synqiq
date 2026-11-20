@@ -10,10 +10,7 @@ export function ItemList({ kind, rows, empty }: { kind: "contract" | "sale_item"
   const [items, setItems] = useState(rows);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const shown = useMemo(
-    () => items.filter((item) => item.name.toLowerCase().includes(filter.trim().toLowerCase())),
-    [items, filter],
-  );
+  const shown = useMemo(() => items.filter((item) => item.name.toLowerCase().includes(filter.trim().toLowerCase())), [items, filter]);
 
   async function toggle(name: string, counts: boolean) {
     setError(null);

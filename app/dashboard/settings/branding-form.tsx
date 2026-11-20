@@ -91,10 +91,7 @@ export function BrandingForm({ organization }: { organization: Organization }) {
 
   return (
     <div className="flex flex-col gap-8">
-      <form
-        onSubmit={handleColorFontSave}
-        className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6"
-      >
+      <form onSubmit={handleColorFontSave} className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
         <h2 className="text-sm font-semibold text-foreground">Colors &amp; font</h2>
 
         <div className="flex flex-wrap gap-6">

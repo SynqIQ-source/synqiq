@@ -56,10 +56,7 @@ export function TargetsForm({
     setSaved(false);
     try {
       const targets = Object.fromEntries(
-        KPI_SECTIONS.flatMap((section) => section.metrics).map((metric) => [
-          metric.key,
-          values[metric.key]?.trim() || null,
-        ]),
+        KPI_SECTIONS.flatMap((section) => section.metrics).map((metric) => [metric.key, values[metric.key]?.trim() || null]),
       );
       const response = await fetch("/api/crm/kpi-targets", {
         method: "PUT",

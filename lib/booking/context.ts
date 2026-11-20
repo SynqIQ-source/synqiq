@@ -1,3 +1,4 @@
+import { capacityTaken } from "@/lib/booking/mindbody-state";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import type { ProgramRules, SessionInfo } from "@/lib/booking/rules";
@@ -105,15 +106,31 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
 
   // Mindbody's bookings for the same class (from its class sync).
   let mindbodyBooked: number | null = null;
+  let countsReadAt: string | null = null;
   if (row.mindbody_class_schedule_id) {
     const { data: occurrence } = await admin
       .from("class_occurrences")
-      .select("total_booked")
+      .select("total_booked, sync_timestamp, counts_read_at")
       .eq("organization_id", organizationId)
       .eq("mindbody_class_schedule_id", row.mindbody_class_schedule_id)
       .eq("start_datetime", row.starts_at)
       .maybeSingle();
-    if (occurrence) mindbodyBooked = (occurrence.total_booked as number | null) ?? 0;
+    if (occurrence) {
+      mindbodyBooked = (occurrence.total_booked as number | null) ?? 0;
+      countsReadAt = [occurrence.sync_timestamp, occurrence.counts_read_at].filter(Boolean).sort().pop() ?? null;
+    }
+  }
+  // SynqIQ bookings copied into Mindbody before its count was read are in
+  // that count already (write-back, Dec 10 transition).
+  let pushedCounted = 0;
+  if (mindbodyBooked !== null && countsReadAt) {
+    const { count } = await admin
+      .from("class_bookings")
+      .select("id", { count: "exact", head: true })
+      .eq("class_session_id", sessionId)
+      .eq("mindbody_synced_state", "in")
+      .lte("mindbody_synced_at", countsReadAt);
+    pushedCounted = count ?? 0;
   }
 
   const { data: bookings } = await admin
@@ -153,7 +170,7 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
     rules,
     mindbodyBooked,
     bookings: bookings ?? [],
-    taken: (mindbodyBooked ?? 0) + synqiqTaken,
+    taken: capacityTaken(mindbodyBooked, pushedCounted, synqiqTaken),
     timezone,
     layout,
     takenSpots,

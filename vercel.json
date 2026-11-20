@@ -26,6 +26,8 @@
     { "path": "/api/maintenance/reminders", "schedule": "0 13 * * *" },
     { "path": "/api/crm/jobs", "schedule": "*/10 * * * *" },
     { "path": "/api/email/newsletters/run", "schedule": "*/10 * * * *" },
+    { "path": "/api/booking/mindbody-sync", "schedule": "*/5 * * * *" },
+    { "path": "/api/sync/class-counts", "schedule": "*/15 0-3,11-23 * * *" },
     { "path": "/api/followup/post-class-reminders", "schedule": "2 * * * *" },
     { "path": "/api/demo/refresh", "schedule": "15 10 * * *" },
     { "path": "/api/billing/overage", "schedule": "0 15 1 * *" },

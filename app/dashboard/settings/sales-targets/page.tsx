@@ -13,11 +13,7 @@ const MONTH_PARAM = /^\d{4}-(0[1-9]|1[0-2])-01$/;
 
 // Monthly sales targets, per month, for the whole club and each salesperson.
 // They show on the Sales dashboard and Sales History. Admin + CRM only.
-export default async function SalesTargetsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string; staff?: string }>;
-}) {
+export default async function SalesTargetsPage({ searchParams }: { searchParams: Promise<{ month?: string; staff?: string }> }) {
   const staff = await requireCrmStaff();
   if (staff.role !== "admin") notFound();
   const params = await searchParams;

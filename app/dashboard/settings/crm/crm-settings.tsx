@@ -86,8 +86,8 @@ export function KioskDevicesCard({ devices, timezone }: { devices: Device[]; tim
       <CardHeader>
         <CardTitle>Kiosk devices</CardTitle>
         <CardDescription>
-          Open <span className="font-mono">synqiq.co/kiosk</span> in Safari on the iPad and enter a pairing code. Codes
-          work once and expire after 15 minutes. The kiosk never uses a staff login.
+          Open <span className="font-mono">synqiq.co/kiosk</span> in Safari on the iPad and enter a pairing code. Codes work once and expire
+          after 15 minutes. The kiosk never uses a staff login.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -102,11 +102,7 @@ export function KioskDevicesCard({ devices, timezone }: { devices: Device[]; tim
         {devices.length > 0 ? (
           <ul className="divide-y rounded-lg border">
             {devices.map((device) => {
-              const status = device.revoked_at
-                ? "Revoked"
-                : device.activated_at
-                  ? "Paired"
-                  : "Waiting for code";
+              const status = device.revoked_at ? "Revoked" : device.activated_at ? "Paired" : "Waiting for code";
               return (
                 <li key={device.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm">
@@ -195,8 +191,8 @@ export function WaiverCard({ waivers, timezone }: { waivers: Waiver[]; timezone:
           {active
             ? `Version ${active.version} is live, published ${DateTime.fromISO(active.published_at).setZone(timezone).toFormat("LLL d, yyyy")}.`
             : "No waiver is published, so the kiosk can't check guests in."}{" "}
-          A published version can&apos;t be edited. Changing the text publishes a new version; guests who signed an
-          earlier version stay signed.
+          A published version can&apos;t be edited. Changing the text publishes a new version; guests who signed an earlier version stay
+          signed.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -253,7 +249,11 @@ export function WaiverCard({ waivers, timezone }: { waivers: Waiver[]; timezone:
         )}
         {waivers.length > 1 ? (
           <p className="text-xs text-muted-foreground">
-            Earlier versions: {waivers.filter((waiver) => !waiver.is_active).map((waiver) => `v${waiver.version}`).join(", ")}
+            Earlier versions:{" "}
+            {waivers
+              .filter((waiver) => !waiver.is_active)
+              .map((waiver) => `v${waiver.version}`)
+              .join(", ")}
           </p>
         ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -291,9 +291,7 @@ export function MarketingSourcesCard({ sources }: { sources: Source[] }) {
                 checked={source.active}
                 disabled={busy}
                 aria-label={`Show ${source.label} on the kiosk`}
-                onCheckedChange={(active) =>
-                  void run(() => send(`/api/crm/marketing-sources/${source.id}`, "PATCH", { active }))
-                }
+                onCheckedChange={(active) => void run(() => send(`/api/crm/marketing-sources/${source.id}`, "PATCH", { active }))}
               />
             </li>
           ))}
@@ -317,17 +315,15 @@ type StaffRow = { id: string; display_name: string; role: string; can_sell: bool
 export function SellersCard({ staff }: { staff: StaffRow[] }) {
   const { busy, error, run } = useAction();
   const [filter, setFilter] = useState("");
-  const shown = staff.filter(
-    (member) => member.can_sell || member.display_name.toLowerCase().includes(filter.trim().toLowerCase()),
-  );
+  const shown = staff.filter((member) => member.can_sell || member.display_name.toLowerCase().includes(filter.trim().toLowerCase()));
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Sales team</CardTitle>
         <CardDescription>
-          Sellers appear in the kiosk&apos;s &ldquo;Who are you meeting?&rdquo; list and can see the Guests pages.
-          Admins can always see Guests.
+          Sellers appear in the kiosk&apos;s &ldquo;Who are you meeting?&rdquo; list and can see the Guests pages. Admins can always see
+          Guests.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -373,11 +369,7 @@ export function EmailCheckCard() {
     try {
       const response = await fetch("/api/crm/email-check-test", { method: "POST" });
       const result = await response.json().catch(() => ({}));
-      setMessage(
-        result.success
-          ? { ok: true, text: result.message }
-          : { ok: false, text: result.error ?? "Mailgun test failed." },
-      );
+      setMessage(result.success ? { ok: true, text: result.message } : { ok: false, text: result.error ?? "Mailgun test failed." });
     } catch {
       setMessage({ ok: false, text: "Couldn't reach SynqIQ." });
     } finally {
@@ -397,9 +389,7 @@ export function EmailCheckCard() {
         <Button variant="outline" disabled={busy} onClick={() => void test()}>
           {busy ? "Testing…" : "Test email check"}
         </Button>
-        {message ? (
-          <p className={message.ok ? "text-sm text-foreground" : "text-sm text-destructive"}>{message.text}</p>
-        ) : null}
+        {message ? <p className={message.ok ? "text-sm text-foreground" : "text-sm text-destructive"}>{message.text}</p> : null}
       </CardContent>
     </Card>
   );
@@ -417,8 +407,7 @@ type LeadForm = {
   submission_count: number;
 };
 
-const FIELD_HELP =
-  "fullName (or firstName + lastName), email, phone, message, optInToEmailCommunications, optInToSMSCommunications";
+const FIELD_HELP = "fullName (or firstName + lastName), email, phone, message, optInToEmailCommunications, optInToSMSCommunications";
 
 export function LeadFormsCard({
   forms,
@@ -485,10 +474,9 @@ export function LeadFormsCard({
       <CardHeader>
         <CardTitle>Website forms</CardTitle>
         <CardDescription>
-          Send your website&apos;s contact or tour form straight into the CRM. Add the form here, then paste its URL into
-          your form tool&apos;s webhook setting (Craft Freeform, WordPress, Zapier and so on), sent as a POST. Each
-          submission becomes a web lead. If the visitor is already a guest, their message is added to their thread
-          instead of creating a duplicate.
+          Send your website&apos;s contact or tour form straight into the CRM. Add the form here, then paste its URL into your form
+          tool&apos;s webhook setting (Craft Freeform, WordPress, Zapier and so on), sent as a POST. Each submission becomes a web lead. If
+          the visitor is already a guest, their message is added to their thread instead of creating a duplicate.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -523,9 +511,7 @@ export function LeadFormsCard({
                       ? `${form.submission_count} received · last ${local(form.last_received_at)}`
                       : "Nothing received yet"}
                     {form.how_heard_label ? ` · Heard: ${form.how_heard_label}` : ""}
-                    {staffName(form.assigned_staff_id)
-                      ? ` · Goes to ${staffName(form.assigned_staff_id)}`
-                      : " · Unassigned"}
+                    {staffName(form.assigned_staff_id) ? ` · Goes to ${staffName(form.assigned_staff_id)}` : " · Unassigned"}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -565,12 +551,7 @@ export function LeadFormsCard({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="lead-form-heard">How did you hear (optional)</Label>
-            <select
-              id="lead-form-heard"
-              className={selectClass}
-              value={howHeard}
-              onChange={(event) => setHowHeard(event.target.value)}
-            >
+            <select id="lead-form-heard" className={selectClass} value={howHeard} onChange={(event) => setHowHeard(event.target.value)}>
               <option value="">None</option>
               {sources
                 .filter((source) => source.active)
@@ -583,12 +564,7 @@ export function LeadFormsCard({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="lead-form-owner">Assign new leads to (optional)</Label>
-            <select
-              id="lead-form-owner"
-              className={selectClass}
-              value={owner}
-              onChange={(event) => setOwner(event.target.value)}
-            >
+            <select id="lead-form-owner" className={selectClass} value={owner} onChange={(event) => setOwner(event.target.value)}>
               <option value="">Nobody (admins are notified)</option>
               {sellers.map((member) => (
                 <option key={member.id} value={member.id}>
@@ -604,8 +580,7 @@ export function LeadFormsCard({
           </div>
         </form>
         <p className="text-xs text-muted-foreground">
-          Fields we read: {FIELD_HELP}. Common variants work too, and any other fields are kept in the guest&apos;s
-          thread.
+          Fields we read: {FIELD_HELP}. Common variants work too, and any other fields are kept in the guest&apos;s thread.
         </p>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
       </CardContent>
