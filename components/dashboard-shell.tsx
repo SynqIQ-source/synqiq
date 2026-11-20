@@ -118,6 +118,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
   {
     label: "Services & Pricing",
     items: [
+      { href: "/dashboard/services/classes", label: "Classes", who: isClubAdmin },
       { href: "/dashboard/class-catalog", label: "Class Catalog", who: isClubAdmin },
       { href: "/dashboard/services/membership-plans", label: "Membership Plans", who: isClubAdmin },
       { href: "/dashboard/services/included", label: "What's Included", who: isClubAdmin },

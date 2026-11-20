@@ -23,10 +23,14 @@ export function CatalogCreateDialog({
   classTypes = [],
   rooms = [],
   instructors = [],
+  initial = {},
+  triggerVariant = "default",
 }: {
   entity: "class_type" | "class_schedule";
   label: string;
   today: string;
+  initial?: Record<string, CatalogValue>; // prefilled values (e.g. the category or class)
+  triggerVariant?: "default" | "outline" | "ghost";
   programs?: Option[];
   classTypes?: Option[];
   rooms?: Option[];
@@ -34,7 +38,10 @@ export function CatalogCreateDialog({
 }) {
   const router = useRouter();
   const specs = NEW_FIELDS[entity];
-  const blank = (): Record<string, CatalogValue> => (entity === "class_schedule" ? { days: [], start_date: today } : {});
+  const blank = (): Record<string, CatalogValue> => ({
+    ...(entity === "class_schedule" ? { days: [], start_date: today } : {}),
+    ...initial,
+  });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Record<string, CatalogValue>>(blank);
   const [saving, setSaving] = useState(false);
@@ -76,7 +83,7 @@ export function CatalogCreateDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" size="sm">
+        <Button type="button" size="sm" variant={triggerVariant}>
           <Plus /> {label}
         </Button>
       </DialogTrigger>

@@ -35,12 +35,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
   // A room or instructor must be this studio's.
   const set = body.set ?? {};
-  if (set.mindbody_resource_id !== undefined && set.mindbody_resource_id !== null && set.mindbody_resource_id !== "") {
+  const roomPicked = set.mindbody_resource_id ?? set.default_room;
+  if (roomPicked !== undefined && roomPicked !== null && roomPicked !== "") {
     const { data: room } = await admin
       .from("rooms")
       .select("id")
       .eq("organization_id", orgId)
-      .eq("mindbody_resource_id", Number(set.mindbody_resource_id))
+      .eq("mindbody_resource_id", Number(roomPicked))
       .maybeSingle();
     if (!room) return NextResponse.json({ success: false, error: "Pick one of the studio's rooms." }, { status: 400 });
   }

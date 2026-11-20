@@ -23,7 +23,16 @@ export const CATALOG_FIELDS: Record<CatalogEntity, Record<string, FieldSpec>> = 
     name: { label: "Name", kind: "text", required: true },
     description_text: { label: "Description", kind: "textarea", help: "Shown to members when they book." },
     level: { label: "Level", kind: "text" },
-    category: { label: "Category", kind: "text" },
+    category: { label: "Type / tag", kind: "text" },
+    prerequisites: { label: "Prerequisites", kind: "textarea", help: "e.g. complete an intro session first." },
+    notes: { label: "Notes", kind: "textarea", help: "For staff; not shown to members." },
+    min_age: { label: "Minimum age", kind: "int", min: 0, max: 120 },
+    max_age: { label: "Maximum age", kind: "int", min: 0, max: 120 },
+    default_minutes: { label: "Default length (minutes)", kind: "int", min: 5, max: 480, help: "New class times start with this." },
+    default_room: { label: "Default room", kind: "room" },
+    default_capacity: { label: "Default spots", kind: "int", min: 1, max: 500 },
+    waitlist_capacity: { label: "Waitlist size", kind: "int", min: 0, max: 200, help: "Blank = no limit; 0 = no waitlist." },
+    online_capacity: { label: "Spots bookable online", kind: "int", min: 0, max: 500, help: "Blank = all spots." },
     active: { label: "Offered", kind: "boolean" },
   },
   class_schedule: {
@@ -41,7 +50,11 @@ export const CATALOG_FIELDS: Record<CatalogEntity, Record<string, FieldSpec>> = 
     active: { label: "In use", kind: "boolean" },
   },
   program: {
-    included_in_membership: { label: "Included in membership", kind: "boolean", help: "Members book without paying extra." },
+    included_in_membership: {
+      label: "Included in membership (old switch)",
+      kind: "boolean",
+      help: "Only used if the category has no What's Included item.",
+    },
     booking_opens_days: { label: "Booking opens (days ahead)", kind: "int", min: 0, max: 365 },
     booking_closes_minutes: { label: "Online booking closes / notice (minutes before)", kind: "int", min: 0, max: 20160 },
     cancel_window_minutes: { label: "Late-cancel window (minutes)", kind: "int", min: 0, max: 20160 },
@@ -71,14 +84,23 @@ export const NEW_FIELDS: Record<"class_type" | "class_schedule", Record<string, 
   class_type: {
     name: { label: "Name", kind: "text", required: true },
     mindbody_program_id: {
-      label: "Program",
+      label: "Category",
       kind: "program",
       required: true,
-      help: "Sets booking rules and whether membership covers it.",
+      help: "Sets booking rules and what covers it (What's Included).",
     },
     description_text: { label: "Description", kind: "textarea", help: "Shown to members when they book." },
     level: { label: "Level", kind: "text" },
-    category: { label: "Category", kind: "text" },
+    category: { label: "Type / tag", kind: "text" },
+    prerequisites: { label: "Prerequisites", kind: "textarea", help: "e.g. complete an intro session first." },
+    notes: { label: "Notes", kind: "textarea", help: "For staff; not shown to members." },
+    min_age: { label: "Minimum age", kind: "int", min: 0, max: 120 },
+    max_age: { label: "Maximum age", kind: "int", min: 0, max: 120 },
+    default_minutes: { label: "Default length (minutes)", kind: "int", min: 5, max: 480, help: "New class times start with this." },
+    default_room: { label: "Default room", kind: "room" },
+    default_capacity: { label: "Default spots", kind: "int", min: 1, max: 500 },
+    waitlist_capacity: { label: "Waitlist size", kind: "int", min: 0, max: 200, help: "Blank = no limit; 0 = no waitlist." },
+    online_capacity: { label: "Spots bookable online", kind: "int", min: 0, max: 500, help: "Blank = all spots." },
   },
   class_schedule: {
     class_type_id: { label: "Class", kind: "class_type", required: true },
@@ -95,6 +117,16 @@ export const NEW_FIELDS: Record<"class_type" | "class_schedule", Record<string, 
 
 // Values a field has when neither Mindbody nor an edit sets it.
 const DEFAULTS: Partial<Record<CatalogEntity, Record<string, CatalogValue>>> = {
+  // SynqIQ-only class settings (Mindbody has no value for them).
+  class_type: {
+    min_age: null,
+    max_age: null,
+    default_minutes: null,
+    default_room: null,
+    default_capacity: null,
+    waitlist_capacity: null,
+    online_capacity: null,
+  },
   class_schedule: { active: true },
   class_session: { active: true, note: null },
   program: { included_in_membership: true, late_cancel_fee_cents: 0, no_show_fee_cents: 0 },
@@ -166,7 +198,7 @@ function clean(spec: FieldSpec, value: unknown): { ok: true; value: CatalogValue
           : bad(`Pick a ${spec.label.toLowerCase()}.`);
       }
       const number = typeof value === "string" ? Number(value) : value;
-      return typeof number === "number" && Number.isInteger(number) && number > 0 ? { ok: true, value: number } : bad("Pick a program.");
+      return typeof number === "number" && Number.isInteger(number) && number !== 0 ? { ok: true, value: number } : bad("Pick a category.");
     }
     case "time": {
       if (typeof value !== "string" || !TIME.test(value)) return bad(`${spec.label} must be a time.`);
@@ -217,6 +249,12 @@ export function applyCatalogEdit(
     changes[field] = { from: current[field], to: result.value };
   }
 
+  if (entity === "class_type") {
+    const next = effective(entity, { ...row, edits });
+    if (typeof next.min_age === "number" && typeof next.max_age === "number" && next.max_age < next.min_age) {
+      return { ok: false, error: "The maximum age must be at least the minimum age." };
+    }
+  }
   if (entity === "class_schedule" || entity === "class_session") {
     const next = effective(entity, { ...row, edits });
     if (typeof next.start_time === "string" && typeof next.end_time === "string" && next.end_time <= next.start_time) {
@@ -237,6 +275,14 @@ export function validateNew(
     const result = clean(spec, input[field]);
     if (!result.ok) return result;
     values[field] = result.value;
+  }
+  if (
+    entity === "class_type" &&
+    values.min_age !== null &&
+    values.max_age !== null &&
+    (values.max_age as number) < (values.min_age as number)
+  ) {
+    return { ok: false, error: "The maximum age must be at least the minimum age." };
   }
   if (entity === "class_schedule") {
     if ((values.end_time as string) <= (values.start_time as string)) return { ok: false, error: "The class has to end after it starts." };

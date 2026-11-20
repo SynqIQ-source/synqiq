@@ -42,7 +42,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .eq("organization_id", orgId)
       .eq("mindbody_program_id", values.mindbody_program_id as number)
       .maybeSingle();
-    if (!program) return NextResponse.json({ success: false, error: "Pick one of the studio's programs." }, { status: 400 });
+    if (!program) return NextResponse.json({ success: false, error: "Pick one of the studio's categories." }, { status: 400 });
+    if (values.default_room) {
+      const { data: room } = await admin
+        .from("rooms")
+        .select("id")
+        .eq("organization_id", orgId)
+        .eq("mindbody_resource_id", values.default_room as number)
+        .maybeSingle();
+      if (!room) return NextResponse.json({ success: false, error: "Pick one of the studio's rooms." }, { status: 400 });
+    }
     row = {
       organization_id: orgId,
       source: "synqiq",
@@ -51,6 +60,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       description_text: values.description_text,
       level: values.level,
       category: values.category,
+      prerequisites: values.prerequisites,
+      notes: values.notes,
+      // SynqIQ-only class settings live in edits, same as on imported classes.
+      edits: Object.fromEntries(
+        ["min_age", "max_age", "default_minutes", "default_room", "default_capacity", "waitlist_capacity", "online_capacity"]
+          .filter((field) => values[field] !== null && values[field] !== undefined)
+          .map((field) => [field, values[field]]),
+      ),
       active: true,
       created_by_staff_id: currentStaff.id,
     };
