@@ -12,6 +12,7 @@ import { CATALOG_FIELDS, effective, type CatalogValue } from "@/lib/classes/cata
 import { loadIncludedSetup } from "@/lib/coverage/included";
 import { CatalogEditDialog } from "../../class-catalog/edit-dialog";
 import { CatalogCreateDialog } from "../../class-catalog/create-dialog";
+import { ClassPhoto } from "../../class-catalog/class-photo";
 import { DAY_NAMES } from "@/lib/classes/catalog";
 import { EndSeriesDialog, ScheduleEditorDialog, type ExistingSeries, type RoomOption, type StaffOption } from "./schedule-editor";
 import { NewCategoryDialog } from "./new-category";
@@ -21,8 +22,10 @@ export const dynamic = "force-dynamic";
 
 // Services & Pricing > Classes (Club Admins), laid out like Mindbody's:
 // one card per class category with its classes, what pays for them, and its
-// booking rules. Add a class to a category, or a class time to a class.
-// Classes always follow their category's coverage.
+// booking rules. This is where classes are set up and changed: open a class
+// to edit it, its photo and its class times (instructor, days, time, room,
+// spots, end date). Class Catalog keeps the day-by-day calendar, rooms,
+// appointment types and the widget. Classes follow their category's coverage.
 
 type Edits = { edits: Record<string, CatalogValue> | null };
 const pick = (row: Record<string, unknown>, fields: string[]) =>
@@ -68,7 +71,7 @@ export default async function ClassesPage() {
       .order("name"),
     admin
       .from("class_types")
-      .select("id, source, name, description_text, level, category, prerequisites, notes, mindbody_program_id, active, edits")
+      .select("id, source, name, description_text, level, category, prerequisites, notes, mindbody_program_id, active, image_url, edits")
       .eq("organization_id", org)
       .order("name"),
     admin
@@ -111,6 +114,11 @@ export default async function ClassesPage() {
     .filter((row) => row.is_instructor)
     .map((row) => ({ id: row.id as string, name: row.display_name as string }));
   const staffName = new Map((teacherRows ?? []).map((row) => [row.id as string, row.display_name as string]));
+  // Mindbody's class times are edited by Mindbody ids (SynqIQ keeps the edit
+  // on top of the nightly import), as Class Catalog did.
+  const mindbodyInstructors = (teacherRows ?? [])
+    .filter((row) => row.is_instructor && row.mindbody_staff_id)
+    .map((row) => ({ value: Number(row.mindbody_staff_id), label: row.display_name as string }));
   const staffByMindbody = new Map(
     (teacherRows ?? []).filter((row) => row.mindbody_staff_id).map((row) => [Number(row.mindbody_staff_id), row.id as string]),
   );
@@ -137,10 +145,12 @@ export default async function ClassesPage() {
   const seriesByType = new Map<string, Record<string, unknown>[]>();
   for (const raw of scheduleRows ?? []) {
     const schedule = effective("class_schedule", raw as Record<string, unknown> & Edits);
-    if (!schedule.class_type_id || schedule.active === false) continue;
+    if (!schedule.class_type_id) continue;
     if (schedule.end_date && (schedule.end_date as string) < today) continue;
     if (schedule.source !== "synqiq" && !(schedule.last_class_at && Date.parse(schedule.last_class_at as string) >= cutoff)) continue;
     seriesByType.set(schedule.class_type_id as string, [...(seriesByType.get(schedule.class_type_id as string) ?? []), schedule]);
+    // Taken off the schedule: listed (so it can be put back), not counted.
+    if (schedule.active === false) continue;
     weekly.set(
       schedule.class_type_id as string,
       (weekly.get(schedule.class_type_id as string) ?? 0) + ((schedule.days as number[]) ?? []).length,
@@ -225,8 +235,11 @@ export default async function ClassesPage() {
           {staffId ? ` · ${staffName.get(staffId) ?? "Instructor"}` : ""}
           {series.assistant_staff_id ? ` + ${staffName.get(series.assistant_staff_id as string) ?? "assistant"}` : ""}
           {roomId ? ` · ${roomName.get(roomId) ?? "Room"}` : ""}
+          {series.capacity ? ` · ${series.capacity} spots` : ""}
           {series.end_date ? ` · until ${DateTime.fromISO(series.end_date as string).toFormat("LLL d, yyyy")}` : ""}
           {series.source === "synqiq" ? "" : " · from Mindbody"}
+          {series.active === false ? " · off the schedule" : ""}
+          {series.source !== "synqiq" && ((series.edited as string[] | undefined) ?? []).length ? " · changed in SynqIQ" : ""}
         </span>
         {series.source === "synqiq" ? (
           <span className="flex gap-1">
@@ -241,7 +254,28 @@ export default async function ClassesPage() {
             />
             <EndSeriesDialog scheduleId={series.id as string} label={type.name as string} today={today} />
           </span>
-        ) : null}
+        ) : (
+          <CatalogEditDialog
+            entity="class_schedule"
+            id={series.id as string}
+            title={`${type.name as string} · ${clock(series.start_time)}`}
+            values={pick(series, [
+              "days",
+              "start_time",
+              "end_time",
+              "mindbody_resource_id",
+              "capacity",
+              "staff_mindbody_id",
+              "end_date",
+              "active",
+            ])}
+            edited={(series.edited as string[] | undefined) ?? []}
+            rooms={roomOptions}
+            instructors={mindbodyInstructors}
+            triggerLabel={`Edit ${type.name as string} ${clock(series.start_time)}`}
+            compact
+          />
+        )}
       </li>
     );
   };
@@ -253,7 +287,7 @@ export default async function ClassesPage() {
   return (
     <DashboardShell
       title="Classes"
-      description="Each class category, its classes, what pays for them, and its booking rules. Add a class to a category, or a class time to a class."
+      description="Set up and change your classes here: each category, its classes and class times, what pays for them, and its booking rules. Open a class to edit it."
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -262,7 +296,7 @@ export default async function ClassesPage() {
             What&apos;s Included
           </Link>
           <Link href="/dashboard/class-catalog" className="text-sm underline">
-            Weekly schedule &amp; calendar
+            Calendar, rooms &amp; widget (Class Catalog)
           </Link>
           <Link href="/dashboard/services/classes/takeover" className="text-sm underline">
             Take over the schedule from Mindbody
@@ -283,54 +317,71 @@ export default async function ClassesPage() {
             ...posIncluding(needs),
           ].filter((row, index, list) => list.findIndex((other) => other.id === row.id) === index);
 
-          const classRow = (type: (typeof types)[number]) => (
-            <div key={type.id as string} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
-              <div className="min-w-0">
-                <span className="font-medium">{type.name as string}</span>
-                {type.source === "synqiq" ? (
-                  <Badge variant="secondary" className="ml-2">
-                    SynqIQ
-                  </Badge>
-                ) : null}
-                <span className="block text-xs text-muted-foreground">
-                  {weekly.get(type.id as string) ? `${weekly.get(type.id as string)} a week` : "Not scheduled"}
-                  {nextClass.get(type.id as string)
-                    ? ` · next ${DateTime.fromISO(nextClass.get(type.id as string)!)
-                        .setZone(timezone)
-                        .toFormat("ccc LLL d, h:mm a")}`
-                    : ""}
-                  {type.level ? ` · ${type.level}` : ""}
-                </span>
-              </div>
-              <div className="flex gap-1">
-                <CatalogEditDialog
-                  entity="class_type"
-                  id={type.id as string}
-                  title={type.name as string}
-                  values={pick(type, classTypeFields)}
-                  edited={type.edited}
-                  rooms={roomOptions}
-                  compact
-                />
-                <ScheduleEditorDialog
-                  classTypeId={type.id as string}
-                  className={type.name as string}
-                  today={today}
-                  instructors={staffChoices}
-                  rooms={roomChoices}
-                  defaults={defaultsFor(type)}
-                />
-              </div>
-              {seriesByType.get(type.id as string)?.length ? (
-                <ul className="w-full space-y-1 border-l pl-3 text-xs">
-                  {seriesByType
-                    .get(type.id as string)!
-                    .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)))
-                    .map((series) => seriesLine(series, type))}
-                </ul>
-              ) : null}
-            </div>
-          );
+          const classRow = (type: (typeof types)[number]) => {
+            const times = (seriesByType.get(type.id as string) ?? []).sort((a, b) =>
+              String(a.start_time).localeCompare(String(b.start_time)),
+            );
+            return (
+              <details key={type.id as string} className="group px-4 py-2 text-sm">
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="font-medium">{type.name as string}</span>
+                    {type.source === "synqiq" ? (
+                      <Badge variant="secondary" className="ml-2">
+                        SynqIQ
+                      </Badge>
+                    ) : null}
+                    <span className="block text-xs text-muted-foreground">
+                      {weekly.get(type.id as string) ? `${weekly.get(type.id as string)} a week` : "Not scheduled"}
+                      {nextClass.get(type.id as string)
+                        ? ` · next ${DateTime.fromISO(nextClass.get(type.id as string)!)
+                            .setZone(timezone)
+                            .toFormat("ccc LLL d, h:mm a")}`
+                        : ""}
+                      {type.level ? ` · ${type.level}` : ""}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground group-open:hidden">Open</span>
+                  <span className="hidden text-xs text-muted-foreground group-open:inline">Close</span>
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <div className="flex flex-wrap items-start gap-3">
+                    <ClassPhoto id={type.id as string} name={type.name as string} imageUrl={(type.image_url as string | null) ?? null} />
+                    <p className="min-w-0 flex-1 text-sm whitespace-pre-line text-muted-foreground">
+                      {(type.description_text as string | null) ?? "No description."}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <CatalogEditDialog
+                      entity="class_type"
+                      id={type.id as string}
+                      title={type.name as string}
+                      values={pick(type, classTypeFields)}
+                      edited={type.edited}
+                      rooms={roomOptions}
+                      triggerLabel="Class settings"
+                    />
+                    <ScheduleEditorDialog
+                      classTypeId={type.id as string}
+                      className={type.name as string}
+                      today={today}
+                      instructors={staffChoices}
+                      rooms={roomChoices}
+                      defaults={defaultsFor(type)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium">Class times</p>
+                    {times.length ? (
+                      <ul className="mt-1 space-y-1 border-l pl-3 text-xs">{times.map((series) => seriesLine(series, type))}</ul>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">None on the schedule.</p>
+                    )}
+                  </div>
+                </div>
+              </details>
+            );
+          };
 
           return (
             <Card key={category.id as string}>

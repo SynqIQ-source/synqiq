@@ -1,19 +1,17 @@
+import Link from "next/link";
 import { DateTime } from "luxon";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requireAccess } from "@/lib/require-access";
 import { isClubAdmin } from "@/lib/permissions";
 import { getScopedClient } from "@/lib/supabase/scoped";
-import { DAY_NAMES } from "@/lib/classes/catalog";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { CatalogEditDialog } from "./edit-dialog";
-import { ClassPhoto } from "./class-photo";
 import { RoomLayoutEditor, type SavedLayout } from "./room-layout-editor";
 import { parseLayout } from "@/lib/rooms/layout";
-import { CatalogCreateDialog } from "./create-dialog";
 import { WidgetTab } from "./widget-tab";
 import { CalendarTab, type SessionRow } from "./calendar-tab";
 import { CALENDAR_DAYS } from "@/lib/sync/class-calendar";
@@ -73,15 +71,6 @@ type SessionType = Edits & {
   online_description: string | null;
 };
 
-const time = (value: unknown) => (typeof value === "string" ? DateTime.fromFormat(value.slice(0, 5), "HH:mm").toFormat("h:mm a") : "—");
-const minutes = (value: unknown) => {
-  if (typeof value !== "number") return "—";
-  if (value === 0) return "none";
-  if (value % 1440 === 0) return `${value / 1440} day${value === 1440 ? "" : "s"}`;
-  if (value % 60 === 0) return `${value / 60} hr`;
-  return `${value} min`;
-};
-const money = (cents: unknown) => (typeof cents === "number" && cents > 0 ? `$${(cents / 100).toFixed(2).replace(/\.00$/, "")}` : "—");
 const pick = (row: Record<string, unknown>, fields: string[]) =>
   Object.fromEntries(fields.map((field) => [field, (row[field] ?? null) as CatalogValue]));
 
@@ -184,11 +173,9 @@ export default async function ClassCatalogPage() {
     .filter((row) => row.source === "synqiq" || (row.last_class_at && Date.parse(row.last_class_at) >= Date.parse(cutoff)))
     .map((row) => effective("class_schedule", row));
   const running = allRunning.filter((schedule) => schedule.active !== false);
-  const removed = allRunning.filter((schedule) => schedule.active === false);
 
   const programName = new Map(programs.map((program) => [program.mindbody_program_id, program.name as string]));
   const roomName = new Map(rooms.map((room) => [room.mindbody_resource_id, room.name as string]));
-  const typeName = new Map(classTypes.map((type) => [type.mindbody_class_description_id, type.name as string]));
   const typeNameById = new Map(classTypes.map((type) => [type.id, type.name as string]));
   const staffName = new Map((teacherRows ?? []).map((row) => [Number(row.mindbody_staff_id), row.display_name as string]));
   const roomOptions = rooms
@@ -198,11 +185,6 @@ export default async function ClassCatalogPage() {
     .filter((row) => row.is_instructor)
     .map((row) => ({ value: Number(row.mindbody_staff_id), label: row.display_name as string }));
 
-  const className = (schedule: (typeof running)[number]) =>
-    (schedule.class_type_id ? typeNameById.get(schedule.class_type_id) : null) ??
-    (schedule.mindbody_class_description_id ? typeName.get(schedule.mindbody_class_description_id) : null) ??
-    schedule.class_name ??
-    "Class";
   const isPool = (schedule: (typeof running)[number]) => /pool lane/i.test(schedule.class_name ?? "");
   const poolSlots = running.filter(isPool);
   const classSlots = running.filter((schedule) => !isPool(schedule));
@@ -213,7 +195,6 @@ export default async function ClassCatalogPage() {
       weeklyByType.set(schedule.class_type_id, (weeklyByType.get(schedule.class_type_id) ?? 0) + days(schedule).length);
   }
   const offered = classTypes.filter((type) => weeklyByType.has(type.id) || (type.source === "synqiq" && type.active !== false));
-  const notOffered = classTypes.filter((type) => !offered.includes(type) && type.active);
   // Class types that run in each room (listed first when assigning a layout).
   const typesInRoom = new Map<number, Set<string>>();
   for (const schedule of running) {
@@ -232,12 +213,6 @@ export default async function ClassCatalogPage() {
     const room = schedule.mindbody_resource_id as number | null;
     if (room) roomUse.set(room, (roomUse.get(room) ?? 0) + days(schedule).length);
   }
-  const bookable = programs.filter(
-    (program) => program.active !== false && (program.schedule_type === "Class" || program.schedule_type === "Appointment"),
-  );
-  // What each category needs to book (What's Included), as on Services & Pricing > Classes.
-  const { data: itemRows } = await supabase.from("included_items").select("id, name").eq("organization_id", orgId);
-  const itemName = new Map((itemRows ?? []).map((row) => [row.id as string, row.name as string]));
 
   // SynqIQ's calendar and Mindbody's classes over the same dates.
   const { data: org } = await supabase
@@ -285,17 +260,11 @@ export default async function ClassCatalogPage() {
       },
     ]);
   }
-  const programOptions = bookable
-    .filter((program) => program.schedule_type === "Class")
-    .map((program) => ({ value: program.mindbody_program_id, label: program.name as string }));
-  const classTypeOptions = classTypes
-    .filter((type) => type.active !== false && (weeklyByType.has(type.id) || type.source === "synqiq" || type.active))
-    .map((type) => ({ value: type.id, label: type.name as string }));
 
   return (
     <DashboardShell
       title="Class Catalog"
-      description="Classes, schedules, rooms and booking rules. Imported from Mindbody each night; edits made here win and are kept. Mindbody still runs booking until the switch."
+      description="The day-by-day class calendar, rooms and layouts, appointment types and the website widget. Imported from Mindbody each night; edits made in SynqIQ win and are kept."
     >
       <div className="space-y-6">
         <Card className="py-4">
@@ -309,12 +278,17 @@ export default async function ClassCatalogPage() {
         </Card>
         {(scheduleRows ?? []).length ? null : <p className="text-sm text-muted-foreground">Not imported yet.</p>}
 
-        <Tabs defaultValue="schedule">
+        <p className="text-sm">
+          Classes, class times and booking rules are set up and changed on{" "}
+          <Link href="/dashboard/services/classes" className="underline">
+            Services &amp; Pricing &gt; Classes
+          </Link>
+          . This page is the day-by-day calendar, rooms, appointment types and the website widget.
+        </p>
+
+        <Tabs defaultValue="calendar">
           <TabsList className="flex-wrap">
-            <TabsTrigger value="schedule">Weekly schedule</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
-            <TabsTrigger value="types">Class types</TabsTrigger>
-            <TabsTrigger value="rules">Booking rules</TabsTrigger>
             <TabsTrigger value="rooms">Rooms</TabsTrigger>
             <TabsTrigger value="appointments">Appointment types</TabsTrigger>
             <TabsTrigger value="widget">Website widget</TabsTrigger>
@@ -330,212 +304,6 @@ export default async function ClassCatalogPage() {
               instructors={instructorOptions}
               timezone={timezone}
             />
-          </TabsContent>
-
-          <TabsContent value="schedule" className="space-y-6">
-            <div className="flex justify-end">
-              <CatalogCreateDialog
-                entity="class_schedule"
-                label="Add class time"
-                today={today.toISODate()!}
-                classTypes={classTypeOptions}
-                rooms={roomOptions}
-                instructors={instructorOptions}
-              />
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {[1, 2, 3, 4, 5, 6, 0].map((day) => {
-                const slots = classSlots
-                  .filter((schedule) => days(schedule).includes(day))
-                  .sort((a, b) => String(a.start_time ?? "").localeCompare(String(b.start_time ?? "")));
-                return (
-                  <Card key={day} className="gap-2 py-4">
-                    <CardHeader className="px-4">
-                      <CardTitle className="text-base">
-                        {DAY_NAMES[day]} <span className="text-sm font-normal text-muted-foreground">· {slots.length} classes</span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 px-4">
-                      {slots.map((schedule) => (
-                        <div key={schedule.id} className="flex items-start justify-between gap-1 rounded-md border px-2 py-1.5 text-sm">
-                          <div className="min-w-0">
-                            <p className="font-medium">
-                              {className(schedule)} <Edited show={schedule.edited.length > 0} />
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {time(schedule.start_time)}–{time(schedule.end_time)}
-                              {schedule.mindbody_resource_id ? ` · ${roomName.get(schedule.mindbody_resource_id as number) ?? "Room"}` : ""}
-                              {schedule.capacity ? ` · ${schedule.capacity} spots` : ""}
-                            </p>
-                            {schedule.staff_mindbody_id && staffName.get(schedule.staff_mindbody_id as number) ? (
-                              <p className="text-xs text-muted-foreground">{staffName.get(schedule.staff_mindbody_id as number)}</p>
-                            ) : null}
-                          </div>
-                          <CatalogEditDialog
-                            entity="class_schedule"
-                            id={schedule.id}
-                            title={`${className(schedule)} · ${time(schedule.start_time)}`}
-                            values={pick(schedule, [
-                              "days",
-                              "start_time",
-                              "end_time",
-                              "mindbody_resource_id",
-                              "capacity",
-                              "staff_mindbody_id",
-                              "end_date",
-                              "active",
-                            ])}
-                            edited={schedule.edited}
-                            rooms={roomOptions}
-                            instructors={instructorOptions}
-                            triggerLabel={`Edit ${className(schedule)}`}
-                            compact
-                          />
-                        </div>
-                      ))}
-                      {slots.length === 0 ? <p className="text-sm text-muted-foreground">No classes.</p> : null}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Pool lanes: {poolSlots.length} lane-slots ({poolSlots.reduce((sum, schedule) => sum + days(schedule).length, 0)} a week), 2
-              swimmers each. Schedules shown are ones with a class in the last 30 days.
-              {removed.length
-                ? ` Taken off the schedule in SynqIQ: ${removed.map((schedule) => `${className(schedule)} ${time(schedule.start_time)}`).join(", ")}.`
-                : ""}
-            </p>
-          </TabsContent>
-
-          <TabsContent value="types" className="space-y-4">
-            <div className="flex justify-end">
-              <CatalogCreateDialog entity="class_type" label="New class type" today={today.toISODate()!} programs={programOptions} />
-            </div>
-            <div className="grid gap-4 lg:grid-cols-2">
-              {offered.map((type) => (
-                <Card key={type.id} className="gap-2 py-4">
-                  <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-4">
-                    <div className="min-w-0 space-y-1.5">
-                      <CardTitle className="text-base">
-                        {type.name as string} <Edited show={type.edited.length > 0} />
-                      </CardTitle>
-                      <CardDescription className="flex flex-wrap gap-1">
-                        {type.mindbody_program_id ? (
-                          <Badge variant="secondary">{programName.get(type.mindbody_program_id) ?? "Program"}</Badge>
-                        ) : null}
-                        {type.category ? <Badge variant="outline">{type.category as string}</Badge> : null}
-                        {type.subcategory ? <Badge variant="outline">{type.subcategory}</Badge> : null}
-                        {type.level ? <Badge variant="outline">{type.level as string}</Badge> : null}
-                        <Badge variant="outline">{weeklyByType.get(type.id) ?? 0} a week</Badge>
-                        {type.source === "synqiq" ? <Badge variant="outline">Added in SynqIQ</Badge> : null}
-                        {type.active === false ? <Badge variant="destructive">Not offered</Badge> : null}
-                      </CardDescription>
-                    </div>
-                    <CatalogEditDialog
-                      entity="class_type"
-                      id={type.id}
-                      title={type.name as string}
-                      values={pick(type, ["name", "description_text", "level", "category", "active"])}
-                      edited={type.edited}
-                    />
-                  </CardHeader>
-                  <CardContent className="flex gap-3 px-4">
-                    <ClassPhoto id={type.id} name={type.name as string} imageUrl={(type.image_url as string | null) ?? null} />
-                    <p className="min-w-0 flex-1 text-sm whitespace-pre-line text-muted-foreground">
-                      {(type.description_text as string | null) ?? "No description."}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-            {notOffered.length ? (
-              <p className="text-sm text-muted-foreground">
-                Active in Mindbody but not on the current schedule: {notOffered.map((type) => type.name as string).join(", ")}.
-              </p>
-            ) : null}
-          </TabsContent>
-
-          <TabsContent value="rules">
-            <Card className="py-0">
-              <CardHeader className="pt-6">
-                <CardTitle>Booking rules by category</CardTitle>
-                <CardDescription>
-                  The same rules as each category&apos;s Booking rules tab on Services &amp; Pricing &gt; Classes; a change in either place
-                  shows in both. Cancelling inside the late-cancel window counts as late.
-                </CardDescription>
-              </CardHeader>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Members need</TableHead>
-                      <TableHead>Booking opens</TableHead>
-                      <TableHead>Online booking closes</TableHead>
-                      <TableHead>Late cancel</TableHead>
-                      <TableHead>Fees (late / no-show)</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {bookable.map((program) => (
-                      <TableRow key={program.id}>
-                        <TableCell>
-                          <span className="font-medium">{program.name}</span>
-                          <span className="block text-xs text-muted-foreground">{program.schedule_type}</span>
-                        </TableCell>
-                        <TableCell>
-                          {program.required_item_id ? (
-                            <Badge variant="secondary">{itemName.get(program.required_item_id as string) ?? "—"}</Badge>
-                          ) : program.included_in_membership === false ? (
-                            <Badge variant="outline">Paid separately</Badge>
-                          ) : (
-                            <Badge variant="secondary">Membership</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {typeof program.booking_opens_days === "number" && program.booking_opens_days > 0
-                            ? `${program.booking_opens_days} days ahead`
-                            : "—"}
-                        </TableCell>
-                        <TableCell>
-                          {typeof program.booking_closes_minutes === "number" && program.booking_closes_minutes > 0
-                            ? `${minutes(program.booking_closes_minutes)} ${program.schedule_type === "Appointment" ? "notice" : "before"}`
-                            : "—"}
-                        </TableCell>
-                        <TableCell>{minutes(program.cancel_window_minutes)}</TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {money(program.late_cancel_fee_cents)} / {money(program.no_show_fee_cents)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span className="inline-flex items-center gap-1">
-                            <Edited show={program.edited.length > 0} />
-                            <CatalogEditDialog
-                              entity="program"
-                              id={program.id}
-                              title={`${program.name} booking rules`}
-                              values={pick(program, [
-                                // The old switch only matters where What's Included doesn't decide.
-                                ...(program.required_item_id ? [] : ["included_in_membership"]),
-                                "booking_opens_days",
-                                "booking_closes_minutes",
-                                "cancel_window_minutes",
-                                "late_cancel_fee_cents",
-                                "no_show_fee_cents",
-                              ])}
-                              edited={program.edited}
-                              triggerLabel={`Edit ${program.name}`}
-                              compact
-                            />
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </Card>
           </TabsContent>
 
           <TabsContent value="rooms">
