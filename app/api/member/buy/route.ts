@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       ip,
       userAgent: request.headers.get("user-agent")?.slice(0, 300) ?? null,
     });
-    if ("error" in started) return fail(started.error);
+    if ("error" in started) return fail(started.error ?? "Couldn't start the payment. Try again.");
     return NextResponse.json({ success: true, ...started });
   }
 
