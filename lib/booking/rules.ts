@@ -157,3 +157,24 @@ export const BOOKING_LABELS = {
   checked_in: "Checked in",
   no_show: "No-show",
 } as const;
+
+// Schedule-editor limits on where a new booking lands: online bookings stop
+// at the online spots (then waitlist; 0 = staff only), and a full waitlist
+// stops booking. Unset limits change nothing.
+export function placeWithLimits(input: {
+  capacity: number | null;
+  taken: number;
+  waitlisted: number;
+  online: boolean;
+  onlineCapacity: number | null;
+  waitlistCapacity: number | null;
+}): "booked" | "waitlisted" | { error: string } {
+  if (input.online && input.onlineCapacity === 0) return { error: "This class can't be booked online. Please contact the front desk." };
+  const limit =
+    input.online && input.onlineCapacity !== null ? Math.min(input.onlineCapacity, input.capacity ?? input.onlineCapacity) : input.capacity;
+  if (limit === null || input.taken < limit) return "booked";
+  if (input.waitlistCapacity !== null && input.waitlisted >= input.waitlistCapacity) {
+    return { error: input.waitlistCapacity === 0 ? "This class is full." : "This class and its waitlist are full." };
+  }
+  return "waitlisted";
+}

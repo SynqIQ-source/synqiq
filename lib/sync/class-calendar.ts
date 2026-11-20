@@ -43,6 +43,15 @@ type ScheduleRow = {
   mindbody_class_schedule_id: number | null;
   last_class_at: string | null;
   edits: Record<string, CatalogValue> | null;
+  staff_id?: string | null;
+  assistant_staff_id?: string | null;
+  layout_id?: string | null;
+  pay_override_cents?: number | null;
+  assistant_pay_cents?: number | null;
+  waitlist_capacity?: number | null;
+  online_capacity?: number | null;
+  is_free?: boolean | null;
+  pay_later?: boolean | null;
 };
 
 export async function buildClassCalendar(organizationId: string): Promise<BuildCalendarResult> {
@@ -58,7 +67,7 @@ export async function buildClassCalendar(organizationId: string): Promise<BuildC
       supabase
         .from("class_schedules")
         .select(
-          "id, source, class_type_id, class_name, days, start_time, end_time, start_date, end_date, frequency_interval, mindbody_resource_id, capacity, staff_mindbody_id, mindbody_class_schedule_id, last_class_at, edits",
+          "id, source, class_type_id, class_name, days, start_time, end_time, start_date, end_date, frequency_interval, mindbody_resource_id, capacity, staff_mindbody_id, mindbody_class_schedule_id, last_class_at, edits, staff_id, assistant_staff_id, layout_id, pay_override_cents, assistant_pay_cents, waitlist_capacity, online_capacity, is_free, pay_later",
         )
         .eq("organization_id", organizationId)
         .returns<ScheduleRow[]>(),
@@ -94,6 +103,17 @@ export async function buildClassCalendar(organizationId: string): Promise<BuildC
         capacity: (schedule.capacity as number | null) ?? null,
         staffMindbodyId: (schedule.staff_mindbody_id as number | null) ?? null,
         mindbodyClassScheduleId: row.mindbody_class_schedule_id,
+        extra: {
+          staff_id: row.staff_id ?? null,
+          assistant_staff_id: row.assistant_staff_id ?? null,
+          layout_id: row.layout_id ?? null,
+          pay_override_cents: row.pay_override_cents ?? null,
+          assistant_pay_cents: row.assistant_pay_cents ?? null,
+          waitlist_capacity: row.waitlist_capacity ?? null,
+          online_capacity: row.online_capacity ?? null,
+          is_free: row.is_free === true,
+          pay_later: row.pay_later === true,
+        },
       });
     }
 

@@ -18,9 +18,23 @@ export type CalendarSchedule = {
   capacity: number | null;
   staffMindbodyId: number | null;
   mindbodyClassScheduleId: number | null;
+  extra?: SessionExtra; // schedule-editor settings copied onto each date
 };
 
-export type GeneratedSession = {
+// Set on class times made in SynqIQ's schedule editor.
+export type SessionExtra = {
+  staff_id: string | null;
+  assistant_staff_id: string | null;
+  layout_id: string | null;
+  pay_override_cents: number | null;
+  assistant_pay_cents: number | null;
+  waitlist_capacity: number | null;
+  online_capacity: number | null;
+  is_free: boolean;
+  pay_later: boolean;
+};
+
+export type GeneratedSession = Partial<SessionExtra> & {
   class_schedule_id: string;
   class_type_id: string | null;
   class_name: string;
@@ -77,6 +91,7 @@ export function generateSessions(schedules: CalendarSchedule[], from: string, to
         capacity: schedule.capacity,
         staff_mindbody_id: schedule.staffMindbodyId,
         mindbody_class_schedule_id: schedule.mindbodyClassScheduleId,
+        ...(schedule.extra ?? {}),
       });
     }
   }

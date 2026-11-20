@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { findStudio, getCurrentMember, sameOrigin } from "@/lib/member/session";
 import { loadSessionContext } from "@/lib/booking/context";
-import { bookingCoverage, bookingWindow, placeFor } from "@/lib/booking/rules";
+import { bookingCoverage, bookingWindow, placeWithLimits } from "@/lib/booking/rules";
 import { loadCheckInStatus } from "@/lib/checkin/status";
 import { billingFrozen, FROZEN_MESSAGE } from "@/lib/billing/flags";
 import { chooseSpot } from "@/lib/rooms/layout";
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       { status: 400 },
     );
   }
-  const coverage = bookingCoverage({
+  const found = bookingCoverage({
     rules: context.rules,
     services: person.services,
     membershipProgram: MEMBERSHIP_PROGRAM,
@@ -51,7 +51,12 @@ export async function POST(request: NextRequest) {
     hasCurrentMembership: person.decision.kind === "membership",
     included: await loadIncludedSetup(createSupabaseAdminClient(), studio.id),
   });
-  if (coverage.kind === "none") {
+  // Free and pay-later class times need nothing on the account.
+  const coverage =
+    found.kind === "none" && (context.session.isFree || context.session.payLater)
+      ? { ...found, name: context.session.isFree ? "Free class" : "Pay later" }
+      : found;
+  if (coverage.kind === "none" && !context.session.isFree && !context.session.payLater) {
     return NextResponse.json(
       {
         success: false,
@@ -63,7 +68,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let status = placeFor(context.session, context.taken);
+  const placed = placeWithLimits({
+    capacity: context.session.capacity,
+    taken: context.taken,
+    waitlisted: context.bookings.filter((booking) => booking.status === "waitlisted").length,
+    online: true,
+    onlineCapacity: context.session.onlineCapacity,
+    waitlistCapacity: context.session.waitlistCapacity,
+  });
+  if (typeof placed === "object") return NextResponse.json({ success: false, error: placed.error }, { status: 400 });
+  let status = placed;
   let spot: { id: string; label: string } | null = null;
   if (context.layout && status === "booked") {
     const chosen = chooseSpot(context.layout, context.takenSpots, spotRequested);

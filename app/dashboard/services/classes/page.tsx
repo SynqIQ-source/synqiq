@@ -12,6 +12,8 @@ import { CATALOG_FIELDS, effective, type CatalogValue } from "@/lib/classes/cata
 import { loadIncludedSetup } from "@/lib/coverage/included";
 import { CatalogEditDialog } from "../../class-catalog/edit-dialog";
 import { CatalogCreateDialog } from "../../class-catalog/create-dialog";
+import { DAY_NAMES } from "@/lib/classes/catalog";
+import { EndSeriesDialog, ScheduleEditorDialog, type ExistingSeries, type RoomOption, type StaffOption } from "./schedule-editor";
 import { NewCategoryDialog } from "./new-category";
 
 export const metadata: Metadata = { title: "Classes" };
@@ -69,7 +71,12 @@ export default async function ClassesPage() {
       .select("id, source, name, description_text, level, category, prerequisites, notes, mindbody_program_id, active, edits")
       .eq("organization_id", org)
       .order("name"),
-    admin.from("class_schedules").select("id, source, class_type_id, days, end_date, last_class_at, edits").eq("organization_id", org),
+    admin
+      .from("class_schedules")
+      .select(
+        "id, source, class_type_id, days, start_time, end_time, start_date, end_date, frequency_type, frequency_interval, last_class_at, staff_mindbody_id, mindbody_resource_id, capacity, staff_id, assistant_staff_id, room_id, layout_id, pay_override_cents, assistant_pay_cents, waitlist_capacity, online_capacity, is_free, pay_later, edits",
+      )
+      .eq("organization_id", org),
     admin
       .from("class_sessions")
       .select("class_type_id, starts_at")
@@ -78,13 +85,8 @@ export default async function ClassesPage() {
       .is("removed_from_schedule_at", null)
       .order("starts_at")
       .limit(5000),
-    admin.from("rooms").select("mindbody_resource_id, name, active, edits").eq("organization_id", org).order("name"),
-    admin
-      .from("staff")
-      .select("mindbody_staff_id, display_name, is_instructor")
-      .eq("organization_id", org)
-      .not("mindbody_staff_id", "is", null)
-      .order("display_name"),
+    admin.from("rooms").select("id, mindbody_resource_id, name, active, edits").eq("organization_id", org).order("name"),
+    admin.from("staff").select("id, mindbody_staff_id, display_name, is_instructor").eq("organization_id", org).order("display_name"),
     admin
       .from("member_services")
       .select("product_id, name, program")
@@ -104,18 +106,41 @@ export default async function ClassesPage() {
   const roomOptions = rooms
     .filter((room) => room.active !== false)
     .map((room) => ({ value: Number(room.mindbody_resource_id), label: room.name as string }));
-  const instructorOptions = (teacherRows ?? [])
+  // The schedule editor links staff and rooms by SynqIQ id.
+  const staffChoices: StaffOption[] = (teacherRows ?? [])
     .filter((row) => row.is_instructor)
-    .map((row) => ({ value: Number(row.mindbody_staff_id), label: row.display_name as string }));
+    .map((row) => ({ id: row.id as string, name: row.display_name as string }));
+  const staffName = new Map((teacherRows ?? []).map((row) => [row.id as string, row.display_name as string]));
+  const staffByMindbody = new Map(
+    (teacherRows ?? []).filter((row) => row.mindbody_staff_id).map((row) => [Number(row.mindbody_staff_id), row.id as string]),
+  );
+  const { data: layoutRows } = await admin
+    .from("room_layouts")
+    .select("id, room_id, name, is_default, active")
+    .eq("organization_id", org)
+    .order("name");
+  const roomChoices: RoomOption[] = rooms
+    .filter((room) => room.active !== false)
+    .map((room) => ({
+      id: room.id as string,
+      name: room.name as string,
+      layouts: (layoutRows ?? [])
+        .filter((layout) => layout.room_id === room.id && layout.active !== false)
+        .map((layout) => ({ id: layout.id as string, name: layout.name as string, isDefault: Boolean(layout.is_default) })),
+    }));
+  const roomName = new Map(rooms.map((room) => [room.id as string, room.name as string]));
+  const roomByMindbody = new Map(rooms.map((room) => [Number(room.mindbody_resource_id), room.id as string]));
 
   // Classes a week and next date, per class.
   const cutoff = now.minus({ days: 30 }).toMillis();
   const weekly = new Map<string, number>();
+  const seriesByType = new Map<string, Record<string, unknown>[]>();
   for (const raw of scheduleRows ?? []) {
     const schedule = effective("class_schedule", raw as Record<string, unknown> & Edits);
     if (!schedule.class_type_id || schedule.active === false) continue;
     if (schedule.end_date && (schedule.end_date as string) < today) continue;
     if (schedule.source !== "synqiq" && !(schedule.last_class_at && Date.parse(schedule.last_class_at as string) >= cutoff)) continue;
+    seriesByType.set(schedule.class_type_id as string, [...(seriesByType.get(schedule.class_type_id as string) ?? []), schedule]);
     weekly.set(
       schedule.class_type_id as string,
       (weekly.get(schedule.class_type_id as string) ?? 0) + ((schedule.days as number[]) ?? []).length,
@@ -155,6 +180,71 @@ export default async function ClassesPage() {
     .filter((row) => row.schedule_type === "Class" && row.active !== false && (row.synced_at || (row.mindbody_program_id as number) < 0))
     .map((row) => effective("program", row as Record<string, unknown> & Edits));
   const classTypeFields = Object.keys(CATALOG_FIELDS.class_type);
+  const defaultsFor = (type: Record<string, unknown>) => ({
+    minutes: (type.default_minutes as number | null) ?? null,
+    roomId: type.default_room ? (roomByMindbody.get(Number(type.default_room)) ?? null) : null,
+    capacity: (type.default_capacity as number | null) ?? null,
+    waitlist: (type.waitlist_capacity as number | null) ?? null,
+    online: (type.online_capacity as number | null) ?? null,
+  });
+  const clock = (value: unknown) => (typeof value === "string" ? DateTime.fromFormat(value.slice(0, 5), "HH:mm").toFormat("h:mm a") : "—");
+  // One class time (series): when, who, where; SynqIQ's can be changed or ended.
+  const seriesLine = (series: Record<string, unknown>, type: Record<string, unknown>) => {
+    const staffId =
+      (series.staff_id as string | null) ??
+      (series.staff_mindbody_id ? (staffByMindbody.get(Number(series.staff_mindbody_id)) ?? null) : null);
+    const roomId =
+      (series.room_id as string | null) ??
+      (series.mindbody_resource_id ? (roomByMindbody.get(Number(series.mindbody_resource_id)) ?? null) : null);
+    const every = Number(series.frequency_interval ?? 1) || 1;
+    const days = ((series.days as number[]) ?? []).map((day) => DAY_NAMES[day]).join(", ");
+    const existing: ExistingSeries = {
+      scheduleId: series.id as string,
+      days: (series.days as number[]) ?? [],
+      startTime: String(series.start_time ?? ""),
+      endTime: String(series.end_time ?? ""),
+      everyWeeks: every,
+      staffId,
+      assistantId: (series.assistant_staff_id as string | null) ?? null,
+      payCents: (series.pay_override_cents as number | null) ?? null,
+      assistantPayCents: (series.assistant_pay_cents as number | null) ?? null,
+      roomId,
+      layoutId: (series.layout_id as string | null) ?? null,
+      capacity: (series.capacity as number | null) ?? null,
+      waitlist: (series.waitlist_capacity as number | null) ?? null,
+      online: (series.online_capacity as number | null) ?? null,
+      isFree: series.is_free === true,
+      payLater: series.pay_later === true,
+      endDate: (series.end_date as string | null) ?? null,
+    };
+    return (
+      <li key={series.id as string} className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-muted-foreground">
+          {series.frequency_type === "Single" ? DateTime.fromISO(series.start_date as string).toFormat("ccc LLL d") : days}
+          {every > 1 ? ` (every ${every} weeks)` : ""} · {clock(series.start_time)}–{clock(series.end_time)}
+          {staffId ? ` · ${staffName.get(staffId) ?? "Instructor"}` : ""}
+          {series.assistant_staff_id ? ` + ${staffName.get(series.assistant_staff_id as string) ?? "assistant"}` : ""}
+          {roomId ? ` · ${roomName.get(roomId) ?? "Room"}` : ""}
+          {series.end_date ? ` · until ${DateTime.fromISO(series.end_date as string).toFormat("LLL d, yyyy")}` : ""}
+          {series.source === "synqiq" ? "" : " · from Mindbody"}
+        </span>
+        {series.source === "synqiq" ? (
+          <span className="flex gap-1">
+            <ScheduleEditorDialog
+              classTypeId={type.id as string}
+              className={type.name as string}
+              today={today}
+              instructors={staffChoices}
+              rooms={roomChoices}
+              defaults={defaultsFor(type)}
+              series={existing}
+            />
+            <EndSeriesDialog scheduleId={series.id as string} label={type.name as string} today={today} />
+          </span>
+        ) : null}
+      </li>
+    );
+  };
   const programFields = Object.keys(CATALOG_FIELDS.program);
 
   return (
@@ -216,21 +306,23 @@ export default async function ClassesPage() {
                   rooms={roomOptions}
                   compact
                 />
-                <CatalogCreateDialog
-                  entity="class_schedule"
-                  label="Schedule"
+                <ScheduleEditorDialog
+                  classTypeId={type.id as string}
+                  className={type.name as string}
                   today={today}
-                  triggerVariant="outline"
-                  classTypes={[{ value: type.id as string, label: type.name as string }]}
-                  rooms={roomOptions}
-                  instructors={instructorOptions}
-                  initial={{
-                    class_type_id: type.id as string,
-                    mindbody_resource_id: (type.default_room as number | null) ?? null,
-                    capacity: (type.default_capacity as number | null) ?? null,
-                  }}
+                  instructors={staffChoices}
+                  rooms={roomChoices}
+                  defaults={defaultsFor(type)}
                 />
               </div>
+              {seriesByType.get(type.id as string)?.length ? (
+                <ul className="w-full space-y-1 border-l pl-3 text-xs">
+                  {seriesByType
+                    .get(type.id as string)!
+                    .sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)))
+                    .map((series) => seriesLine(series, type))}
+                </ul>
+              ) : null}
             </div>
           );
 

@@ -42,6 +42,11 @@ export type SessionContext = {
     staffMindbodyId: number | null;
     mindbodyClassScheduleId: number | null;
     note: string | null;
+    // Schedule-editor settings (class times made in SynqIQ).
+    waitlistCapacity: number | null; // null = no limit
+    onlineCapacity: number | null; // null = every spot; 0 = not online
+    isFree: boolean;
+    payLater: boolean;
   };
   rules: ProgramRules;
   mindbodyBooked: number | null; // null when Mindbody has no matching class
@@ -143,11 +148,13 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
     .order("booked_at")
     .returns<BookingRow[]>();
   const synqiqTaken = (bookings ?? []).filter((booking) => ACTIVE.has(booking.status)).length;
-  const layout = await loadRoomLayout(
-    organizationId,
-    (merged.mindbody_resource_id as number | null) ?? null,
-    (row.class_type_id as string | null) ?? null,
-  );
+  const layout = row.layout_id
+    ? await loadLayoutById(organizationId, row.layout_id as string)
+    : await loadRoomLayout(
+        organizationId,
+        (merged.mindbody_resource_id as number | null) ?? null,
+        (row.class_type_id as string | null) ?? null,
+      );
   const takenSpots = new Set(
     (bookings ?? []).filter((booking) => ACTIVE.has(booking.status) && booking.spot_id).map((booking) => booking.spot_id as string),
   );
@@ -167,6 +174,10 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
       staffMindbodyId: (merged.staff_mindbody_id as number | null) ?? null,
       mindbodyClassScheduleId: (row.mindbody_class_schedule_id as number | null) ?? null,
       note: (merged.note as string | null) ?? null,
+      waitlistCapacity: (row.waitlist_capacity as number | null) ?? null,
+      onlineCapacity: (row.online_capacity as number | null) ?? null,
+      isFree: row.is_free === true,
+      payLater: row.pay_later === true,
     },
     rules,
     mindbodyBooked,
@@ -204,4 +215,16 @@ export async function loadRoomLayout(
     classTypeId,
   );
   return parseLayout(chosen?.row);
+}
+
+// A layout picked on the class time in the schedule editor.
+async function loadLayoutById(organizationId: string, layoutId: string): Promise<RoomLayout | null> {
+  const { data } = await createSupabaseAdminClient()
+    .from("room_layouts")
+    .select("columns, rows, items, spot_noun")
+    .eq("organization_id", organizationId)
+    .eq("id", layoutId)
+    .eq("active", true)
+    .maybeSingle();
+  return parseLayout(data);
 }
