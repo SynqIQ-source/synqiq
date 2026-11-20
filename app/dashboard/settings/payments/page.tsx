@@ -6,6 +6,8 @@ import { isClubAdmin } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getStudioStripeAccount, refreshStudioAccount } from "@/lib/payments/connect";
 import { ConnectActions } from "./connect-actions";
+import { ReadersCard } from "./readers-card";
+import { studioReaders } from "@/lib/payments/terminal";
 
 type Props = { searchParams: Promise<{ returned?: string; resume?: string }> };
 
@@ -27,6 +29,13 @@ export default async function PaymentsSettingsPage({ searchParams }: Props) {
     }
   }
   const status = !account ? "Not connected" : account.ready ? "Ready for payments" : "Setup in progress";
+  // Desk card readers (only once card payments are ready).
+  const readers = account?.ready ? await studioReaders(admin, staff.organizationId) : [];
+  const { count: pastReaders } = await admin
+    .from("terminal_readers")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", staff.organizationId)
+    .eq("livemode", Boolean(account?.livemode));
 
   return (
     <DashboardShell
@@ -70,6 +79,13 @@ export default async function PaymentsSettingsPage({ searchParams }: Props) {
             </p>
           </CardContent>
         </Card>
+        {account?.ready ? (
+          <ReadersCard
+            readers={readers.map((reader) => ({ id: reader.id, label: reader.label, deviceType: reader.deviceType }))}
+            testMode={!account.livemode}
+            needsAddress={!pastReaders}
+          />
+        ) : null}
       </div>
     </DashboardShell>
   );

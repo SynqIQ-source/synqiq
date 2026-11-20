@@ -1,3 +1,4 @@
+import { studioReaders } from "@/lib/payments/terminal";
 import Link from "next/link";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ export default async function PosPage() {
   // Only people who earn commission (Admin > Commissions) are in the commission picker.
   const earners = await commissionEarnerIds(admin, staff.organizationId);
   const cardReady = await cardPaymentsReady(admin, staff.organizationId);
+  const readers = cardReady ? await studioReaders(admin, staff.organizationId) : [];
   const categoryBy = new Map((categories ?? []).map((row) => [row.id as string, row]));
   const categoryRows: CheckoutCategory[] = (categories ?? [])
     .filter((row) => row.active)
@@ -120,6 +122,7 @@ export default async function PosPage() {
         freezeNotice={FREEZE_NOTICE}
         cardReady={cardReady}
         cardTestMode={cardReady && !stripeLivemode()}
+        readers={readers.map((reader) => ({ id: reader.id, label: reader.label }))}
       />
     </DashboardShell>
   );

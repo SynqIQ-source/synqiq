@@ -1,3 +1,4 @@
+import { sendToReader } from "@/lib/payments/terminal";
 import { removeSoldPacks } from "@/lib/sessions/packs";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -85,8 +86,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, ...result });
     }
     if (body.action === "card_start") {
-      const started = await startCardPayment(currentStaff, saleRequest);
+      // readerId: the card is tapped / inserted on that desk reader.
+      const readerId = typeof body.readerId === "string" && /^[0-9a-f-]{36}$/i.test(body.readerId) ? body.readerId : null;
+      const started = await startCardPayment(currentStaff, saleRequest, { terminal: Boolean(readerId) });
       if ("error" in started) return NextResponse.json({ success: false, error: started.error }, { status: 400 });
+      if (readerId) {
+        const sent = await sendToReader(currentStaff.organizationId, started.paymentId, readerId);
+        if ("error" in sent) return NextResponse.json({ success: false, error: sent.error }, { status: 400 });
+      }
       return NextResponse.json({ success: true, ...started });
     }
     const result = await savePracticeSale(currentStaff, { ...saleRequest, dryRun: body.action === "agreements" });

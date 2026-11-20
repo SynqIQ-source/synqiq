@@ -79,9 +79,12 @@ export async function cardPaymentsReady(admin: Admin, organizationId: string): P
   return Boolean(account?.ready && account.livemode === stripeLivemode());
 }
 
+// options.terminal: the card is tapped / inserted on a desk reader
+// (lib/payments/terminal.ts) instead of typed into Stripe's card form.
 export async function startCardPayment(
   staff: CurrentStaff,
   request: CardSaleRequest,
+  options: { terminal?: boolean } = {},
 ): Promise<
   { error: string } | { paymentId: string; clientSecret: string; publishableKey: string; stripeAccountId: string; amountCents: number }
 > {
@@ -131,8 +134,11 @@ export async function startCardPayment(
   const params: Stripe.PaymentIntentCreateParams = {
     amount: checked.totalCents,
     currency: "usd",
-    // Cards only (no bank debits or pay-later), at the desk and online.
-    allowed_payment_method_types: ["card"],
+    // Cards only (no bank debits or pay-later), at the desk and online; a
+    // desk reader takes card_present (tap, chip or swipe).
+    ...(options.terminal
+      ? { allowed_payment_method_types: ["card_present"], capture_method: "automatic" as const }
+      : { allowed_payment_method_types: ["card"] }),
     description: `SynqIQ ${request.online ? "online purchase" : "checkout"}${request.clientName ? ` · ${request.clientName}` : ""}`,
     metadata: { synqiq_payment_id: row.id as string, synqiq_organization_id: staff.organizationId },
     ...(customerId ? { customer: customerId, setup_future_usage: "off_session" as const } : {}),
@@ -181,7 +187,7 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
   const stripe = getStripe();
   const intent = await stripe.paymentIntents.retrieve(
     row.payment_intent_id as string,
-    { expand: ["payment_method"] },
+    { expand: ["payment_method", "latest_charge"] },
     { stripeAccount: row.stripe_account_id as string },
   );
   if (intent.status !== "succeeded")
@@ -217,7 +223,17 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
       organizationId: staffRow.organization_id as string,
     } as CurrentStaff;
   }
-  const paymentMethodId = typeof intent.payment_method === "string" ? intent.payment_method : (intent.payment_method?.id ?? null);
+  // A tapped / inserted card (desk reader) can't be charged again itself;
+  // Stripe makes a reusable copy (generated_card) when the sale renews monthly.
+  const presentDetails =
+    intent.latest_charge && typeof intent.latest_charge === "object"
+      ? (intent.latest_charge.payment_method_details?.card_present ?? null)
+      : null;
+  const paymentMethodId = presentDetails
+    ? (presentDetails.generated_card ?? null)
+    : typeof intent.payment_method === "string"
+      ? intent.payment_method
+      : (intent.payment_method?.id ?? null);
   const saved = await savePracticeSale(staff, {
     ...(row.sale_request as CardSaleRequest),
     payment: {
@@ -270,7 +286,9 @@ export async function finishCardPayment(paymentId: string, organizationId: strin
 // Brand, last 4 and expiry of the card used (for monthly billing and the
 // expiring-card list); Stripe keeps the card itself.
 function savedCard(method: unknown) {
-  const card = (method && typeof method === "object" ? (method as { card?: Record<string, unknown> }).card : null) ?? null;
+  const holder =
+    method && typeof method === "object" ? (method as { card?: Record<string, unknown>; card_present?: Record<string, unknown> }) : null;
+  const card = holder?.card ?? holder?.card_present ?? null;
   if (!card) return null;
   return {
     brand: typeof card.brand === "string" ? card.brand : null,

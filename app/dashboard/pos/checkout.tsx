@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CardPayment, type CardSession } from "./card-payment";
+import { ReaderPayment } from "./reader-payment";
 import { SignAgreements, type AgreementToSign, type SignedAgreement } from "./sign-agreements";
 import { ChevronLeft, ChevronRight, Minus, Plus, ScanBarcode, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +74,7 @@ export function Checkout({
   meEarns,
   freezeNotice,
   cardReady = false,
+  readers = [],
   cardTestMode = false,
 }: {
   items: CheckoutItem[];
@@ -86,6 +88,8 @@ export function Checkout({
   freezeNotice: string;
   // The studio's Stripe account is ready for card payments (test or live).
   cardReady?: boolean;
+  // Desk card readers (Settings > Payments); empty = none registered.
+  readers?: { id: string; label: string }[];
   cardTestMode?: boolean;
 }) {
   const [openId, setOpenId] = useState<string | null>(null); // inventory category being browsed
@@ -101,10 +105,13 @@ export function Checkout({
   const [signing, setSigning] = useState<AgreementToSign[] | null>(null);
   const [signError, setSignError] = useState<string | null>(null);
   // "card" charges through Stripe; "practice" saves without charging.
-  const [payWith, setPayWith] = useState<"card" | "practice" | "on_file">("practice");
+  const [payWith, setPayWith] = useState<"card" | "practice" | "on_file" | "reader">("practice");
   // Charge card on file: no retail card, so staff confirm using the dues card.
   const [duesConfirm, setDuesConfirm] = useState<{ label: string; agreements: SignedAgreement[] } | null>(null);
   const [cardSession, setCardSession] = useState<CardSession | null>(null);
+  // A payment waiting on a desk reader, and which reader to use.
+  const [readerSession, setReaderSession] = useState<{ paymentId: string; amountCents: number; label: string } | null>(null);
+  const [readerId, setReaderId] = useState(readers[0]?.id ?? "");
   // Memberships: bill from the sign-up day (default), or prorate and draft on the 1st.
   const [billingStart, setBillingStart] = useState<BillingStart>("signup");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -243,7 +250,7 @@ export function Checkout({
 
   // Complete sale: items with an agreement (memberships, personal training)
   // open the signing screen first; the sale saves once everything is signed.
-  async function complete(mode: "card" | "practice" | "on_file") {
+  async function complete(mode: "card" | "practice" | "on_file" | "reader") {
     setPayWith(mode);
     setSaving(true);
     setError(null);
@@ -260,6 +267,7 @@ export function Checkout({
       return setSigning(result.agreements);
     }
     if (mode === "card") await startCard([]);
+    else if (mode === "reader") await startCard([], readerId);
     else if (mode === "on_file") await chargeOnFile([], false);
     else await save([]);
   }
@@ -300,14 +308,14 @@ export function Checkout({
   // Card: the server checks the sale (signatures included) and starts the
   // payment in the studio's Stripe account; the sale is saved only after
   // Stripe confirms the payment (finishCard).
-  async function startCard(agreements: SignedAgreement[]) {
+  async function startCard(agreements: SignedAgreement[], onReader?: string) {
     setSaving(true);
     setError(null);
     setSignError(null);
     const response = await fetch("/api/pos/sales", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...salePayload("sale", agreements), action: "card_start" }),
+      body: JSON.stringify({ ...salePayload("sale", agreements), action: "card_start", ...(onReader ? { readerId: onReader } : {}) }),
     }).catch(() => null);
     const result = (await response?.json().catch(() => ({}))) as Partial<CardSession> & { success?: boolean; error?: string };
     setSaving(false);
@@ -317,11 +325,20 @@ export function Checkout({
       return setError(message);
     }
     setSigning(null);
+    if (onReader) {
+      setReaderSession({
+        paymentId: result.paymentId!,
+        amountCents: result.amountCents ?? 0,
+        label: readers.find((reader) => reader.id === onReader)?.label ?? "the reader",
+      });
+      return;
+    }
     setCardSession(result as CardSession);
   }
 
-  async function finishCard() {
-    if (!cardSession) return;
+  async function finishCard(fromReader?: string) {
+    const paymentId = fromReader ?? cardSession?.paymentId;
+    if (!paymentId) return;
     // The browser's word isn't enough: the server re-reads the payment from
     // Stripe. Retry briefly in case the payment is still settling.
     let result: { success?: boolean; error?: string; saleNumber?: number; livemode?: boolean } = {};
@@ -329,13 +346,14 @@ export function Checkout({
       const response = await fetch("/api/pos/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "card_finish", paymentId: cardSession.paymentId }),
+        body: JSON.stringify({ action: "card_finish", paymentId }),
       }).catch(() => null);
       result = ((await response?.json().catch(() => ({}))) ?? {}) as typeof result;
       if (result.success || !/processing|being saved/.test(result.error ?? "")) break;
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
     setCardSession(null);
+    setReaderSession(null);
     if (!result.success) return setError(result.error ?? "Couldn't confirm the payment. Check Sales history before charging again.");
     showReceipt(result.saleNumber ?? 0, result.livemode ? "card" : "card_test");
   }
@@ -436,10 +454,28 @@ export function Checkout({
           saving={saving}
           error={signError}
           onCancel={() => setSigning(null)}
-          onDone={(signed) => (payWith === "card" ? startCard(signed) : payWith === "on_file" ? chargeOnFile(signed, false) : save(signed))}
+          onDone={(signed) =>
+            payWith === "card"
+              ? startCard(signed)
+              : payWith === "reader"
+                ? startCard(signed, readerId)
+                : payWith === "on_file"
+                  ? chargeOnFile(signed, false)
+                  : save(signed)
+          }
         />
       ) : null}
-      {cardSession ? <CardPayment session={cardSession} onPaid={finishCard} onCancel={() => setCardSession(null)} /> : null}
+      {cardSession ? <CardPayment session={cardSession} onPaid={() => finishCard()} onCancel={() => setCardSession(null)} /> : null}
+      {readerSession ? (
+        <ReaderPayment
+          paymentId={readerSession.paymentId}
+          readerLabel={readerSession.label}
+          amountCents={readerSession.amountCents}
+          testMode={cardTestMode}
+          onPaid={() => finishCard(readerSession.paymentId)}
+          onCancel={() => setReaderSession(null)}
+        />
+      ) : null}
       {cardReady ? (
         cardTestMode ? (
           <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
@@ -833,6 +869,33 @@ export function Checkout({
                   >
                     {saving && payWith === "card" ? "Checking…" : `Charge card ${money(cart.totalCents)}`}
                   </Button>
+                ) : null}
+                {cardReady && readers.length ? (
+                  <div className="flex gap-2">
+                    <Button
+                      className="flex-1"
+                      disabled={
+                        saving || lines.length === 0 || packageNeedsMember || missingAmount || membersOnlyBlocked || cart.totalCents < 50
+                      }
+                      onClick={() => complete("reader")}
+                    >
+                      {saving && payWith === "reader" ? "Sending…" : `Tap / insert card ${money(cart.totalCents)}`}
+                    </Button>
+                    {readers.length > 1 ? (
+                      <select
+                        aria-label="Reader"
+                        className="h-9 rounded-md border bg-background px-2 text-sm"
+                        value={readerId}
+                        onChange={(event) => setReaderId(event.target.value)}
+                      >
+                        {readers.map((reader) => (
+                          <option key={reader.id} value={reader.id}>
+                            {reader.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </div>
                 ) : null}
                 {cardReady && member && !member.id.startsWith("crm:") ? (
                   <Button
