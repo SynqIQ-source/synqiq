@@ -103,7 +103,9 @@ export async function buildPayroll(organizationId: string, from: string, to: str
     all((a, b) =>
       admin
         .from("class_occurrences")
-        .select("id, mindbody_class_schedule_id, class_name, staff_id, substitute_staff_id, start_datetime, end_datetime, total_signed_in")
+        .select(
+          "id, mindbody_class_schedule_id, class_name, staff_id, substitute_staff_id, start_datetime, end_datetime, total_signed_in, synqiq_signed_in",
+        )
         .eq("organization_id", organizationId)
         .gte("start_datetime", startIso)
         .lt("start_datetime", endIso)
@@ -221,7 +223,9 @@ export async function buildPayroll(organizationId: string, from: string, to: str
     // Paid clients = the class's visit records (signed in, plus no-shows that
     // used a session), as Mindbody counts them; the occurrence's own
     // signed-in total can be stale.
-    const heads = visitCounts.get(occurrence.id as string) ?? Number(occurrence.total_signed_in ?? 0);
+    // class_visits includes SynqIQ check-ins (unified attendance view).
+    const heads =
+      visitCounts.get(occurrence.id as string) ?? Number(occurrence.total_signed_in ?? 0) + Number(occurrence.synqiq_signed_in ?? 0);
     if (!rate && !entry.missingRates.includes("class rate")) entry.missingRates.push("class rate");
     entry.classes.push({
       occurrenceId: occurrence.id as string,

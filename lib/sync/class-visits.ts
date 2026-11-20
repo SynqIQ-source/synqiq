@@ -16,11 +16,7 @@ const OCCURRENCE_PAGE_SIZE = 1000;
 // (see app/dashboard/page.tsx's getOverviewRows) -- a plain unbounded
 // select silently truncates past it, and the backfill window here can be
 // well over 1000 rows.
-async function getOccurrencesInWindow(
-  supabase: SupabaseAdminClient,
-  organizationId: string,
-  since: string,
-): Promise<OccurrenceRow[]> {
+async function getOccurrencesInWindow(supabase: SupabaseAdminClient, organizationId: string, since: string): Promise<OccurrenceRow[]> {
   const allRows: OccurrenceRow[] = [];
   let offset = 0;
 
@@ -75,9 +71,7 @@ export async function fetchAndStoreOccurrenceVisits({
   occurrence: OccurrenceRow;
   syncedAt: string;
 }): Promise<{ imported: number; signedInCount: number }> {
-  const page = await withRetry(() =>
-    mindbody.getClassVisits(asOccurrenceId(occurrence.mindbody_occurrence_id), accessToken),
-  );
+  const page = await withRetry(() => mindbody.getClassVisits(asOccurrenceId(occurrence.mindbody_occurrence_id), accessToken));
   const rawVisits = (page.Class?.Visits ?? []) as MindbodyClassVisit[];
 
   // A single occurrence can legitimately list the same client twice
@@ -102,8 +96,9 @@ export async function fetchAndStoreOccurrenceVisits({
     return { imported: 0, signedInCount };
   }
 
+  // Mindbody's own rows; class_visits is a view adding SynqIQ check-ins.
   const { data: upserted, error } = await supabase
-    .from("class_visits")
+    .from("class_visits_mindbody")
     .upsert(
       visits.map((visit) => ({
         organization_id: organizationId,
@@ -138,8 +133,7 @@ export type SyncClassVisitsOptions = {
 };
 
 export type SyncClassVisitsResult =
-  | { success: true; occurrencesProcessed: number; visitsImported: number; occurrencesFailed: number }
-  | { success: false; error: string };
+  { success: true; occurrencesProcessed: number; visitsImported: number; occurrencesFailed: number } | { success: false; error: string };
 
 // One MindBody API call per occurrence (GET /class/classvisits has no
 // bulk/date-range form) -- this is the expensive sync in both time and
@@ -163,17 +157,12 @@ export async function syncClassVisits(options: SyncClassVisitsOptions = {}): Pro
     const site = siteResult.Sites?.find((candidate: { Id: number }) => candidate.Id === configuredSiteId);
 
     if (!site) {
-      throw new Error(
-        `MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`,
-      );
+      throw new Error(`MindBody /site/sites did not return Mindbody site ${configuredSiteId}.`);
     }
 
     const { data: org, error: orgError } = await supabase
       .from("organizations")
-      .upsert(
-        { mindbody_site_id: site.Id, timezone: site.TimeZone, name: site.Name },
-        { onConflict: "mindbody_site_id" },
-      )
+      .upsert({ mindbody_site_id: site.Id, timezone: site.TimeZone, name: site.Name }, { onConflict: "mindbody_site_id" })
       .select()
       .single();
 
@@ -231,6 +220,9 @@ export async function syncClassVisits(options: SyncClassVisitsOptions = {}): Pro
       await delay(DELAY_BETWEEN_OCCURRENCES_MS);
     }
 
+    // SynqIQ-only check-in counts depend on which visits Mindbody now has signed in.
+    const { error: refreshError } = await supabase.rpc("refresh_synqiq_signed_in", { p_org: org.id });
+    if (refreshError) console.error("refresh_synqiq_signed_in failed:", refreshError);
     return { success: true, occurrencesProcessed: occurrences.length, visitsImported, occurrencesFailed };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "Unknown error" };

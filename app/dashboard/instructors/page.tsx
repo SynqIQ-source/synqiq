@@ -33,6 +33,7 @@ type OccurrenceRow = {
   substitute_staff_id: string | null;
   max_capacity: number | null;
   total_signed_in: number | null;
+  synqiq_signed_in: number | null;
   department_id: string | null;
   class_name: string | null;
   department: { name: string | null } | null;
@@ -110,7 +111,7 @@ async function getOccurrences(
     let query = supabase
       .from("class_occurrences")
       .select(
-        "id, staff_id, substitute_staff_id, max_capacity, total_signed_in, department_id, class_name, department:departments!class_occurrences_department_id_fkey ( name )",
+        "id, staff_id, substitute_staff_id, max_capacity, total_signed_in, synqiq_signed_in, department_id, class_name, department:departments!class_occurrences_department_id_fkey ( name )",
       )
       .not("mindbody_occurrence_id", "is", null)
       .lte("start_datetime", nowIso);
@@ -122,7 +123,10 @@ async function getOccurrences(
       query = query.lte("start_datetime", rangeEnd.toUTC().toISO() ?? "");
     }
 
-    const { data, error } = await query.order("id").range(offset, offset + PAGE_SIZE - 1).returns<OccurrenceRow[]>();
+    const { data, error } = await query
+      .order("id")
+      .range(offset, offset + PAGE_SIZE - 1)
+      .returns<OccurrenceRow[]>();
 
     if (error) {
       throw new Error(`Failed to load class occurrences: ${error.message}`);
@@ -187,7 +191,7 @@ function buildInstructorStats(
     }
     const entry = scheduledByStaff.get(occurrence.staff_id) ?? { count: 0, signedInSum: 0, capacitySum: 0 };
     entry.count += 1;
-    entry.signedInSum += occurrence.total_signed_in ?? 0;
+    entry.signedInSum += (occurrence.total_signed_in ?? 0) + (occurrence.synqiq_signed_in ?? 0);
     entry.capacitySum += occurrence.max_capacity ?? 0;
     scheduledByStaff.set(occurrence.staff_id, entry);
   }
@@ -208,32 +212,32 @@ function buildInstructorStats(
     }
   }
 
-  return staff
-    .map((member) => {
-      const scheduledEntry = scheduledByStaff.get(member.id);
-      return {
-        staffId: member.id,
-        displayName: member.display_name,
-        scheduled: scheduledEntry?.count ?? 0,
-        // True aggregate (sum signed-in / sum capacity), not a mean of each
-        // class's own fill rate -- same reasoning as every other fill-rate
-        // computation in this app. Spans every class this instructor
-        // taught in the window regardless of department/class_name, which
-        // is the actual point: one blended number to benchmark instructors
-        // against each other, not a rate that varies by class style.
-        fillRatePct:
-          scheduledEntry && scheduledEntry.capacitySum > 0
-            ? (scheduledEntry.signedInSum / scheduledEntry.capacitySum) * 100
-            : null,
-        released: releasedByStaff.get(member.id) ?? 0,
-        pickedUp: pickedUpByStaff.get(member.id) ?? 0,
-      };
-    })
-    // Staff with no activity at all in the selected window add nothing to
-    // scan past -- same reasoning as Overview showing every department but
-    // this table not showing every one of ~137 staff.
-    .filter((row) => row.scheduled > 0 || row.released > 0 || row.pickedUp > 0)
-    .sort((a, b) => b.scheduled - a.scheduled);
+  return (
+    staff
+      .map((member) => {
+        const scheduledEntry = scheduledByStaff.get(member.id);
+        return {
+          staffId: member.id,
+          displayName: member.display_name,
+          scheduled: scheduledEntry?.count ?? 0,
+          // True aggregate (sum signed-in / sum capacity), not a mean of each
+          // class's own fill rate -- same reasoning as every other fill-rate
+          // computation in this app. Spans every class this instructor
+          // taught in the window regardless of department/class_name, which
+          // is the actual point: one blended number to benchmark instructors
+          // against each other, not a rate that varies by class style.
+          fillRatePct:
+            scheduledEntry && scheduledEntry.capacitySum > 0 ? (scheduledEntry.signedInSum / scheduledEntry.capacitySum) * 100 : null,
+          released: releasedByStaff.get(member.id) ?? 0,
+          pickedUp: pickedUpByStaff.get(member.id) ?? 0,
+        };
+      })
+      // Staff with no activity at all in the selected window add nothing to
+      // scan past -- same reasoning as Overview showing every department but
+      // this table not showing every one of ~137 staff.
+      .filter((row) => row.scheduled > 0 || row.released > 0 || row.pickedUp > 0)
+      .sort((a, b) => b.scheduled - a.scheduled)
+  );
 }
 
 // Org-wide totals, computed directly from the raw rows rather than by
@@ -254,9 +258,7 @@ function summarizeSubstitutionActivity(
     substituteByOccurrence.set(occurrence.id, occurrence.substitute_staff_id);
   }
 
-  const totalReleased = subRequests.filter((request) =>
-    isWithinRange(request.created_at, rangeStart, rangeEnd),
-  ).length;
+  const totalReleased = subRequests.filter((request) => isWithinRange(request.created_at, rangeStart, rangeEnd)).length;
 
   const totalPickedUp = subRequests.filter(
     (request) =>
@@ -311,11 +313,7 @@ function buildClassFilterOptions(occurrences: OccurrenceRow[]) {
   return { departments, classNamesByDepartment, allClassNames: [...allClassNames].sort((a, b) => a.localeCompare(b)) };
 }
 
-function matchesClassFilter(
-  row: { department_id: string | null; class_name?: string | null },
-  departmentId: string,
-  className: string,
-) {
+function matchesClassFilter(row: { department_id: string | null; class_name?: string | null }, departmentId: string, className: string) {
   if (departmentId && row.department_id !== departmentId) {
     return false;
   }
@@ -327,10 +325,7 @@ function matchesClassFilter(
 
 type ResolvedRange = { range: string; rangeStart: string; rangeEnd: string };
 
-function resolveRange(
-  params: { range?: string; rangeStart?: string; rangeEnd?: string },
-  timezone: string,
-): ResolvedRange {
+function resolveRange(params: { range?: string; rangeStart?: string; rangeEnd?: string }, timezone: string): ResolvedRange {
   if (params.range === "custom" && params.rangeStart && params.rangeEnd) {
     return { range: "custom", rangeStart: params.rangeStart, rangeEnd: params.rangeEnd };
   }
@@ -377,9 +372,7 @@ export default async function InstructorsPage({
 
   // Pool Lanes is excluded from every reporting view except Heat Map -- see
   // lib/excluded-departments.ts.
-  const scopedSubRequests = rawSubRequests.filter(
-    (request) => !request.department_id || !hiddenDepartmentIds.has(request.department_id),
-  );
+  const scopedSubRequests = rawSubRequests.filter((request) => !request.department_id || !hiddenDepartmentIds.has(request.department_id));
   const scopedOccurrences = rawOccurrences.filter(
     (occurrence) => !occurrence.department_id || !hiddenDepartmentIds.has(occurrence.department_id),
   );
@@ -391,26 +384,14 @@ export default async function InstructorsPage({
   const classFilterOptions = buildClassFilterOptions(scopedOccurrences);
 
   const selectedDepartmentId =
-    params.department && classFilterOptions.departments.some((d) => d.id === params.department)
-      ? params.department
-      : "";
-  const selectedClassName =
-    params.class && classFilterOptions.allClassNames.includes(params.class) ? params.class : "";
+    params.department && classFilterOptions.departments.some((d) => d.id === params.department) ? params.department : "";
+  const selectedClassName = params.class && classFilterOptions.allClassNames.includes(params.class) ? params.class : "";
 
-  const subRequests = scopedSubRequests.filter((request) =>
-    matchesClassFilter(request, selectedDepartmentId, selectedClassName),
-  );
-  const occurrences = scopedOccurrences.filter((occurrence) =>
-    matchesClassFilter(occurrence, selectedDepartmentId, selectedClassName),
-  );
+  const subRequests = scopedSubRequests.filter((request) => matchesClassFilter(request, selectedDepartmentId, selectedClassName));
+  const occurrences = scopedOccurrences.filter((occurrence) => matchesClassFilter(occurrence, selectedDepartmentId, selectedClassName));
 
   const instructorStats = buildInstructorStats(staff, subRequests, occurrences, rangeStartDT, rangeEndDT);
-  const { totalReleased, totalPickedUp } = summarizeSubstitutionActivity(
-    subRequests,
-    occurrences,
-    rangeStartDT,
-    rangeEndDT,
-  );
+  const { totalReleased, totalPickedUp } = summarizeSubstitutionActivity(subRequests, occurrences, rangeStartDT, rangeEndDT);
 
   const isFiltered = Boolean(selectedDepartmentId || selectedClassName);
   const filterLabel = selectedClassName || classFilterOptions.departments.find((d) => d.id === selectedDepartmentId)?.name;
@@ -429,12 +410,7 @@ export default async function InstructorsPage({
             value={totalReleased.toLocaleString()}
             detail={isFiltered ? `For ${filterLabel}` : "Sub requests created"}
           />
-          <KpiCard
-            icon={HandHelping}
-            label="Picked up as a sub"
-            value={totalPickedUp.toLocaleString()}
-            detail="Approved and covered"
-          />
+          <KpiCard icon={HandHelping} label="Picked up as a sub" value={totalPickedUp.toLocaleString()} detail="Approved and covered" />
           <KpiCard
             icon={Percent}
             label="Pickup rate"
@@ -461,9 +437,8 @@ export default async function InstructorsPage({
         </Card>
 
         <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
-          Classes taught and fill rate only count classes that have already happened. Fill rate is total
-          check-ins ÷ total capacity across every matching class. Released counts sub requests created in the
-          time frame; picked up counts requests approved in it.
+          Classes taught and fill rate only count classes that have already happened. Fill rate is total check-ins ÷ total capacity across
+          every matching class. Released counts sub requests created in the time frame; picked up counts requests approved in it.
         </p>
       </div>
     </DashboardShell>

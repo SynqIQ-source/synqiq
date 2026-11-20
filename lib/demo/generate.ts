@@ -39,7 +39,7 @@ function seededRandom(seedText: string) {
   };
 }
 type Rand = ReturnType<typeof seededRandom>;
-const pick = <T,>(rand: Rand, items: readonly T[]) => items[Math.floor(rand() * items.length)];
+const pick = <T>(rand: Rand, items: readonly T[]) => items[Math.floor(rand() * items.length)];
 const between = (rand: Rand, min: number, max: number) => min + Math.floor(rand() * (max - min + 1));
 function weighted<T>(rand: Rand, items: readonly (readonly [T, number])[]): T {
   const total = items.reduce((sum, [, weight]) => sum + weight, 0);
@@ -54,26 +54,130 @@ function weighted<T>(rand: Rand, items: readonly (readonly [T, number])[]): T {
 // --- the studio's fixed shape ----------------------------------------------------
 
 const FIRST_NAMES = [
-  "Olivia", "Liam", "Emma", "Noah", "Ava", "Elijah", "Sophia", "James", "Isabella", "Lucas", "Mia", "Mateo",
-  "Harper", "Henry", "Evelyn", "Leo", "Camila", "Jack", "Luna", "Daniel", "Nora", "Owen", "Zoe", "Wyatt", "Riley",
-  "Caleb", "Layla", "Julian", "Hazel", "Ezra", "Aria", "Miles", "Grace", "Asher", "Chloe", "Hudson", "Stella",
-  "Nathan", "Violet", "Isaac", "Aurora", "Dylan", "Lily", "Adrian", "Ellie", "Gabriel", "Naomi", "Eli", "Maya",
+  "Olivia",
+  "Liam",
+  "Emma",
+  "Noah",
+  "Ava",
+  "Elijah",
+  "Sophia",
+  "James",
+  "Isabella",
+  "Lucas",
+  "Mia",
+  "Mateo",
+  "Harper",
+  "Henry",
+  "Evelyn",
+  "Leo",
+  "Camila",
+  "Jack",
+  "Luna",
+  "Daniel",
+  "Nora",
+  "Owen",
+  "Zoe",
+  "Wyatt",
+  "Riley",
+  "Caleb",
+  "Layla",
+  "Julian",
+  "Hazel",
+  "Ezra",
+  "Aria",
+  "Miles",
+  "Grace",
+  "Asher",
+  "Chloe",
+  "Hudson",
+  "Stella",
+  "Nathan",
+  "Violet",
+  "Isaac",
+  "Aurora",
+  "Dylan",
+  "Lily",
+  "Adrian",
+  "Ellie",
+  "Gabriel",
+  "Naomi",
+  "Eli",
+  "Maya",
 ] as const;
 const LAST_NAMES = [
-  "Bennett", "Hayes", "Reed", "Morgan", "Ellis", "Foster", "Graham", "Hart", "Keller", "Lane", "Mercer", "Nash",
-  "Parker", "Quinn", "Rhodes", "Sawyer", "Tate", "Vaughn", "Walsh", "Young", "Barrett", "Cole", "Dalton", "Everett",
-  "Fleming", "Garrett", "Holland", "Irwin", "Jensen", "Kirby", "Lowell", "Monroe", "Norris", "Porter", "Ramsey",
+  "Bennett",
+  "Hayes",
+  "Reed",
+  "Morgan",
+  "Ellis",
+  "Foster",
+  "Graham",
+  "Hart",
+  "Keller",
+  "Lane",
+  "Mercer",
+  "Nash",
+  "Parker",
+  "Quinn",
+  "Rhodes",
+  "Sawyer",
+  "Tate",
+  "Vaughn",
+  "Walsh",
+  "Young",
+  "Barrett",
+  "Cole",
+  "Dalton",
+  "Everett",
+  "Fleming",
+  "Garrett",
+  "Holland",
+  "Irwin",
+  "Jensen",
+  "Kirby",
+  "Lowell",
+  "Monroe",
+  "Norris",
+  "Porter",
+  "Ramsey",
 ] as const;
 
 // 1 owner (club admin, also trains), a sales lead, a salesperson, instructors
 // and a personal trainer. Roles and tags as in lib/permissions.ts.
 const STAFF = [
   { key: "owner", first: "Jordan", last: "Avery", role: "admin", sells: true, instructor: false, trainer: true, title: "Owner" },
-  { key: "sales1", first: "Maya", last: "Chen", role: "sales_lead", sells: true, instructor: false, trainer: false, title: "Membership Director" },
-  { key: "sales2", first: "Luis", last: "Ortega", role: "sales", sells: true, instructor: false, trainer: false, title: "Membership Advisor" },
+  {
+    key: "sales1",
+    first: "Maya",
+    last: "Chen",
+    role: "sales_lead",
+    sells: true,
+    instructor: false,
+    trainer: false,
+    title: "Membership Director",
+  },
+  {
+    key: "sales2",
+    first: "Luis",
+    last: "Ortega",
+    role: "sales",
+    sells: true,
+    instructor: false,
+    trainer: false,
+    title: "Membership Advisor",
+  },
   { key: "yoga", first: "Priya", last: "Shah", role: "staff", sells: false, instructor: true, trainer: false, title: "Yoga Instructor" },
   { key: "strength", first: "Ben", last: "Carter", role: "staff", sells: false, instructor: true, trainer: true, title: "Strength Coach" },
-  { key: "pilates", first: "Sofia", last: "Ramos", role: "staff", sells: false, instructor: true, trainer: false, title: "Pilates Instructor" },
+  {
+    key: "pilates",
+    first: "Sofia",
+    last: "Ramos",
+    role: "staff",
+    sells: false,
+    instructor: true,
+    trainer: false,
+    title: "Pilates Instructor",
+  },
   { key: "hiit", first: "Theo", last: "Brooks", role: "staff", sells: false, instructor: true, trainer: false, title: "HIIT Coach" },
   { key: "mat", first: "Ava", last: "Nguyen", role: "staff", sells: false, instructor: true, trainer: false, title: "Pilates Instructor" },
   { key: "pt", first: "Marcus", last: "Lee", role: "staff", sells: false, instructor: false, trainer: true, title: "Personal Trainer" },
@@ -175,10 +279,7 @@ async function ensureBase(admin: Admin): Promise<Base & { generatedThrough: stri
   }
   const orgId = org!.id as string;
 
-  const modules = await check(
-    admin.from("org_modules").select("id").eq("organization_id", orgId).eq("module", "crm"),
-    "reading modules",
-  );
+  const modules = await check(admin.from("org_modules").select("id").eq("organization_id", orgId).eq("module", "crm"), "reading modules");
   if (!modules?.length) await check(admin.from("org_modules").insert({ organization_id: orgId, module: "crm" }), "turning on the CRM");
 
   let location = await check(
@@ -199,14 +300,26 @@ async function ensureBase(admin: Admin): Promise<Base & { generatedThrough: stri
 
   await check(
     admin.from("rooms").upsert(
-      ROOMS.map((room) => ({ organization_id: orgId, location_id: locationId, name: room.name, active: true, mindbody_resource_id: room.id })),
+      ROOMS.map((room) => ({
+        organization_id: orgId,
+        location_id: locationId,
+        name: room.name,
+        active: true,
+        mindbody_resource_id: room.id,
+      })),
       { onConflict: "organization_id,mindbody_resource_id", ignoreDuplicates: true },
     ),
     "adding rooms",
   );
   await check(
     admin.from("departments").upsert(
-      PROGRAMS.map((program) => ({ organization_id: orgId, location_id: locationId, name: program.name, active: true, mindbody_program_id: program.id })),
+      PROGRAMS.map((program) => ({
+        organization_id: orgId,
+        location_id: locationId,
+        name: program.name,
+        active: true,
+        mindbody_program_id: program.id,
+      })),
       { onConflict: "organization_id,mindbody_program_id", ignoreDuplicates: true },
     ),
     "adding programs",
@@ -252,7 +365,9 @@ async function ensureBase(admin: Admin): Promise<Base & { generatedThrough: stri
         last_name: pick(rand, LAST_NAMES),
         status: n < 150 ? "Active" : pick(rand, ["Non-Member", "Expired", "Inactive"] as const),
         is_prospect: n >= 200,
-        creation_date: DateTime.now().minus({ days: between(rand, 30, 900) }).toISO(),
+        creation_date: DateTime.now()
+          .minus({ days: between(rand, 30, 900) })
+          .toISO(),
       })),
       { onConflict: "organization_id,mindbody_unique_id", ignoreDuplicates: true },
     ),
@@ -269,7 +384,9 @@ async function ensureBase(admin: Admin): Promise<Base & { generatedThrough: stri
     const person = STAFF[Number(row.mindbody_staff_id) - 1];
     if (person) staff.set(person.key, row.id as string);
   }
-  const rooms = new Map((roomRows ?? []).map((row) => [ROOMS.find((room) => room.id === row.mindbody_resource_id)!.key as string, row.id as string]));
+  const rooms = new Map(
+    (roomRows ?? []).map((row) => [ROOMS.find((room) => room.id === row.mindbody_resource_id)!.key as string, row.id as string]),
+  );
   const programs = new Map(
     (programRows ?? []).map((row) => [PROGRAMS.find((program) => program.id === row.mindbody_program_id)!.key as string, row.id as string]),
   );
@@ -329,7 +446,12 @@ async function ensureClasses(admin: Admin, base: Base, from: DateTime, to: DateT
 async function generateDay(admin: Admin, base: Base, day: DateTime, now: DateTime) {
   const rand = seededRandom(`activity-${day.toISODate()}`);
   const at = (hour: number, minute = 0) => day.set({ hour, minute: Math.min(59, minute) });
-  const seller = () => weighted(rand, [["sales1", 5], ["sales2", 4], ["owner", 1]] as const);
+  const seller = () =>
+    weighted(rand, [
+      ["sales1", 5],
+      ["sales2", 4],
+      ["owner", 1],
+    ] as const);
 
   // Class check-ins for that day's classes.
   const classes = await check(
@@ -359,7 +481,9 @@ async function generateDay(admin: Admin, base: Base, day: DateTime, now: DateTim
   }
   if (visits.length) {
     await check(
-      admin.from("class_visits").upsert(visits, { onConflict: "organization_id,occurrence_id,client_mindbody_unique_id", ignoreDuplicates: true }),
+      admin
+        .from("class_visits_mindbody")
+        .upsert(visits, { onConflict: "organization_id,occurrence_id,client_mindbody_unique_id", ignoreDuplicates: true }),
       "adding class check-ins",
     );
   }
@@ -373,7 +497,9 @@ async function generateDay(admin: Admin, base: Base, day: DateTime, now: DateTim
       mindbody_sale_id: dayNumber(day) * 100 + n,
       sales_rep_staff_id: base.staff.get(seller()) ?? null,
       client_id: memberClientId(between(rand, 0, 199)),
-      sale_datetime: at(between(rand, 8, 19), between(rand, 0, 59)).toUTC().toISO(),
+      sale_datetime: at(between(rand, 8, 19), between(rand, 0, 59))
+        .toUTC()
+        .toISO(),
       total_amount: price,
     };
   });
@@ -425,7 +551,12 @@ async function generateDay(admin: Admin, base: Base, day: DateTime, now: DateTim
   const appointments = [];
   const guests = between(rand, day.weekday >= 6 ? 2 : 1, day.weekday >= 6 ? 5 : 4) + (rand() < 0.5 ? 1 : 0);
   for (let n = 0; n < guests; n += 1) {
-    const kind = weighted(rand, [["walk_in", 5], ["guest_of_member", 3], ["phone_in", 2], ["web", 2]] as const);
+    const kind = weighted(rand, [
+      ["walk_in", 5],
+      ["guest_of_member", 3],
+      ["phone_in", 2],
+      ["web", 2],
+    ] as const);
     const visited = kind === "walk_in" || kind === "guest_of_member" || rand() < 0.3;
     const createdAt = at(between(rand, 7, 19), between(rand, 0, 59));
     if (createdAt > now) continue;
@@ -440,15 +571,26 @@ async function generateDay(admin: Admin, base: Base, day: DateTime, now: DateTim
 
     // Outreach: most get a first contact within 48 hours, some late or never.
     const contactMessages = [];
-    const firstContactHours = weighted(rand, [[between(rand, 1, 30), 7], [between(rand, 49, 96), 2], [-1, 1]] as const);
+    const firstContactHours = weighted(rand, [
+      [between(rand, 1, 30), 7],
+      [between(rand, 49, 96), 2],
+      [-1, 1],
+    ] as const);
     if (firstContactHours > 0) {
       let when = createdAt.plus({ hours: firstContactHours });
       let count = 0;
       const outreach = between(rand, 1, 4);
       while (when < now && count < outreach) {
         const channel = smsConsent
-          ? weighted(rand, [["sms", 5], ["call", 3], ["email", 2]] as const)
-          : weighted(rand, [["call", 5], ["email", 4]] as const);
+          ? weighted(rand, [
+              ["sms", 5],
+              ["call", 3],
+              ["email", 2],
+            ] as const)
+          : weighted(rand, [
+              ["call", 5],
+              ["email", 4],
+            ] as const);
         contactMessages.push({
           organization_id: base.orgId,
           contact_id: contactId,
@@ -488,9 +630,7 @@ async function generateDay(admin: Admin, base: Base, day: DateTime, now: DateTim
     // has passed), some say no, some buy on the spot.
     let outcome: Record<string, unknown> = {};
     if (rand() < 0.45) {
-      const scheduled = createdAt
-        .plus({ days: between(rand, 1, 7) })
-        .set({ hour: between(rand, 9, 18), minute: pick(rand, [0, 30]) });
+      const scheduled = createdAt.plus({ days: between(rand, 1, 7) }).set({ hour: between(rand, 9, 18), minute: pick(rand, [0, 30]) });
       appointments.push({
         organization_id: base.orgId,
         contact_id: contactId,
@@ -498,7 +638,10 @@ async function generateDay(admin: Admin, base: Base, day: DateTime, now: DateTim
         scheduled_at: scheduled.toUTC().toISO(),
         status: "scheduled",
         created_by_staff_id: sellerId,
-        created_at: createdAt.plus({ hours: between(rand, 1, 30) }).toUTC().toISO(),
+        created_at: createdAt
+          .plus({ hours: between(rand, 1, 30) })
+          .toUTC()
+          .toISO(),
       });
     } else if (rand() < 0.12 && createdAt.plus({ days: 5 }) < now) {
       outcome = { status: "not_interested", not_interested_at: createdAt.plus({ days: 5 }).toUTC().toISO() };
@@ -596,14 +739,22 @@ async function settleAppointments(admin: Admin, base: Base, now: DateTime) {
         "adding an appointment visit",
       );
       await check(
-        admin.from("crm_appointments").update({ status: "showed", visit_id: visit!.id, updated_at: now.toUTC().toISO() }).eq("id", appointment.id),
+        admin
+          .from("crm_appointments")
+          .update({ status: "showed", visit_id: visit!.id, updated_at: now.toUTC().toISO() })
+          .eq("id", appointment.id),
         "marking showed",
       );
       if (rand() < 0.45) {
         await check(
           admin
             .from("crm_contacts")
-            .update({ status: "member", closed_at: at.plus({ minutes: 50 }).toUTC().toISO(), closed_by_staff_id: appointment.staff_id, close_source: "manual" })
+            .update({
+              status: "member",
+              closed_at: at.plus({ minutes: 50 }).toUTC().toISO(),
+              closed_by_staff_id: appointment.staff_id,
+              close_source: "manual",
+            })
             .eq("id", appointment.contact_id)
             .is("closed_at", null),
           "marking sold after a show",
@@ -681,7 +832,13 @@ export async function refreshDemoStudio(): Promise<DemoRefreshResult> {
     ? DateTime.fromISO(base.generatedThrough, { zone: TIMEZONE }).plus({ days: 1 })
     : today.minus({ days: HISTORY_DAYS });
 
-  await ensureClasses(admin, base, base.generatedThrough ? today.minus({ days: 1 }) : firstDay, today.plus({ days: SCHEDULE_DAYS_AHEAD }), now);
+  await ensureClasses(
+    admin,
+    base,
+    base.generatedThrough ? today.minus({ days: 1 }) : firstDay,
+    today.plus({ days: SCHEDULE_DAYS_AHEAD }),
+    now,
+  );
 
   // Days up to yesterday are generated in full; today stays open so it
   // fills in on the next run (activity after "now" isn't created).
@@ -689,10 +846,7 @@ export async function refreshDemoStudio(): Promise<DemoRefreshResult> {
   for (let day = firstDay; day < today; day = day.plus({ days: 1 })) {
     await generateDay(admin, base, day, now);
     generatedDays.push(day.toISODate()!);
-    await check(
-      admin.from("organizations").update({ demo_generated_through: day.toISODate() }).eq("id", base.orgId),
-      "recording progress",
-    );
+    await check(admin.from("organizations").update({ demo_generated_through: day.toISODate() }).eq("id", base.orgId), "recording progress");
   }
   await settleAppointments(admin, base, now);
   await settleClasses(admin, base, now);

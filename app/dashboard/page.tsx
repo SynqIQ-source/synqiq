@@ -21,6 +21,8 @@ type OverviewRow = {
   class_name: string | null;
   max_capacity: number | null;
   total_signed_in: number | null;
+  // Check-ins done only in SynqIQ (unified attendance), added to Mindbody's count.
+  synqiq_signed_in: number | null;
   total_booked: number | null;
 };
 
@@ -48,7 +50,7 @@ async function getOverviewRows(supabase: ScopedSupabaseClient, rangeStart: DateT
   for (;;) {
     let query = supabase
       .from("class_occurrences")
-      .select("id, department_id, staff_id, start_datetime, class_name, max_capacity, total_signed_in, total_booked")
+      .select("id, department_id, staff_id, start_datetime, class_name, max_capacity, total_signed_in, synqiq_signed_in, total_booked")
       // The pre-redesign rows never captured an occurrence id -- exclude
       // them rather than let stale/ambiguous data skew the aggregates.
       // Attendance counts are only meaningful for classes that have already
@@ -373,7 +375,7 @@ function summarize(rows: OverviewRow[]): MetricsSummary {
   let emptyClasses = 0;
 
   for (const row of rows) {
-    const signedIn = row.total_signed_in ?? 0;
+    const signedIn = (row.total_signed_in ?? 0) + (row.synqiq_signed_in ?? 0);
     signedInSum += signedIn;
     capacitySum += row.max_capacity ?? 0;
     bookedSum += row.total_booked ?? 0;
@@ -824,7 +826,7 @@ function buildWeeklyTrend(rows: OverviewRow[], timezone: string, maxWeeks: numbe
       continue;
     }
     const bucket = byWeek.get(weekStart) ?? { signedIn: 0, capacity: 0, classes: 0 };
-    bucket.signedIn += row.total_signed_in ?? 0;
+    bucket.signedIn += (row.total_signed_in ?? 0) + (row.synqiq_signed_in ?? 0);
     bucket.capacity += row.max_capacity ?? 0;
     bucket.classes += 1;
     byWeek.set(weekStart, bucket);
