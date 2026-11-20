@@ -104,7 +104,7 @@ export async function buildPayroll(organizationId: string, from: string, to: str
       admin
         .from("class_occurrences")
         .select(
-          "id, mindbody_class_schedule_id, class_name, staff_id, substitute_staff_id, start_datetime, end_datetime, total_signed_in, synqiq_signed_in",
+          "id, mindbody_class_schedule_id, class_name, staff_id, substitute_staff_id, start_datetime, end_datetime, total_signed_in, synqiq_signed_in, pay_override_cents, assistant_staff_id, assistant_pay_cents",
         )
         .eq("organization_id", organizationId)
         .gte("start_datetime", startIso)
@@ -226,16 +226,38 @@ export async function buildPayroll(organizationId: string, from: string, to: str
     // class_visits includes SynqIQ check-ins (unified attendance view).
     const heads =
       visitCounts.get(occurrence.id as string) ?? Number(occurrence.total_signed_in ?? 0) + Number(occurrence.synqiq_signed_in ?? 0);
-    if (!rate && !entry.missingRates.includes("class rate")) entry.missingRates.push("class rate");
+    // Pay set on the class time (schedule editor) wins over their rate.
+    const override = occurrence.pay_override_cents == null ? null : Number(occurrence.pay_override_cents);
+    if (override === null && !rate && !entry.missingRates.includes("class rate")) entry.missingRates.push("class rate");
     entry.classes.push({
       occurrenceId: occurrence.id as string,
       startsAt: occurrence.start_datetime as string,
       endsAt: (occurrence.end_datetime as string | null) ?? null,
       name: (occurrence.class_name as string | null) ?? "Class",
       heads,
-      rateName: rate?.name ?? null,
-      amountCents: rate ? classPayCents(rate, heads) : 0,
+      rateName: override !== null ? "Set on class" : (rate?.name ?? null),
+      amountCents: override !== null ? override : rate ? classPayCents(rate, heads) : 0,
     });
+
+    // An assistant (e.g. an instructor in training) is paid separately: the
+    // amount set on the class time ($0 allowed), else their own class rate.
+    const assistant = (occurrence.assistant_staff_id as string | null) ?? null;
+    if (assistant && assistant !== teacher) {
+      const helper = person(assistant);
+      const assistantSet = occurrence.assistant_pay_cents == null ? null : Number(occurrence.assistant_pay_cents);
+      const helperRateId = (settingBy.get(assistant)?.class_rate_id as string | null) ?? null;
+      const helperRate = helperRateId ? rates.get(helperRateId) : undefined;
+      if (assistantSet === null && !helperRate && !helper.missingRates.includes("class rate")) helper.missingRates.push("class rate");
+      helper.classes.push({
+        occurrenceId: occurrence.id as string,
+        startsAt: occurrence.start_datetime as string,
+        endsAt: (occurrence.end_datetime as string | null) ?? null,
+        name: `${(occurrence.class_name as string | null) ?? "Class"} (assistant)`,
+        heads,
+        rateName: assistantSet !== null ? "Set on class" : (helperRate?.name ?? null),
+        amountCents: assistantSet !== null ? assistantSet : helperRate ? classPayCents(helperRate, heads) : 0,
+      });
+    }
   }
 
   for (const appointment of appointments) {

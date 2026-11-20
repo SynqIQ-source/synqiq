@@ -1,3 +1,4 @@
+import { syncSynqiqOccurrences } from "@/lib/sync/synqiq-occurrences";
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
@@ -21,6 +22,7 @@ export type BuildCalendarResult =
       removed: number;
       flagged: number;
       subs: { synqiq: number; mindbody: number };
+      records: { upserted: number; removed: number } | { error: string }; // SynqIQ-scheduled class records
       from: string;
       to: string;
     }
@@ -170,7 +172,15 @@ export async function buildClassCalendar(organizationId: string): Promise<BuildC
       today.plus({ days: CALENDAR_DAYS }).endOf("day").toUTC().toISO()!,
     );
 
-    return { success: true, sessions: generated.length, removed: toDelete.length, flagged: toFlag.length, subs, from, to };
+    // Classes scheduled in SynqIQ get their class records (dashboards, payroll...).
+    let records: Awaited<ReturnType<typeof syncSynqiqOccurrences>> | { error: string } = { upserted: 0, removed: 0 };
+    try {
+      records = await syncSynqiqOccurrences(organizationId);
+    } catch (error) {
+      records = { error: error instanceof Error ? error.message : String(error) };
+    }
+
+    return { success: true, sessions: generated.length, removed: toDelete.length, flagged: toFlag.length, subs, records, from, to };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isCronRequest } from "@/lib/cron-auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { refreshClassCounts } from "@/lib/sync/class-counts";
+import { syncSynqiqOccurrences } from "@/lib/sync/synqiq-occurrences";
 
 export const maxDuration = 300;
 
@@ -24,5 +25,17 @@ export async function GET(request: NextRequest) {
       results[org.id as string] = { error: true };
     }
   }
-  return NextResponse.json({ success: true, results });
+  // Classes scheduled in SynqIQ: their class records (counts, instructor),
+  // for every studio that has any, Mindbody or not.
+  const { data: synqiqOrgs } = await createSupabaseAdminClient().from("class_schedules").select("organization_id").eq("source", "synqiq");
+  const synqiq: Record<string, unknown> = {};
+  for (const orgId of new Set((synqiqOrgs ?? []).map((row) => row.organization_id as string))) {
+    try {
+      synqiq[orgId] = await syncSynqiqOccurrences(orgId);
+    } catch (error) {
+      console.error("[class-counts] SynqIQ class records failed:", error);
+      synqiq[orgId] = { error: true };
+    }
+  }
+  return NextResponse.json({ success: true, results, synqiq });
 }
