@@ -1,15 +1,16 @@
+import { onDomains } from "@/lib/email/domains";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { extractReplyText } from "@/lib/email/reply-parser";
 import { GUEST_ALIAS_PREFIX, recordInbound } from "@/lib/crm/messages";
 import { bareEmail, otherSender } from "@/lib/crm/email-sender";
 
 // The guest-thread alias among the recipients, if any (g-<token>@relay domain).
-export function findGuestAlias(recipients: string[]): string | null {
-  const domain = (process.env.FOLLOWUP_RELAY_DOMAIN ?? "").toLowerCase();
-  if (!domain) return null;
+// On SynqIQ's relay domain or a studio's verified reply domain.
+export function findGuestAlias(recipients: string[], domains: string[]): string | null {
+  if (!domains.length) return null;
   for (const recipient of recipients) {
     const email = bareEmail(recipient);
-    if (email.startsWith(GUEST_ALIAS_PREFIX) && email.endsWith(`@${domain}`)) return email;
+    if (email.startsWith(GUEST_ALIAS_PREFIX) && onDomains(email, domains)) return email;
   }
   return null;
 }

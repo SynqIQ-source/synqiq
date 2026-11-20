@@ -67,10 +67,22 @@ describe("Jan 1 cutover plan", () => {
       exclude: "Ends before the cutover",
     });
     expect(planCutover({ ...base, normalCents: 0, nextSubtotalCents: 0 }, "2027-01-01", 0.0825)).toEqual({ exclude: "$0 autopay" });
-    expect(planCutover({ ...base, nextBillDate: null }, "2027-01-01", 0.0825)).toEqual({ exclude: "No next bill date in Mindbody" });
+    expect(planCutover({ ...base, nextBillDate: null, endDate: null }, "2027-01-01", 0.0825)).toEqual({
+      exclude: "No billing day in Mindbody",
+    });
     expect(planCutover({ ...base, autoRenewing: false, upcoming: [] }, "2027-01-01", 0.0825)).toEqual({
       exclude: "No payments due after the cutover",
     });
+  });
+
+  it("assumes a renewing contract renews when Mindbody hasn't generated the next term yet", () => {
+    expect(
+      planCutover(
+        { ...base, nextBillDate: null, endDate: "2026-11-14", startDate: "2025-11-14", normalCents: 19900 },
+        "2027-01-01",
+        0.0825,
+      ),
+    ).toMatchObject({ firstBillDate: "2027-01-14", billDay: 14, subtotalCents: 19900, taxCents: 1642, basis: "assumed_renewal" });
   });
 
   it("holds a late billing day at the month's end", () => {

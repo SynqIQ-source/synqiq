@@ -39,7 +39,7 @@ export async function sendNewsletterTest(organizationId: string, staffId: string
     unsubscribeUrl: `${siteUrl()}/u/test`,
   });
   const result = await sendEmailMessages([
-    { to, from: studioFrom(kit.branding.studioName), subject: `[Test] ${email.subject}`, html: email.html },
+    { to, from: studioFrom(kit.branding.studioName, kit.fromDomain), subject: `[Test] ${email.subject}`, html: email.html },
   ]);
   return result.sent.length ? { email: to } : { error: "The test didn't send. Try again in a minute." };
 }
@@ -80,7 +80,7 @@ export async function sendNewsletter(newsletterId: string, now = new Date()) {
   }
   await admin.from("newsletters").update({ recipient_count: people.length }).eq("id", newsletterId);
 
-  const from = studioFrom(kit.branding.studioName);
+  const from = studioFrom(kit.branding.studioName, kit.fromDomain);
   let sentCount = 0;
   let failedCount = 0;
   for (let i = 0; i < people.length; i += 100) {

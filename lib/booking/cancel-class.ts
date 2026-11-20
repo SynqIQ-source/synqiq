@@ -1,3 +1,4 @@
+import { fromAddress, studioDomains } from "@/lib/email/domains";
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { applyCatalogEdit } from "@/lib/classes/catalog-edits";
@@ -97,13 +98,14 @@ export async function releaseCancelledClass(
     (personal ?? []).map((row) => [row.mindbody_client_id as string, (row.edits as { email?: string | null } | null)?.email]),
   );
   const siteUrl = getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? "https://synqiq.co";
+  const domains = await studioDomains(admin, input.organizationId);
   let emailed = 0;
   for (const client of clients ?? []) {
     const id = client.mindbody_client_id as string;
     const email = edited.get(id) !== undefined ? edited.get(id) : (client.email as string | null);
     if (!email || !studio || !(await memberPortalAllowed(studio))) continue;
     await sendEmailToRecipients([{ email }], {
-      from: `${studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`,
+      from: fromAddress(studioName, domains.from),
       ...cancelledClassEmail({
         studioName,
         firstName: (client.first_name as string | null) ?? "",

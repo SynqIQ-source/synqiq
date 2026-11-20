@@ -49,7 +49,7 @@ export async function takeCutoverSnapshot(organizationId: string, staffId: strin
       admin
         .from("member_contracts")
         .select(
-          "mindbody_client_contract_id, mindbody_client_id, payer_mindbody_client_id, contract_name, autopay_status, next_bill_date, end_date, termination_date, auto_renewing, normal_autopay_cents, next_bill_subtotal_cents, next_bill_tax_cents, upcoming_autopays",
+          "mindbody_client_contract_id, mindbody_client_id, payer_mindbody_client_id, contract_name, autopay_status, start_date, next_bill_date, end_date, termination_date, auto_renewing, normal_autopay_cents, next_bill_subtotal_cents, next_bill_tax_cents, upcoming_autopays",
         )
         .eq("organization_id", organizationId)
         .in("autopay_status", ["Active", "Suspended"])
@@ -92,6 +92,7 @@ export async function takeCutoverSnapshot(organizationId: string, staffId: strin
     const plan = planCutover(
       {
         nextBillDate: (contract.next_bill_date as string | null)?.slice(0, 10) ?? null,
+        startDate: (contract.start_date as string | null)?.slice(0, 10) ?? null,
         endDate: (contract.end_date as string | null)?.slice(0, 10) ?? null,
         autoRenewing: Boolean(contract.auto_renewing),
         normalCents: Number(contract.normal_autopay_cents ?? 0),
@@ -138,6 +139,24 @@ export async function takeCutoverSnapshot(organizationId: string, staffId: strin
       excluded_by_staff: prior?.excluded_by_staff ?? false,
       captured_at: now,
     });
+  }
+  // An assumed renewal isn't needed when the member already has another
+  // contract in the plan (Mindbody generated the next term as its own contract).
+  const plannedMembers = new Set(
+    upserts
+      .filter((row) => row.status === "planned" && row.basis !== "assumed_renewal")
+      .map((row) => row.member_mindbody_client_id as string),
+  );
+  for (const row of upserts) {
+    if (
+      row.basis === "assumed_renewal" &&
+      row.status === "planned" &&
+      !row.excluded_by_staff &&
+      plannedMembers.has(row.member_mindbody_client_id as string)
+    ) {
+      row.status = "excluded";
+      row.excluded_reason = "Renewed contract already in the plan";
+    }
   }
   for (let i = 0; i < upserts.length; i += 500) {
     const { error } = await admin
@@ -349,7 +368,7 @@ export async function sendCutoverCardLinks(organizationId: string, staffId: stri
         action: emailButton(url, "Add my card", kit.branding.color, "This secure link works for 7 days."),
       },
     );
-    const result = await sendEmailMessages([{ to: contact.email, from: studioFrom(kit.branding.studioName), ...email }]);
+    const result = await sendEmailMessages([{ to: contact.email, from: studioFrom(kit.branding.studioName, kit.fromDomain), ...email }]);
     if (!result.sent.length) continue;
     sent += 1;
     await admin

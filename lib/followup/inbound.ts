@@ -1,4 +1,4 @@
-import { getEnv } from "@/lib/env";
+import { inboundRelayDomains, onDomains } from "@/lib/email/domains";
 import { extractReplyText } from "@/lib/email/reply-parser";
 import { resolveContextByAlias, deliverHop, type FollowupDirection } from "@/lib/followup/relay";
 
@@ -12,9 +12,7 @@ export type InboundEmail = {
   messageId: string | null;
 };
 
-export type InboundResult =
-  | { status: "relayed"; direction: FollowupDirection }
-  | { status: "dropped"; reason: string };
+export type InboundResult = { status: "relayed"; direction: FollowupDirection } | { status: "dropped"; reason: string };
 
 function bareEmail(address: string): string {
   const angle = address.match(/<([^>]+)>/);
@@ -23,11 +21,10 @@ function bareEmail(address: string): string {
 
 // Pick the recipient that belongs to the relay domain -- an inbound mail
 // can carry other To/Cc entries.
-function findAlias(recipients: string[]): string | null {
-  const domain = getEnv("FOLLOWUP_RELAY_DOMAIN").toLowerCase();
+function findAlias(recipients: string[], domains: string[]): string | null {
   for (const recipient of recipients) {
     const email = bareEmail(recipient);
-    if (email.endsWith(`@${domain}`)) {
+    if (onDomains(email, domains)) {
       return email;
     }
   }
@@ -39,7 +36,7 @@ function findAlias(recipients: string[]): string | null {
 // addresses, strip quoted history, and relay the remainder to the other
 // party. Anything unresolvable is dropped and logged, never relayed.
 export async function handleInboundEmail(email: InboundEmail): Promise<InboundResult> {
-  const alias = findAlias(email.to);
+  const alias = findAlias(email.to, await inboundRelayDomains());
   if (!alias) {
     return { status: "dropped", reason: "no recipient on the relay domain" };
   }

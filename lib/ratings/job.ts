@@ -244,7 +244,7 @@ async function sendDue(admin: Admin, organizationId: string, studioName: string,
   );
   const siteUrl = getOptionalEnv("NEXT_PUBLIC_SITE_URL") ?? "https://synqiq.co";
   const kit = await loadEmailKit(admin, organizationId);
-  const from = studioFrom(studioName);
+  const from = studioFrom(studioName, kit.fromDomain);
   let sent = 0;
   for (const request of toSend) {
     const client = clientBy.get(request.clientId)!;

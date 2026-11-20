@@ -10,6 +10,7 @@ export const DEFAULT_CUTOVER_DATE = "2027-01-01";
 
 export type CutoverContract = {
   nextBillDate: string | null; // YYYY-MM-DD
+  startDate?: string | null;
   endDate: string | null;
   autoRenewing: boolean;
   normalCents: number;
@@ -26,7 +27,9 @@ export type CutoverPlan = {
   totalCents: number;
   remainingPayments: number | null; // null = continues until cancelled
   autoRenews: boolean;
-  basis: "mindbody_schedule" | "monthly_from_next_bill";
+  // assumed_renewal: Mindbody hasn't generated the next 12 months yet (it does
+  // ~45 days out); the contract is assumed to renew on its usual day and amount.
+  basis: "mindbody_schedule" | "monthly_from_next_bill" | "assumed_renewal";
 };
 
 // The same day each month, held at the month's last day when shorter
@@ -67,19 +70,24 @@ export function planCutover(contract: CutoverContract, cutoverDate: string, taxR
   }
 
   // No Mindbody payments listed after the cutover: a renewing contract keeps
-  // billing monthly on its next bill day.
+  // billing monthly on its next bill day. Mindbody runs every membership in
+  // 12-month terms and generates the next term ~45 days before the end, so a
+  // renewing contract with no next bill yet is assumed to renew (Adam,
+  // 2026-11-19) on its usual day (the term's start/end day).
   if (!contract.autoRenewing) return { exclude: "No payments due after the cutover" };
-  if (!contract.nextBillDate) return { exclude: "No next bill date in Mindbody" };
-  const subtotal = contract.nextSubtotalCents ?? contract.normalCents;
+  const anchor = contract.nextBillDate ?? contract.endDate ?? contract.startDate ?? null;
+  if (!anchor) return { exclude: "No billing day in Mindbody" };
+  const assumed = !contract.nextBillDate;
+  const subtotal = assumed ? contract.normalCents : (contract.nextSubtotalCents ?? contract.normalCents);
   if (!(subtotal > 0)) return { exclude: "$0 autopay" };
   const tax =
     contract.nextSubtotalCents != null && contract.nextTaxCents != null && contract.nextSubtotalCents === subtotal
       ? contract.nextTaxCents
       : Math.round(subtotal * taxRate);
-  const day = Number(contract.nextBillDate.slice(8, 10));
+  const day = Number(anchor.slice(8, 10));
   let months = 0;
-  let date = contract.nextBillDate;
-  while (date < cutoverDate && months < 24) date = monthlyOnDay(contract.nextBillDate, ++months, day);
+  let date = anchor;
+  while (date < cutoverDate && months < 60) date = monthlyOnDay(anchor, ++months, day);
   return {
     firstBillDate: date,
     billDay: day,
@@ -88,6 +96,6 @@ export function planCutover(contract: CutoverContract, cutoverDate: string, taxR
     totalCents: subtotal + tax,
     remainingPayments: null,
     autoRenews: true,
-    basis: "monthly_from_next_bill",
+    basis: assumed ? "assumed_renewal" : "monthly_from_next_bill",
   };
 }

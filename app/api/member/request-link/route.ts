@@ -1,3 +1,4 @@
+import { fromAddress, studioDomains } from "@/lib/email/domains";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { findStudio, memberPortalAllowed, sameOrigin } from "@/lib/member/session";
@@ -85,6 +86,7 @@ export async function POST(request: NextRequest) {
     link,
     isNew: !account.password_hash,
   });
-  await sendEmailToRecipients([{ email }], { ...message, from: `${studio.name.replace(/[<>"]/g, "")} <notifications@synqiq.co>` });
+  const domains = await studioDomains(createSupabaseAdminClient(), studio.id);
+  await sendEmailToRecipients([{ email }], { ...message, from: fromAddress(studio.name, domains.from) });
   return ok;
 }

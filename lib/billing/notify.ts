@@ -117,7 +117,7 @@ export async function emailDecline(admin: Admin, chargeId: string, retryOn: stri
   const studioName = kit.branding.studioName;
   const updateUrl = await createCardLink(admin, charge.organization_id as string, charge.mindbody_client_id as string, "declined", null);
   await sendEmailToRecipients([{ email: contact.email }], {
-    from: studioFrom(studioName),
+    from: studioFrom(studioName, kit.fromDomain),
     ...declinedPaymentEmail(
       {
         studioName,
@@ -160,7 +160,7 @@ export async function sendCardLink(
   const studioName = kit.branding.studioName;
   const updateUrl = await createCardLink(admin, organizationId, clientId, "staff", staffId);
   await sendEmailToRecipients([{ email: contact.email }], {
-    from: studioFrom(studioName),
+    from: studioFrom(studioName, kit.fromDomain),
     ...cardLinkEmail(
       {
         studioName,
@@ -218,7 +218,7 @@ export async function sendExpiringCardNotices(organizationId: string, today: str
     if (contact.email) {
       const updateUrl = await createCardLink(admin, organizationId, clientId, "expiring", null);
       await sendEmailToRecipients([{ email: contact.email }], {
-        from: studioFrom(studioName),
+        from: studioFrom(studioName, kit.fromDomain),
         ...cardLinkEmail(
           {
             studioName,

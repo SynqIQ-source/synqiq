@@ -192,7 +192,8 @@ export type EmailBranding = {
   showLogo: boolean;
 };
 export type TemplateOverrides = Partial<Record<TemplateKey, { subject: string; body: string }>>;
-export type EmailKit = { branding: EmailBranding; overrides: TemplateOverrides };
+// fromDomain: the studio's verified sending domain (null = synqiq.co).
+export type EmailKit = { branding: EmailBranding; overrides: TemplateOverrides; fromDomain?: string | null };
 
 export const DEFAULT_SIGNATURE = "Thank you,\n{{studio}}";
 export const SUBJECT_MAX = 200;

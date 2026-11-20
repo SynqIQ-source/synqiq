@@ -1,3 +1,4 @@
+import { relayDomainFor } from "@/lib/email/domains";
 import { randomUUID } from "node:crypto";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getEnv } from "@/lib/env";
@@ -29,15 +30,15 @@ export type FollowupContext = {
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
-const CONVERSATION_COLUMNS =
-  "id, organization_id, instructor_id, client_id, alias, client_email, instructor_email, subject";
+const CONVERSATION_COLUMNS = "id, organization_id, instructor_id, client_id, alias, client_email, instructor_email, subject";
 
 function aliasLocalPart(aliasOrAddress: string): string {
   return aliasOrAddress.includes("@") ? aliasOrAddress.split("@")[0]! : aliasOrAddress;
 }
 
-function buildAlias(): string {
-  return `${randomUUID()}@${getEnv("FOLLOWUP_RELAY_DOMAIN")}`;
+// On the studio's verified reply domain when it has one (lib/email/domains.ts).
+function buildAlias(domain: string): string {
+  return `${randomUUID()}@${domain.toLowerCase()}`;
 }
 
 function withRePrefix(subject: string): string {
@@ -76,13 +77,11 @@ async function loadContext(admin: Admin, conversation: ConversationRow): Promise
 
 export async function resolveContextByAlias(alias: string): Promise<FollowupContext | null> {
   const admin = createSupabaseAdminClient();
-  const localPart = aliasLocalPart(alias);
+  // A full address matches exactly (SynqIQ's or a studio's reply domain); a
+  // bare local part is on SynqIQ's.
+  const address = alias.includes("@") ? alias.toLowerCase() : `${aliasLocalPart(alias)}@${getEnv("FOLLOWUP_RELAY_DOMAIN")}`;
 
-  const { data: conversation } = await admin
-    .from("followup_conversations")
-    .select(CONVERSATION_COLUMNS)
-    .eq("alias", `${localPart}@${getEnv("FOLLOWUP_RELAY_DOMAIN")}`)
-    .maybeSingle();
+  const { data: conversation } = await admin.from("followup_conversations").select(CONVERSATION_COLUMNS).eq("alias", address).maybeSingle();
 
   if (!conversation) {
     return null;
@@ -90,9 +89,7 @@ export async function resolveContextByAlias(alias: string): Promise<FollowupCont
   return loadContext(admin, conversation as ConversationRow);
 }
 
-export type GetOrCreateResult =
-  | { ok: true; context: FollowupContext; created: boolean }
-  | { ok: false; error: string };
+export type GetOrCreateResult = { ok: true; context: FollowupContext; created: boolean } | { ok: false; error: string };
 
 // Used by the outbound (instructor-composed) path. One conversation per
 // (instructor, member) pair; a later follow-up reuses it and just updates
@@ -121,11 +118,7 @@ export async function getOrCreateConversation(params: {
     return { ok: true, context, created: false };
   }
 
-  const { data: staff } = await admin
-    .from("staff")
-    .select("auth_user_id")
-    .eq("id", params.instructorId)
-    .maybeSingle();
+  const { data: staff } = await admin.from("staff").select("auth_user_id").eq("id", params.instructorId).maybeSingle();
 
   if (!staff?.auth_user_id) {
     return { ok: false, error: "Instructor has no linked login, so no reply address is available." };
@@ -136,11 +129,7 @@ export async function getOrCreateConversation(params: {
     return { ok: false, error: "Could not resolve the instructor's login email." };
   }
 
-  const { data: client } = await admin
-    .from("clients")
-    .select("email")
-    .eq("id", params.clientId)
-    .maybeSingle();
+  const { data: client } = await admin.from("clients").select("email").eq("id", params.clientId).maybeSingle();
 
   if (!client?.email) {
     return { ok: false, error: "This member has no email on file (only checked-in members get one)." };
@@ -152,7 +141,7 @@ export async function getOrCreateConversation(params: {
       organization_id: params.organizationId,
       instructor_id: params.instructorId,
       client_id: params.clientId,
-      alias: buildAlias(),
+      alias: buildAlias(await relayDomainFor(admin, params.organizationId)),
       client_email: client.email,
       instructor_email: instructorEmail,
       subject: params.subject,
@@ -274,17 +263,12 @@ export async function deliverHop(params: {
     console.error(`[followup] sent hop but failed to record message row: ${messageError.message}`);
   }
 
-  await admin
-    .from("followup_conversations")
-    .update({ last_message_at: new Date().toISOString() })
-    .eq("id", conversation.id);
+  await admin.from("followup_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversation.id);
 
   return { ok: true, messageId: sendResult.resendMessageId };
 }
 
-export type SendFollowupResult =
-  | { ok: true; conversationId: string; messageId: string }
-  | { ok: false; error: string };
+export type SendFollowupResult = { ok: true; conversationId: string; messageId: string } | { ok: false; error: string };
 
 // Convenience for the outbound (instructor-composed) path used by
 // /api/followup: create/resolve the conversation, optionally refresh the
@@ -312,10 +296,7 @@ export async function sendInstructorFollowup(params: {
 
   if (!conversation.created && conversation.context.conversation.subject !== params.subject) {
     const admin = createSupabaseAdminClient();
-    await admin
-      .from("followup_conversations")
-      .update({ subject: params.subject })
-      .eq("id", conversationId);
+    await admin.from("followup_conversations").update({ subject: params.subject }).eq("id", conversationId);
     conversation.context.conversation.subject = params.subject;
   }
 

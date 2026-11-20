@@ -1,3 +1,4 @@
+import { inboundRelayDomains } from "@/lib/email/domains";
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { verifyResendWebhook } from "@/lib/followup/verify-webhook";
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
 
   // A guest replying to a CRM email (g-<token>@ alias) goes to their guest
   // thread; everything else is an instructor follow-up conversation.
-  const guestAlias = findGuestAlias(received.to);
+  const guestAlias = findGuestAlias(received.to, await inboundRelayDomains());
   if (guestAlias) {
     const guestResult = await handleGuestEmailReply({
       alias: guestAlias,

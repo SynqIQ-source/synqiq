@@ -1,3 +1,4 @@
+import { relayDomainFor } from "@/lib/email/domains";
 import { randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendRelayEmail, formatOutboundMessageId } from "@/lib/email/relay";
@@ -31,7 +32,9 @@ function relayDomain(): string {
 
 async function emailAliasFor(admin: SupabaseClient, contact: { id: string; organization_id: string; email_alias: string | null }) {
   if (contact.email_alias) return contact.email_alias;
-  const alias = `${GUEST_ALIAS_PREFIX}${randomBytes(12).toString("hex")}@${relayDomain()}`;
+  // The studio's verified reply domain when it has one, else SynqIQ's.
+  relayDomain();
+  const alias = `${GUEST_ALIAS_PREFIX}${randomBytes(12).toString("hex")}@${await relayDomainFor(admin as never, contact.organization_id)}`;
   const { error } = await admin
     .from("crm_contacts")
     .update({ email_alias: alias })

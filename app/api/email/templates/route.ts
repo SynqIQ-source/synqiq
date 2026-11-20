@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       action: emailButton("https://synqiq.co", key === "rating_request" ? "★★★★★" : "Button", kit.branding.color),
     });
     await sendEmailToRecipients([{ email: to }], {
-      from: studioFrom(kit.branding.studioName),
+      from: studioFrom(kit.branding.studioName, kit.fromDomain),
       subject: `[Test] ${email.subject}`,
       html: email.html,
     });

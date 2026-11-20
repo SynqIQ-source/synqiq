@@ -1,7 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { memberEmail } from "@/lib/billing/notify";
 import { sendEmailMessages } from "@/lib/email/send";
-import { loadEmailKit } from "@/lib/email/studio-kit";
+import { loadEmailKit, studioFrom } from "@/lib/email/studio-kit";
 import { fillMilestone, milestoneFor, ordinal, renderMilestoneEmail } from "@/lib/email/milestone-content";
 
 // Nightly: members who reached a class milestone in the last few days get a
@@ -137,7 +137,7 @@ export async function sendMilestone(
   const first = (((instructor?.display_name as string | null) ?? "").split(" ")[0] || "Your instructor").replace(/[<>"]/g, "");
   const email = renderMilestoneEmail(kit, edited.subject, edited.body);
   const result = await sendEmailMessages([
-    { to: contact.email, from: `${first} at ${kit.branding.studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`, ...email },
+    { to: contact.email, from: studioFrom(`${first} at ${kit.branding.studioName}`, kit.fromDomain), ...email },
   ]);
   if (!result.sent.length) return fail("The email didn't send. Try again later.");
   await admin.from("milestone_emails").update({ sent_to: contact.email }).eq("id", id);

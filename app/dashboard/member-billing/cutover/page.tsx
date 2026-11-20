@@ -34,6 +34,7 @@ type Row = {
   total_cents: number | null;
   remaining_payments: number | null;
   auto_renews: boolean;
+  basis: string | null;
   status: string;
   excluded_reason: string | null;
 };
@@ -56,7 +57,7 @@ export default async function CutoverPage({ searchParams }: { searchParams: Prom
     const { data } = await admin
       .from("billing_cutover_rows")
       .select(
-        "id, payer_mindbody_client_id, payer_name, member_name, member_mindbody_client_id, contract_name, bill_day, first_bill_date, total_cents, remaining_payments, auto_renews, status, excluded_reason",
+        "id, payer_mindbody_client_id, payer_name, member_name, member_mindbody_client_id, contract_name, bill_day, first_bill_date, total_cents, remaining_payments, auto_renews, basis, status, excluded_reason",
       )
       .eq("organization_id", staff.organizationId)
       .order("payer_name")
@@ -243,7 +244,13 @@ export default async function CutoverPage({ searchParams }: { searchParams: Prom
                         <td className="px-4 py-2">
                           {row.contract_name}
                           <span className="block text-xs text-muted-foreground">
-                            {row.auto_renews ? "Renews" : row.remaining_payments ? `${row.remaining_payments} payments left` : ""}
+                            {row.basis === "assumed_renewal"
+                              ? "Assumed renewal (Mindbody next term not generated yet)"
+                              : row.auto_renews
+                                ? "Renews"
+                                : row.remaining_payments
+                                  ? `${row.remaining_payments} payments left`
+                                  : ""}
                           </span>
                         </td>
                         <td className="px-4 py-2 tabular-nums">{row.bill_day ?? ""}</td>

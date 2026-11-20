@@ -1,15 +1,17 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { isTemplateKey, type EmailKit, type TemplateOverrides } from "@/lib/email/studio-templates";
+import { fromAddress, studioDomains } from "@/lib/email/domains";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
 // A studio's email header/footer and reworded templates, for the senders.
 // Falls back to the defaults on any read problem: an email must still go out.
 export async function loadEmailKit(admin: Admin, organizationId: string): Promise<EmailKit> {
-  const [{ data: org }, { data: settings }, { data: templates }] = await Promise.all([
+  const [{ data: org }, { data: settings }, { data: templates }, domains] = await Promise.all([
     admin.from("organizations").select("name, logo_url, primary_color").eq("id", organizationId).maybeSingle(),
     admin.from("email_settings").select("signature, footer, show_logo").eq("organization_id", organizationId).maybeSingle(),
     admin.from("email_templates").select("key, subject, body").eq("organization_id", organizationId),
+    studioDomains(admin, organizationId),
   ]);
   const overrides: TemplateOverrides = {};
   for (const row of templates ?? []) {
@@ -25,7 +27,9 @@ export async function loadEmailKit(admin: Admin, organizationId: string): Promis
       showLogo: (settings?.show_logo as boolean | null) ?? true,
     },
     overrides,
+    fromDomain: domains.from,
   };
 }
 
-export const studioFrom = (studioName: string) => `${studioName.replace(/[<>"]/g, "")} <notifications@synqiq.co>`;
+// "Studio <notifications@studio-domain>" once the studio's domain is verified, else synqiq.co.
+export const studioFrom = (studioName: string, domain?: string | null) => fromAddress(studioName, domain);
