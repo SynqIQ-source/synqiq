@@ -17,10 +17,14 @@ export async function refreshClassCounts(organizationId: string, days = 7) {
   const start = DateTime.now().setZone(zone).startOf("day");
   const end = start.plus({ days });
   const mindbody = createMindbodyClient({ siteId: String(org.mindbody_site_id) });
+  // Staff login required: without it Mindbody returns the classes with
+  // TotalBooked/TotalSignedIn blank, and those were written as 0 over every
+  // class from today on (2026-11-20; same trap as the nightly sync 10-28).
+  const accessToken = await mindbody.requireAccessToken();
 
   const classes: MindbodyClass[] = [];
   for (let offset = 0; offset < 2000; offset += 200) {
-    const page = await mindbody.getClasses(undefined, {
+    const page = await mindbody.getClasses(accessToken, {
       startDateTime: start.toISO({ includeOffset: false })!,
       endDateTime: end.toISO({ includeOffset: false })!,
       offset,
@@ -45,11 +49,17 @@ export async function refreshClassCounts(organizationId: string, days = 7) {
   }
   const now = new Date().toISOString();
   let updated = 0;
+  let skipped = 0;
   for (const cls of classes) {
     const current = cls.Id == null ? undefined : known.get(cls.Id);
     if (!current) continue;
-    const booked = cls.TotalBooked ?? 0;
-    const signedIn = cls.TotalSignedIn ?? 0;
+    // A blank count means Mindbody didn't tell us -- never write it as 0.
+    if (typeof cls.TotalBooked !== "number" || typeof cls.TotalSignedIn !== "number") {
+      skipped += 1;
+      continue;
+    }
+    const booked = cls.TotalBooked;
+    const signedIn = cls.TotalSignedIn;
     // counts_read_at moves either way: it marks when these counts were read
     // (SynqIQ bookings pushed before it are already in TotalBooked). Not
     // sync_timestamp: the nightly class sync uses that to know it ran today.
@@ -64,5 +74,5 @@ export async function refreshClassCounts(organizationId: string, days = 7) {
       .eq("mindbody_occurrence_id", cls.Id!);
     if (!error && (current.total_booked !== booked || current.total_signed_in !== signedIn)) updated += 1;
   }
-  return { classes: classes.length, updated };
+  return { classes: classes.length, updated, skipped };
 }
