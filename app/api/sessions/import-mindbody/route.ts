@@ -9,7 +9,11 @@ export const maxDuration = 300;
 // studio's session packs from Mindbody's balances, until its switch date.
 export async function GET(request: NextRequest) {
   if (!isCronRequest(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { data: orgs } = await createSupabaseAdminClient().from("organizations").select("id").not("mindbody_site_id", "is", null);
+  const { data: orgs } = await createSupabaseAdminClient()
+    .from("organizations")
+    .select("id")
+    .not("mindbody_site_id", "is", null)
+    .is("mindbody_disconnected_at", null);
   const results: Record<string, unknown> = {};
   for (const org of orgs ?? []) {
     try {

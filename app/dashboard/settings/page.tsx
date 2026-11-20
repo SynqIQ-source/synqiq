@@ -6,6 +6,7 @@ import { BrandingForm } from "./branding-form";
 import { TrainerHealthSettingsForm } from "./trainer-health-settings-form";
 import { MindbodyWritebackForm } from "./mindbody-writeback-form";
 import { PtRulesForm } from "./pt-rules-form";
+import { MindbodyConnectionForm } from "./mindbody-connection-form";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { DateTime } from "luxon";
 
@@ -39,7 +40,7 @@ export default async function SettingsPage() {
     admin
       .from("organizations")
       .select(
-        "mindbody_booking_writeback, mindbody_writeback_until, timezone, pt_no_show_uses_session, pt_late_cancel_uses_session, session_balances_from",
+        "mindbody_booking_writeback, mindbody_writeback_until, timezone, pt_no_show_uses_session, pt_late_cancel_uses_session, session_balances_from, mindbody_disconnected_at",
       )
       .eq("id", currentStaff.organizationId)
       .maybeSingle(),
@@ -69,6 +70,10 @@ export default async function SettingsPage() {
         noShow={writeback?.pt_no_show_uses_session !== false}
         lateCancel={writeback?.pt_late_cancel_uses_session !== false}
         balancesFrom={((writeback?.session_balances_from as string | null) ?? "2026-12-18").slice(0, 10)}
+      />
+      <MindbodyConnectionForm
+        studioName={organization.name}
+        disconnectedAt={(writeback?.mindbody_disconnected_at as string | null) ?? null}
       />
       <MindbodyWritebackForm
         enabled={Boolean(writeback?.mindbody_booking_writeback)}

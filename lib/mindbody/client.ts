@@ -1,3 +1,4 @@
+import { assertMindbodyConnected } from "@/lib/mindbody/connection";
 import { getEnv, getOptionalEnv } from "@/lib/env";
 import type { MindbodyOccurrenceId } from "@/lib/mindbody/types";
 
@@ -377,6 +378,8 @@ export class MindbodyClient {
   }
 
   private async request(path: string, options: MindbodyRequestOptions = {}) {
+    // The off switch: nothing reaches Mindbody for a switched-off studio.
+    await assertMindbodyConnected(this.siteId);
     const url = new URL(`${this.baseUrl}${path}`);
 
     Object.entries(options.searchParams ?? {}).forEach(([key, value]) => {

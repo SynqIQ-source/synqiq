@@ -13,7 +13,8 @@ export async function GET(request: NextRequest) {
     .from("organizations")
     .select("id")
     .eq("member_portal_mode", "open")
-    .not("mindbody_site_id", "is", null);
+    .not("mindbody_site_id", "is", null)
+    .is("mindbody_disconnected_at", null);
   const results: Record<string, unknown> = {};
   for (const org of orgs ?? []) {
     try {

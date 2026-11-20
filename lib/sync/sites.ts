@@ -1,3 +1,4 @@
+import { disconnectedSites, mindbodyGloballyDisabled } from "@/lib/mindbody/connection";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { getOptionalEnv } from "@/lib/env";
 
@@ -10,16 +11,20 @@ import { getOptionalEnv } from "@/lib/env";
 // column doesn't exist yet), so a deploy can never quietly stop the
 // nightly syncs.
 export async function connectedSiteIds(): Promise<number[]> {
+  // Mindbody switched off (everywhere, or per studio): no syncs for it.
+  if (mindbodyGloballyDisabled()) return [];
+  const off = await disconnectedSites();
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("organizations")
     .select("mindbody_site_id")
     .eq("mindbody_connected", true)
+    .is("mindbody_disconnected_at", null)
     .order("created_at");
   const sites = error ? [] : (data ?? []).map((row) => Number(row.mindbody_site_id)).filter(Number.isFinite);
   if (sites.length > 0) return sites;
   const fallback = Number(getOptionalEnv("MINDBODY_SITE_ID"));
-  return Number.isFinite(fallback) && fallback !== 0 ? [fallback] : [];
+  return Number.isFinite(fallback) && fallback !== 0 && !off.has(String(fallback)) ? [fallback] : [];
 }
 
 // The site a sync or Mindbody call is for: the one asked for, else
@@ -47,6 +52,7 @@ export async function sitesForRequest(searchParams: URLSearchParams): Promise<nu
   const requested = searchParams.get("siteId");
   if (requested !== null) {
     const siteId = Number(requested);
+    if (mindbodyGloballyDisabled() || (await disconnectedSites()).has(String(siteId))) return [];
     return Number.isFinite(siteId) ? [siteId] : [];
   }
   return connectedSiteIds();

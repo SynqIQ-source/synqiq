@@ -131,6 +131,10 @@ export async function pushPendingBookings(organizationId: string, options: { tes
 
 // Studios with write-back on (for the cron).
 export async function writebackStudios(admin: Admin) {
-  const { data } = await admin.from("organizations").select("id").eq("mindbody_booking_writeback", true);
+  const { data } = await admin
+    .from("organizations")
+    .select("id")
+    .eq("mindbody_booking_writeback", true)
+    .is("mindbody_disconnected_at", null);
   return (data ?? []).map((row) => row.id as string);
 }
