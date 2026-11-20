@@ -10,6 +10,7 @@ export type TemplateKey =
   | "card_expiring"
   | "card_expiring_reminder"
   | "card_link"
+  | "card_cutover"
   | "rating_request"
   | "class_followup_reminder";
 
@@ -114,6 +115,27 @@ Here's the secure link to add or update the card we keep on file for your member
 
 ${CARD_TAIL}`,
     fields: { studio: STUDIO, first_name: FIRST },
+  },
+  card_cutover: {
+    label: "Add your card (move to SynqIQ billing)",
+    audience: "Members",
+    when: "A Club Admin sends it from Member Billing > Jan 1 cutover, to members whose card isn't in SynqIQ yet.",
+    subject: "Action needed: add your card for your {{studio}} membership",
+    body: `Hi {{first_name}},
+
+Starting {{start_date}}, {{studio}} membership payments move to our new member system. To keep your **{{membership}}** going without interruption, please add the card you'd like to use for your monthly dues.
+
+[button]
+
+It takes about a minute. Your card goes straight to our secure payment processor, Stripe. Your billing day stays the same.
+
+You can also add it in our app, or at the front desk.`,
+    fields: {
+      studio: STUDIO,
+      first_name: FIRST,
+      membership: MEMBERSHIP,
+      start_date: { label: "When the move happens", sample: "January 1" },
+    },
   },
   rating_request: {
     label: "Rate your class",

@@ -129,6 +129,15 @@ export default async function MemberBillingPage() {
       description={`Monthly dues SynqIQ will charge on the studio's Stripe account. A decline pauses booking (red) and emails the member; it retries ${RETRY_DAYS.join(", ")} days after the billing date, then the membership is frozen. Move any single payment date or retry a decline below. Cards expiring within a month show yellow. Renewals run nightly at 4 AM; live charging isn't switched on yet (test cards only).`}
     >
       <div className="space-y-6">
+        <Link
+          href="/dashboard/member-billing/cutover"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary-subtle px-4 py-3 text-sm hover:bg-accent"
+        >
+          <span>
+            <strong>Jan 1 cutover:</strong> moving every Mindbody autopay to SynqIQ, each member on their own billing day.
+          </span>
+          <span className="font-medium underline underline-offset-4">Open the dry run</span>
+        </Link>
         <Card className="py-0">
           <CardHeader className="pt-4">
             <CardTitle className="text-base">Due in the next {UPCOMING_DAYS} days</CardTitle>
