@@ -8,9 +8,12 @@ import { bookingCoverage } from "@/lib/booking/rules";
 import { canCloseSession, canEditAvailability, canReopenSession, checkBooking, closeSession, type CloseAction } from "@/lib/trainer/rules";
 import { loadTrainerDay, writeSessionPayEvent } from "@/lib/trainer/sessions";
 import { syncTrainerAvailability } from "@/lib/trainer/availability-sync";
+import { memberPacks, recordSessionUse, voidSessionUse } from "@/lib/sessions/packs";
+import { choosePack, freeSessions } from "@/lib/sessions/packs-rules";
 
 // Trainer calendar actions (SynqIQ only; nothing is written to Mindbody):
-//   book { trainerId, clientId, sessionTypeId, startsAt, minutes, note? }
+//   packs { clientId }                    the client's session packs and what's free
+//   book { trainerId, clientId, sessionTypeId, startsAt, minutes, note?, packId? }
 //   close { id, action: complete|no_show|cancel|late_cancel, reason? }
 //   reopen { id, reason }                 Club Admin: back to booked, voids its pay
 //   availabilityAdd { trainerId, date, start, end, weeks }
@@ -30,6 +33,21 @@ export async function POST(request: NextRequest) {
   const { data: orgRow } = await admin.from("organizations").select("timezone, trainer_availability_synced_at").eq("id", org).maybeSingle();
   const zone = (orgRow?.timezone as string | null) ?? "America/Chicago";
   const now = new Date();
+
+  if (body.action === "packs") {
+    const clientId = typeof body.clientId === "string" ? body.clientId : "";
+    if (!/^[\w-]{1,40}$/.test(clientId)) return fail("Pick a client.");
+    const packs = await memberPacks(admin, org, clientId);
+    const today = DateTime.now().setZone(zone).toISODate()!;
+    const best = choosePack(packs, today);
+    return NextResponse.json({
+      success: true,
+      best: best?.id ?? null,
+      packs: packs
+        .filter((pack) => pack.remaining > 0 || pack.reserved > 0)
+        .map((pack) => ({ ...pack, free: freeSessions(pack), expired: Boolean(pack.expiresOn && pack.expiresOn < today) })),
+    });
+  }
 
   if (body.action === "book") {
     const trainerId = body.trainerId;
@@ -77,6 +95,16 @@ export async function POST(request: NextRequest) {
       date: start.toISODate()!,
       hasCurrentMembership: false,
     });
+    // SynqIQ's own session packs: the chosen one, else the best one.
+    const packs = await memberPacks(admin, org, clientId);
+    const sessionDate = start.toISODate()!;
+    const requested = typeof body.packId === "string" && body.packId ? packs.find((pack) => pack.id === body.packId) : undefined;
+    if (body.packId && !requested) return fail("That pack isn't on this client's account.");
+    const pack = requested ?? choosePack(packs, sessionDate);
+    if (requested && (freeSessions(requested) <= 0 || (requested.expiresOn && requested.expiresOn < sessionDate)))
+      return fail("That pack has no sessions free on that date. Pick another or book with a reason.", 400, { needsReason: true });
+    // Packs in SynqIQ decide coverage; Mindbody's list only when the client has none yet.
+    const covered = pack ? true : packs.length ? false : coverage.kind !== "none";
     const day = await loadTrainerDay(admin, org, trainerId as string, startsAt, endsAt);
     const check = checkBooking({
       who,
@@ -86,7 +114,7 @@ export async function POST(request: NextRequest) {
       busy: day.busy,
       now,
       reason: note,
-      covered: coverage.kind !== "none",
+      covered,
     });
     if (!check.ok) return fail(check.error, 400, { needsReason: Boolean(check.needsReason) });
     const { data: saved, error } = await admin
@@ -101,16 +129,23 @@ export async function POST(request: NextRequest) {
         starts_at: startsAt,
         ends_at: endsAt,
         local_date: start.toISODate(),
-        coverage_kind: coverage.kind === "pack" ? "pack" : "none",
-        coverage_name: coverage.name,
-        mindbody_client_service_id: coverage.serviceId,
+        coverage_kind: pack || (!packs.length && coverage.kind === "pack") ? "pack" : "none",
+        coverage_name: pack ? pack.name : packs.length ? null : coverage.name,
+        mindbody_client_service_id: pack || packs.length ? null : coverage.serviceId,
+        session_pack_id: pack?.id ?? null,
         note: [note, ...check.warnings.map((w) => `(${w})`)].filter(Boolean).join(" ") || null,
         booked_by_staff_id: me.id,
       })
       .select("id")
       .single();
     if (error) return fail("Couldn't book. Try again.", 500);
-    return NextResponse.json({ success: true, id: saved.id, coverage: coverage.name, warnings: check.warnings });
+    return NextResponse.json({
+      success: true,
+      id: saved.id,
+      coverage: pack ? pack.name : coverage.name,
+      sessionsLeftAfter: pack ? freeSessions(pack) - 1 : null,
+      warnings: check.warnings,
+    });
   }
 
   if (body.action === "close" || body.action === "reopen") {
@@ -118,7 +153,7 @@ export async function POST(request: NextRequest) {
     const { data: session } = await admin
       .from("trainer_sessions")
       .select(
-        "id, trainer_staff_id, mindbody_client_id, client_name, session_type_id, session_type_name, coverage_name, local_date, starts_at, status",
+        "id, trainer_staff_id, mindbody_client_id, client_name, session_type_id, session_type_name, coverage_name, local_date, starts_at, status, session_pack_id",
       )
       .eq("id", body.id)
       .eq("organization_id", org)
@@ -135,6 +170,8 @@ export async function POST(request: NextRequest) {
         .update({ voided_at: now.toISOString(), voided_by_staff_id: me.id, void_reason: reason })
         .eq("trainer_session_id", session.id)
         .is("voided_at", null);
+      // The session goes back on the client's pack.
+      await voidSessionUse(admin, session.id as string, me.id);
       await admin
         .from("trainer_sessions")
         .update({ status: "booked", closed_at: null, closed_by_staff_id: null, cancel_reason: null, updated_at: now.toISOString() })
@@ -185,6 +222,12 @@ export async function POST(request: NextRequest) {
         await admin.from("trainer_sessions").update({ status: "booked", closed_at: null, closed_by_staff_id: null }).eq("id", session.id);
         return fail("Couldn't record the pay for this session. Try again.", 500);
       }
+    }
+    // Completed, no-show and late cancel each take a session off the pack.
+    try {
+      await recordSessionUse(admin, org, session.id as string, (session.session_pack_id as string | null) ?? null, outcome.status, me.id);
+    } catch (error) {
+      console.error("[trainer-sessions] session use not recorded:", error);
     }
     return NextResponse.json({ success: true, status: outcome.status });
   }

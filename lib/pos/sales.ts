@@ -1,3 +1,4 @@
+import { createSoldPacks } from "@/lib/sessions/packs";
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { canDiscountAtCheckout } from "@/lib/permissions";
@@ -441,6 +442,30 @@ export async function savePracticeSale(
       await admin.from("member_billing_schedules").delete().eq("sale_id", sale.id);
       await admin.from("pos_sales").delete().eq("id", sale.id);
       return { error: "Couldn't save the signed agreement. Try again." };
+    }
+  }
+  // Session packs sold (items with a session count) become the buyer's
+  // SynqIQ balance. Live sales only: a practice sale gives no real sessions.
+  if (payment?.livemode) {
+    try {
+      await createSoldPacks(admin, {
+        organizationId: org,
+        saleId: sale.id as string,
+        mindbodyClientId,
+        crmContactId,
+        lines: input.lines.map((line) => {
+          const item = itemBy.get(line.itemId)!;
+          return {
+            itemId: item.id as string,
+            name: item.name as string,
+            sessions: item.sessions == null ? null : Number(item.sessions),
+            quantity: line.quantity,
+            program: (categoryBy.get(item.revenue_category_id as string)?.name as string | undefined) ?? null,
+          };
+        }),
+      });
+    } catch (packError) {
+      console.error("pos sale: session packs not created", packError);
     }
   }
   if (promo) {

@@ -387,7 +387,26 @@ function BookDialog({
   const [client, setClient] = useState<MemberSuggestion | null>(null);
   const [note, setNote] = useState("");
   const [needsReason, setNeedsReason] = useState(false);
+  // The client's session packs (SynqIQ balances); "" = the best one.
+  const [packs, setPacks] = useState<{ id: string; name: string; free: number; expiresOn: string | null; expired: boolean }[] | null>(null);
+  const [packId, setPackId] = useState("");
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setPacks(null);
+    setPackId("");
+    if (!client) return;
+    let stale = false;
+    post({ action: "packs", clientId: client.id }).then((result) => {
+      if (stale) return;
+      const list =
+        (result as { packs?: { id: string; name: string; free: number; expiresOn: string | null; expired: boolean }[] }).packs ?? [];
+      setPacks(list);
+      setPackId((result as { best?: string | null }).best ?? "");
+    });
+    return () => {
+      stale = true;
+    };
+  }, [client]);
   const [error, setError] = useState<string | null>(null);
   const startAt = DateTime.fromISO(`${start.toISODate()}T${time}`, { zone });
   const open = startAt.isValid && available(minutes);
@@ -404,6 +423,7 @@ function BookDialog({
       minutes,
       startsAt: startAt.toISO(),
       note,
+      packId: packId || undefined,
     });
     setSaving(false);
     if (!result.success) {
@@ -480,6 +500,25 @@ function BookDialog({
               autoFocus
             />
           )}
+          {client ? (
+            <label className="block space-y-1 text-sm">
+              <span className="block text-muted-foreground">Uses</span>
+              {packs === null ? (
+                <span className="block text-muted-foreground">Checking their sessions…</span>
+              ) : packs.length ? (
+                <select className={`${selectClass} w-full`} value={packId} onChange={(e) => setPackId(e.target.value)}>
+                  {packs.map((pack) => (
+                    <option key={pack.id} value={pack.id} disabled={pack.free <= 0 || pack.expired}>
+                      {pack.name}: {pack.free} free{pack.expiresOn ? ` · expires ${pack.expiresOn}` : ""}
+                      {pack.expired ? " (expired)" : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="block text-amber-700 dark:text-amber-400">No sessions left on their account. Booking needs a reason.</span>
+              )}
+            </label>
+          ) : null}
           <label className="block space-y-1 text-sm">
             <span className="block text-muted-foreground">{needsReason ? "Reason (required)" : "Note (optional)"}</span>
             <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={needsReason ? "Why book it anyway?" : ""} />

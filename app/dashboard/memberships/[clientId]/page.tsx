@@ -1,3 +1,5 @@
+import { SessionPacksCard, type SessionPackRow } from "./session-packs-card";
+import { memberPacks } from "@/lib/sessions/packs";
 import { CardControls, type ShownCard } from "./card-on-file";
 import { stripeLivemode } from "@/lib/payments/connect";
 import { cardExpiry } from "@/lib/billing/renewals";
@@ -471,6 +473,18 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
   const sessionsLeft = packs.reduce((sum, service) => sum + (service.remaining ?? 0), 0);
   const lastVisit = (pastVisits ?? [])[0]?.start_local ?? null;
 
+  // SynqIQ's own session balances (PT / intro / class packs).
+  const sessionPacks: SessionPackRow[] = (await memberPacks(createSupabaseAdminClient(), orgId, clientId)).map((pack) => ({
+    id: pack.id,
+    name: pack.name,
+    kind: pack.kind,
+    total: pack.total,
+    remaining: pack.remaining,
+    booked: pack.reserved,
+    expiresOn: pack.expiresOn,
+    source: pack.source === "synqiq" ? "synqiq" : "mindbody",
+  }));
+
   const { data: agreements } = await createSupabaseAdminClient()
     .from("agreement_signatures")
     .select("id, title, signer_name, method, signed_at")
@@ -743,6 +757,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                     </div>
                   )}
                 </Card>
+                <SessionPacksCard packs={sessionPacks} today={DateTime.now().setZone(timezone).toISODate()!} />
                 <ServicesCard services={services ?? []} pulled={pulled} />
                 {past.length ? (
                   <Card className="py-0">
