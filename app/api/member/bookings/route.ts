@@ -1,3 +1,4 @@
+import { loadIncludedSetup } from "@/lib/coverage/included";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { findStudio, getCurrentMember, sameOrigin } from "@/lib/member/session";
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
     membershipProgram: MEMBERSHIP_PROGRAM,
     date: context.session.localDate,
     hasCurrentMembership: person.decision.kind === "membership",
+    included: await loadIncludedSetup(createSupabaseAdminClient(), studio.id),
   });
   if (coverage.kind === "none") {
     return NextResponse.json(

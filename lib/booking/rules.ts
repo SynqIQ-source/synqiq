@@ -1,3 +1,4 @@
+import type { IncludedSetup } from "@/lib/coverage/included";
 import type { ServiceInfo } from "@/lib/checkin/eligibility";
 
 // Booking rules for a class on SynqIQ's calendar: who can book when, what
@@ -12,6 +13,9 @@ export type ProgramRules = {
   cancelWindowMinutes: number | null; // cancelling inside this is late
   lateCancelFeeCents: number;
   noShowFeeCents?: number; // recorded when someone is marked a no-show
+  // "What's included": the item this category needs (null = the old
+  // included-in-membership switch decides).
+  requiredItemId?: string | null;
 };
 
 export type SessionInfo = { startsAt: string; endsAt: string; capacity: number | null; active: boolean };
@@ -61,13 +65,39 @@ export function bookingCoverage(input: {
   membershipProgram: string; // e.g. "Memberships & Passes"
   date: string; // class date, YYYY-MM-DD
   hasCurrentMembership: boolean;
+  included?: IncludedSetup; // the studio's "what's included" setup
 }): Coverage {
-  const usable = (service: ServiceInfo, program: string) =>
-    (service.program ?? "").toLowerCase() === program.toLowerCase() &&
+  const valid = (service: ServiceInfo) =>
     service.current !== false &&
     (!service.activeDate || service.activeDate <= input.date) &&
     (!service.expirationDate || service.expirationDate >= input.date) &&
     (service.remaining === null || service.remaining > 0);
+  const usable = (service: ServiceInfo, program: string) =>
+    (service.program ?? "").toLowerCase() === program.toLowerCase() && valid(service);
+  const required = input.rules.requiredItemId ?? null;
+  if (required && input.included) {
+    const setup = input.included;
+    const isMembership = (service: ServiceInfo) => (service.program ?? "").toLowerCase() === input.membershipProgram.toLowerCase();
+    // What a service includes: its own ticks, else (memberships) the
+    // studio's membership defaults.
+    const items = (service: ServiceInfo) => {
+      const ticked = service.productId ? setup.grants[service.productId] : undefined;
+      if (ticked?.length) return ticked;
+      return isMembership(service) ? setup.membershipDefaults : [];
+    };
+    if (input.hasCurrentMembership) {
+      const membership = input.services.find((service) => isMembership(service) && valid(service) && items(service).includes(required));
+      if (membership) return { kind: "membership", name: membership.name, serviceId: membership.id };
+    }
+    // Packs: one from this category, or one ticked as including what it needs.
+    const pack = input.services
+      .filter(
+        (service) => usable(service, input.rules.name) || (!isMembership(service) && valid(service) && items(service).includes(required)),
+      )
+      .sort((a, b) => (a.expirationDate ?? "9999").localeCompare(b.expirationDate ?? "9999"))[0];
+    if (pack) return { kind: "pack", name: pack.name, serviceId: pack.id };
+    return { kind: "none", name: null, serviceId: null };
+  }
   if (input.rules.includedInMembership && input.hasCurrentMembership) {
     const membership = input.services.find((service) => usable(service, input.membershipProgram));
     if (membership) return { kind: "membership", name: membership.name, serviceId: membership.id };

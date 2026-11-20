@@ -133,3 +133,46 @@ describe("staff booking after class", () => {
     expect(bookingWindow({ ...session, active: false }, gx, at("2026-11-20T15:00:00Z"), "staff")).not.toHaveProperty("overridable");
   });
 });
+
+describe("bookingCoverage with what's included", () => {
+  const svc = (over: Partial<ServiceInfo>): ServiceInfo => ({
+    id: 1,
+    name: "x",
+    program: "Memberships & Passes",
+    count: null,
+    remaining: null,
+    activeDate: null,
+    expirationDate: null,
+    current: true,
+    productId: null,
+    ...over,
+  });
+  const rules = (requiredItemId: string, name = "Yoga"): ProgramRules => ({
+    name,
+    includedInMembership: true,
+    bookingOpensDays: null,
+    bookingClosesMinutes: null,
+    cancelWindowMinutes: null,
+    lateCancelFeeCents: 0,
+    requiredItemId,
+  });
+  const included = { membershipDefaults: ["classes"], grants: { "500": ["classes", "recovery"] }, posGrants: {} };
+  const base = { membershipProgram: "Memberships & Passes", date: "2026-12-01", hasCurrentMembership: true, included };
+
+  it("memberships use the studio defaults", () => {
+    expect(bookingCoverage({ ...base, rules: rules("classes"), services: [svc({ id: 7 })] }).kind).toBe("membership");
+    expect(bookingCoverage({ ...base, rules: rules("reformer", "Group Reformer"), services: [svc({ id: 7 })] }).kind).toBe("none");
+  });
+  it("a ticked membership tier includes exactly its items", () => {
+    const premium = svc({ id: 8, productId: "500" });
+    expect(bookingCoverage({ ...base, rules: rules("recovery", "Recovery"), services: [premium] }).kind).toBe("membership");
+    expect(bookingCoverage({ ...base, rules: rules("recovery", "Recovery"), services: [svc({ id: 9 })] }).kind).toBe("none");
+  });
+  it("packs still cover their own category", () => {
+    const pack = svc({ id: 10, program: "Group Reformer", remaining: 3 });
+    expect(bookingCoverage({ ...base, rules: rules("reformer", "Group Reformer"), services: [svc({ id: 7 }), pack] })).toMatchObject({
+      kind: "pack",
+      serviceId: 10,
+    });
+  });
+});

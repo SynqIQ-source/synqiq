@@ -1,3 +1,4 @@
+import { loadIncludedSetup } from "@/lib/coverage/included";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/current-staff";
 import { canCheckIn } from "@/lib/permissions";
@@ -67,6 +68,7 @@ export async function POST(request: NextRequest) {
     membershipProgram: MEMBERSHIP_PROGRAM,
     date: context.session.localDate,
     hasCurrentMembership: person.decision.kind === "membership",
+    included: await loadIncludedSetup(createSupabaseAdminClient(), orgId),
   });
   if (coverage.kind === "none" && !note) {
     return NextResponse.json(

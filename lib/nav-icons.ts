@@ -106,6 +106,7 @@ export const NAV_ICONS_BY_HREF: Record<string, LucideIcon> = {
   "/dashboard/shadow-billing": Scale,
   "/dashboard/class-catalog": LayoutGrid,
   "/dashboard/services/membership-plans": FileText,
+  "/dashboard/services/included": ListChecks,
   "/dashboard/memberships/price-increases": Percent,
   "/dashboard/services/packs": Package,
   "/dashboard/services/products": ShoppingBag,

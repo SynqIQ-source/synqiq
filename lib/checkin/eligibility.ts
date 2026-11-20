@@ -12,6 +12,8 @@ export type ServiceInfo = {
   activeDate: string | null; // YYYY-MM-DD
   expirationDate: string | null;
   current: boolean | null;
+  // The Mindbody product (pricing option) it came from, for "what's included".
+  productId?: string | null;
 };
 
 export type ContractInfo = {

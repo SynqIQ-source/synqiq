@@ -85,7 +85,7 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
     if (type?.mindbody_program_id) {
       const { data: program } = await admin
         .from("departments")
-        .select("name, cancel_window_minutes, booking_opens_days, booking_closes_minutes, edits")
+        .select("name, cancel_window_minutes, booking_opens_days, booking_closes_minutes, edits, required_item_id")
         .eq("organization_id", organizationId)
         .eq("mindbody_program_id", type.mindbody_program_id)
         .maybeSingle();
@@ -94,6 +94,7 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
         rules = {
           name: program.name as string,
           includedInMembership: p.included_in_membership !== false,
+          requiredItemId: (program.required_item_id as string | null) ?? null,
           bookingOpensDays: (p.booking_opens_days as number | null) ?? null,
           bookingClosesMinutes: (p.booking_closes_minutes as number | null) ?? null,
           cancelWindowMinutes: (p.cancel_window_minutes as number | null) ?? null,

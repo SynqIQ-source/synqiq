@@ -55,6 +55,7 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
         activeDate: toDate(service.ActiveDate),
         expirationDate: toDate(service.ExpirationDate),
         current: service.Current ?? null,
+        productId: service.ProductId != null ? String(service.ProductId) : null,
       }));
       servicesFrom = "mindbody";
     } catch (error) {
@@ -64,7 +65,7 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
   if (servicesFrom === "synqiq") {
     const { data } = await admin
       .from("member_services")
-      .select("mindbody_client_service_id, name, program, count, remaining, active_date, expiration_date, is_current")
+      .select("mindbody_client_service_id, name, program, count, remaining, active_date, expiration_date, is_current, product_id")
       .eq("organization_id", organizationId)
       .eq("mindbody_client_id", mindbodyClientId);
     services = (data ?? []).map((row) => ({
@@ -76,6 +77,7 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
       activeDate: (row.active_date as string | null) ?? null,
       expirationDate: (row.expiration_date as string | null) ?? null,
       current: (row.is_current as boolean | null) ?? null,
+      productId: row.product_id != null ? String(row.product_id) : null,
     }));
   }
 
