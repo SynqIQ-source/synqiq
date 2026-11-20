@@ -24,6 +24,15 @@ export function shortStudioName(name: string): string {
 
 export const safeColor = (value: string | null | undefined) => (value && /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#0f766e");
 
-export function iconPath(siteId: number, size: IconSize, maskable = false) {
-  return `/m/${siteId}/app-icon/${size}${maskable ? "?maskable=1" : ""}`;
+// A short fingerprint of the logo, so a new logo gets new icon addresses
+// (browsers and phones otherwise keep showing the old icon for a while).
+export function logoVersion(logoUrl: string | null | undefined): string {
+  let hash = 5381;
+  for (const char of logoUrl ?? "") hash = ((hash * 33) ^ char.charCodeAt(0)) >>> 0;
+  return logoUrl ? hash.toString(36) : "0";
+}
+
+export function iconPath(siteId: number, size: IconSize, maskable = false, version = "0") {
+  const query = new URLSearchParams({ v: version, ...(maskable ? { maskable: "1" } : {}) });
+  return `/m/${siteId}/app-icon/${size}?${query.toString()}`;
 }

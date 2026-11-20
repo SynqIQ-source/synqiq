@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { findStudio } from "@/lib/member/session";
-import { iconPath, safeColor, shortStudioName } from "@/lib/member/app-icon";
+import { iconPath, logoVersion, safeColor, shortStudioName } from "@/lib/member/app-icon";
 
 // Every member app page is branded as the studio, not SynqIQ: added to a
 // phone's home screen it shows the studio's icon and name, and its color in
@@ -18,10 +18,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!studio) return {};
   return {
     applicationName: studio.name,
-    manifest: `/m/${studio.siteId}/manifest.webmanifest`,
+    manifest: `/m/${studio.siteId}/manifest.webmanifest?v=${logoVersion(studio.logoUrl)}`,
     icons: {
-      icon: iconPath(studio.siteId, 192),
-      apple: iconPath(studio.siteId, 180),
+      icon: iconPath(studio.siteId, 192, false, logoVersion(studio.logoUrl)),
+      apple: iconPath(studio.siteId, 180, false, logoVersion(studio.logoUrl)),
     },
     appleWebApp: { capable: true, statusBarStyle: "default", title: shortStudioName(studio.name) },
   };

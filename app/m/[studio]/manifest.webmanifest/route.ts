@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { findStudio } from "@/lib/member/session";
-import { iconPath, safeColor, shortStudioName } from "@/lib/member/app-icon";
+import { iconPath, logoVersion, safeColor, shortStudioName } from "@/lib/member/app-icon";
 
 // The member app installs as the studio's own app: its name, color and icon,
 // opening on the studio's Book screen.
@@ -21,9 +21,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ stu
       background_color: "#ffffff",
       theme_color: color,
       icons: [
-        { src: iconPath(studio.siteId, 192), sizes: "192x192", type: "image/png" },
-        { src: iconPath(studio.siteId, 512), sizes: "512x512", type: "image/png" },
-        { src: iconPath(studio.siteId, 512, true), sizes: "512x512", type: "image/png", purpose: "maskable" },
+        { src: iconPath(studio.siteId, 192, false, logoVersion(studio.logoUrl)), sizes: "192x192", type: "image/png" },
+        { src: iconPath(studio.siteId, 512, false, logoVersion(studio.logoUrl)), sizes: "512x512", type: "image/png" },
+        { src: iconPath(studio.siteId, 512, true, logoVersion(studio.logoUrl)), sizes: "512x512", type: "image/png", purpose: "maskable" },
       ],
     },
     { headers: { "Content-Type": "application/manifest+json", "Cache-Control": "public, max-age=3600" } },
