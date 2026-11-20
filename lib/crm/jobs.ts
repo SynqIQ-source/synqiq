@@ -59,11 +59,7 @@ async function claim(admin: SupabaseClient, job: Job): Promise<boolean> {
 }
 
 // Returns true when the job won't run again (done, or out of attempts).
-async function finish(
-  admin: SupabaseClient,
-  job: Job,
-  outcome: { ok: true } | { ok: false; error: string },
-): Promise<boolean> {
+async function finish(admin: SupabaseClient, job: Job, outcome: { ok: true } | { ok: false; error: string }): Promise<boolean> {
   const attempts = job.attempts + 1;
   const now = Date.now();
   const update = outcome.ok
@@ -282,12 +278,16 @@ async function detectMindbodyCloses(admin: SupabaseClient) {
   const open = (openRows ?? []) as OpenContact[];
   const ids = open.map((row) => Number(row.mindbody_client_id)).filter((value) => Number.isInteger(value));
   if (ids.length === 0) return;
+  // clients.mindbody_unique_id is a Postgres integer: an id past its range
+  // (imported contacts carry 11- to 22-digit Mindbody client ids) makes the
+  // whole .in() fail, so only in-range ids are tried as UniqueIds.
+  const uniqueIds = ids.filter((value) => value > 0 && value <= 2147483647);
 
   // A contact's mindbody_client_id is Mindbody's client Id, which for older
   // clients isn't the UniqueId -- match on either.
   const clientFields = "organization_id, mindbody_unique_id, mindbody_client_id, status";
   const [byUnique, byClientId] = await Promise.all([
-    admin.from("clients").select(clientFields).in("mindbody_unique_id", ids),
+    admin.from("clients").select(clientFields).in("mindbody_unique_id", uniqueIds),
     admin.from("clients").select(clientFields).in("mindbody_client_id", ids.map(String)),
   ]);
   if (byUnique.error) throw byUnique.error;
@@ -380,9 +380,7 @@ async function findMembershipSaleCloses(
 
   for (const contact of open) {
     const keys = keysFor(contact);
-    const earliestAllowed = new Date(
-      new Date(contact.created_at).getTime() - SALE_BEFORE_PROFILE_SLACK_HOURS * 3_600_000,
-    ).toISOString();
+    const earliestAllowed = new Date(new Date(contact.created_at).getTime() - SALE_BEFORE_PROFILE_SLACK_HOURS * 3_600_000).toISOString();
     const earliest = sales
       .filter(
         (sale) =>
