@@ -267,6 +267,21 @@ export function CheckInDesk() {
                   ))}
                 </ul>
               ) : null}
+              {status.pt.today.length || status.pt.packs.length ? (
+                <div className="mt-2 space-y-0.5 text-sm">
+                  {status.pt.today.map((session) => (
+                    <p key={session.time} className="font-medium">
+                      PT today: {session.time} with {session.trainer}
+                      {session.pack ? <span className="font-normal text-muted-foreground"> · uses {session.pack}</span> : null}
+                    </p>
+                  ))}
+                  {status.pt.packs.length ? (
+                    <p className="text-muted-foreground">
+                      Sessions left: {status.pt.packs.map((pack) => `${pack.name} (${pack.free})`).join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {status.servicesFrom === "synqiq" ? (
                 <p className="mt-1 text-xs text-muted-foreground">Mindbody couldn&apos;t be reached; this uses SynqIQ&apos;s last copy.</p>
               ) : null}

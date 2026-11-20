@@ -1,6 +1,13 @@
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { isCountedPack, packKind, refreshesFromMindbody, packUseKind, type PackForBooking, type PackKind } from "@/lib/sessions/packs-rules";
+import {
+  isCountedPack,
+  packKind,
+  refreshesFromMindbody,
+  packUseKind,
+  type PackForBooking,
+  type PackKind,
+} from "@/lib/sessions/packs-rules";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -109,6 +116,15 @@ export async function recordSessionUse(
 ) {
   const kind = packUseKind(status);
   if (!packId || !kind) return;
+  if (kind !== "completed") {
+    const { data: rules } = await admin
+      .from("organizations")
+      .select("pt_no_show_uses_session, pt_late_cancel_uses_session")
+      .eq("id", organizationId)
+      .maybeSingle();
+    if (kind === "no_show" && rules?.pt_no_show_uses_session === false) return;
+    if (kind === "late_cancel" && rules?.pt_late_cancel_uses_session === false) return;
+  }
   const { error } = await admin.from("session_pack_uses").insert({
     organization_id: organizationId,
     session_pack_id: packId,
@@ -160,4 +176,31 @@ export async function createSoldPacks(
   const { error } = await admin.from("session_packs").insert(rows);
   if (error) throw new Error(error.message);
   return rows.length;
+}
+
+// A voided sale's session packs: removed when no session was used from them;
+// a used pack stays (staff adjust it by hand).
+export async function removeSoldPacks(admin: Admin, organizationId: string, saleId: string) {
+  const { data: packs } = await admin.from("session_packs").select("id").eq("organization_id", organizationId).eq("pos_sale_id", saleId);
+  let removed = 0;
+  let kept = 0;
+  for (const pack of packs ?? []) {
+    const { count } = await admin
+      .from("session_pack_uses")
+      .select("id", { count: "exact", head: true })
+      .eq("session_pack_id", pack.id)
+      .is("voided_at", null);
+    const { count: booked } = await admin
+      .from("trainer_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("session_pack_id", pack.id)
+      .eq("status", "booked");
+    if (count || booked) {
+      kept += 1;
+      continue;
+    }
+    await admin.from("session_packs").delete().eq("id", pack.id);
+    removed += 1;
+  }
+  return { removed, kept };
 }

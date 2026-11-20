@@ -1,3 +1,5 @@
+import { memberPacks } from "@/lib/sessions/packs";
+import { freeSessions } from "@/lib/sessions/packs-rules";
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createMindbodyClient } from "@/lib/mindbody/client";
@@ -17,6 +19,8 @@ export type CheckInStatus = {
   services: ServiceInfo[];
   today: string;
   lastCheckIn: string | null;
+  // PT: sessions booked today and session packs with sessions free (SynqIQ balances).
+  pt: { today: { time: string; trainer: string; pack: string | null }[]; packs: { name: string; free: number; kind: string }[] };
 };
 
 export async function loadCheckInStatus(organizationId: string, mindbodyClientId: string): Promise<CheckInStatus | null> {
@@ -141,6 +145,20 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
     (personal?.mindbody as { photoUrl?: string | null } | null)?.photoUrl ?? null,
   );
   const editedEmail = (personal?.edits as { email?: string | null } | null)?.email;
+  const zone = (org?.timezone as string | null) ?? "America/Chicago";
+  const dayStart = DateTime.now().setZone(zone).startOf("day");
+  const [packs, { data: ptToday }] = await Promise.all([
+    memberPacks(admin, organizationId, mindbodyClientId),
+    admin
+      .from("trainer_sessions")
+      .select("starts_at, coverage_name, trainer:staff!trainer_sessions_trainer_staff_id_fkey ( display_name )")
+      .eq("organization_id", organizationId)
+      .eq("mindbody_client_id", mindbodyClientId)
+      .eq("status", "booked")
+      .gte("starts_at", dayStart.toUTC().toISO()!)
+      .lt("starts_at", dayStart.plus({ days: 1 }).toUTC().toISO()!)
+      .order("starts_at"),
+  ]);
   return {
     client: {
       mindbodyClientId,
@@ -154,5 +172,17 @@ export async function loadCheckInStatus(organizationId: string, mindbodyClientId
     services,
     today,
     lastCheckIn: (last?.checked_in_at as string | undefined) ?? null,
+    pt: {
+      today: (ptToday ?? []).map((row) => ({
+        time: DateTime.fromISO(row.starts_at as string)
+          .setZone(zone)
+          .toFormat("h:mm a"),
+        trainer: ((row.trainer as unknown as { display_name?: string } | null)?.display_name ?? "trainer").split(" ")[0],
+        pack: (row.coverage_name as string | null) ?? null,
+      })),
+      packs: packs
+        .filter((pack) => freeSessions(pack) > 0 && (!pack.expiresOn || pack.expiresOn >= dayStart.toISODate()!))
+        .map((pack) => ({ name: pack.name, free: freeSessions(pack), kind: pack.kind })),
+    },
   };
 }

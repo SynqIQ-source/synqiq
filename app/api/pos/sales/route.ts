@@ -1,3 +1,4 @@
+import { removeSoldPacks } from "@/lib/sessions/packs";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { requireCheckoutApi } from "@/lib/pos/api";
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
     const admin = createSupabaseAdminClient();
     const { data: sale } = await admin
       .from("pos_sales")
-      .select("id, staff_id, status, created_at")
+      .select("id, staff_id, status, created_at, source")
       .eq("id", saleId)
       .eq("organization_id", currentStaff.organizationId)
       .maybeSingle();
@@ -109,9 +110,12 @@ export async function POST(request: NextRequest) {
     if (!canVoidSale(currentStaff, { staffId: (sale.staff_id as string | null) ?? "", createdAt: sale.created_at as string }, new Date()))
       return NextResponse.json({ success: false, error: "Only a Club Admin or Sales Lead can void this sale." }, { status: 403 });
     // A card sale is refunded to the card first; if Stripe can't, it stays.
-    const refund = sale.staff_id
-      ? await refundCardSale(admin, currentStaff.organizationId, saleId)
-      : await refundRenewalSale(admin, currentStaff.organizationId, saleId);
+    // Renewals refund through their renewal charge; desk and online sales
+    // through their card payment (online sales have no staff member either).
+    const isRenewal = sale.source === "renewal";
+    const refund = isRenewal
+      ? await refundRenewalSale(admin, currentStaff.organizationId, saleId)
+      : await refundCardSale(admin, currentStaff.organizationId, saleId);
     if ("error" in refund) return NextResponse.json({ success: false, error: refund.error }, { status: 502 });
     const { error } = await admin
       .from("pos_sales")
@@ -120,13 +124,18 @@ export async function POST(request: NextRequest) {
     if (error) return NextResponse.json({ success: false, error: "Couldn't void. Try again." }, { status: 500 });
     // A voided sale's membership payment schedule is voided with it (a voided
     // renewal refunds that month only; the schedule carries on).
-    if (sale.staff_id)
+    if (!isRenewal)
       await admin
         .from("member_billing_schedules")
         .update({ status: "voided", voided_at: new Date().toISOString() })
         .eq("sale_id", saleId)
         .eq("organization_id", currentStaff.organizationId);
-    return NextResponse.json({ success: true });
+    // Session packs it sold go too, unless sessions were already used.
+    const packs = await removeSoldPacks(admin, currentStaff.organizationId, saleId);
+    return NextResponse.json({
+      success: true,
+      ...(packs.kept ? { warning: `${packs.kept} session pack(s) were already used and stay on the account.` } : {}),
+    });
   }
   return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400 });
 }

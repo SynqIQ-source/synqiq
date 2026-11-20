@@ -5,6 +5,7 @@ import { getScopedClient } from "@/lib/supabase/scoped";
 import { BrandingForm } from "./branding-form";
 import { TrainerHealthSettingsForm } from "./trainer-health-settings-form";
 import { MindbodyWritebackForm } from "./mindbody-writeback-form";
+import { PtRulesForm } from "./pt-rules-form";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { DateTime } from "luxon";
 
@@ -37,7 +38,9 @@ export default async function SettingsPage() {
   const [{ data: writeback }, { count: waiting }, { data: failed }] = await Promise.all([
     admin
       .from("organizations")
-      .select("mindbody_booking_writeback, mindbody_writeback_until, timezone")
+      .select(
+        "mindbody_booking_writeback, mindbody_writeback_until, timezone, pt_no_show_uses_session, pt_late_cancel_uses_session, session_balances_from",
+      )
       .eq("id", currentStaff.organizationId)
       .maybeSingle(),
     admin
@@ -62,6 +65,11 @@ export default async function SettingsPage() {
     <DashboardShell title="Settings" description="Customize your studio's branding across the dashboard.">
       <BrandingForm organization={organization} />
       <TrainerHealthSettingsForm expectedRevenuePerSession={organization.expected_revenue_per_session} />
+      <PtRulesForm
+        noShow={writeback?.pt_no_show_uses_session !== false}
+        lateCancel={writeback?.pt_late_cancel_uses_session !== false}
+        balancesFrom={((writeback?.session_balances_from as string | null) ?? "2026-12-18").slice(0, 10)}
+      />
       <MindbodyWritebackForm
         enabled={Boolean(writeback?.mindbody_booking_writeback)}
         until={((writeback?.mindbody_writeback_until as string | null) ?? "2027-01-21").slice(0, 10)}
