@@ -377,13 +377,21 @@ async function findMembershipSaleCloses(
     sales_rep_staff_id: string | null;
   };
   const sales: SaleRow[] = [];
+  // Paged: a query returns at most 1,000 rows, and long-time members have
+  // dozens of monthly charges -- a cut-off history makes an autopay look like
+  // the first charge on its contract.
   for (let index = 0; index < allKeys.length; index += 200) {
-    const { data, error } = await admin
-      .from("sales")
-      .select("mindbody_sale_id, organization_id, client_id, sale_datetime, sales_rep_staff_id")
-      .in("client_id", allKeys.slice(index, index + 200));
-    if (error) throw error;
-    sales.push(...((data ?? []) as SaleRow[]));
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await admin
+        .from("sales")
+        .select("mindbody_sale_id, organization_id, client_id, sale_datetime, sales_rep_staff_id")
+        .in("client_id", allKeys.slice(index, index + 200))
+        .order("id")
+        .range(from, from + 999);
+      if (error) throw error;
+      sales.push(...((data ?? []) as SaleRow[]));
+      if ((data ?? []).length < 1000) break;
+    }
   }
   if (sales.length === 0) return closes;
 
@@ -395,14 +403,21 @@ async function findMembershipSaleCloses(
     const saleIds = sales.filter((sale) => sale.organization_id === organizationId).map((sale) => sale.mindbody_sale_id);
     const isMembership = await loadItemClassifier(admin, organizationId, "contract");
     for (let index = 0; index < saleIds.length; index += 200) {
-      const { data, error } = await admin
-        .from("sale_items")
-        .select("mindbody_sale_id, description, client_contract_id")
-        .eq("organization_id", organizationId)
-        .in("mindbody_sale_id", saleIds.slice(index, index + 200))
-        .not("client_contract_id", "is", null);
-      if (error) throw error;
-      for (const item of data ?? []) {
+      const items: { mindbody_sale_id: string; description: string | null; client_contract_id: string | number }[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await admin
+          .from("sale_items")
+          .select("mindbody_sale_id, description, client_contract_id")
+          .eq("organization_id", organizationId)
+          .in("mindbody_sale_id", saleIds.slice(index, index + 200))
+          .not("client_contract_id", "is", null)
+          .order("id")
+          .range(from, from + 999);
+        if (error) throw error;
+        items.push(...((data ?? []) as typeof items));
+        if ((data ?? []).length < 1000) break;
+      }
+      for (const item of items) {
         if (isMembership(item.description as string | null)) {
           const key = `${organizationId}:${item.mindbody_sale_id}`;
           membershipSaleKeys.add(key);
