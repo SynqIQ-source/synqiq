@@ -259,23 +259,43 @@ export async function runDueJobs(limit = 50): Promise<{ ran: number }> {
 // Sales made more than this long before the guest's profile was created
 // don't count -- they predate the CRM relationship.
 const SALE_BEFORE_PROFILE_SLACK_HOURS = 24;
+// A membership sale only counts as a NEW sale when it is the first charge we
+// have on its contract AND the client had no membership charge in the 90 days
+// before it. Monthly autopays come through as sales on the same contract, and
+// auto-renewals / plan switches start a new contract right after the old one,
+// so neither counts. A sale within 90 days of the org's first synced sale
+// can't be told apart from an older contract's autopay, so it doesn't count.
+const NEW_SALE_GAP_DAYS = 90;
+const DAY_MS = 86_400_000;
 
-type OpenContact = { id: string; organization_id: string; mindbody_client_id: string; created_at: string };
+type OpenContact = {
+  id: string;
+  organization_id: string;
+  mindbody_client_id: string;
+  created_at: string;
+  enrollment_status: string | null;
+  member_enrolled_at: string | null;
+};
 type ClientKeys = { organization_id: string; mindbody_unique_id: number; mindbody_client_id: string | null; status: string | null };
 type SaleClose = { closedAt: string; repStaffId: string | null };
 
 async function detectMindbodyCloses(admin: SupabaseClient) {
-  const { data: openRows, error } = await admin
-    .from("crm_contacts")
-    .select("id, organization_id, mindbody_client_id, created_at")
-    .not("mindbody_client_id", "is", null)
-    .eq("mindbody_member_at_link", false)
-    .is("closed_at", null)
-    .is("deleted_at", null)
-    .is("merged_into_id", null)
-    .limit(1000);
-  if (error) throw error;
-  const open = (openRows ?? []) as OpenContact[];
+  const open: OpenContact[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: openRows, error } = await admin
+      .from("crm_contacts")
+      .select("id, organization_id, mindbody_client_id, created_at, enrollment_status, member_enrolled_at")
+      .not("mindbody_client_id", "is", null)
+      .eq("mindbody_member_at_link", false)
+      .is("closed_at", null)
+      .is("deleted_at", null)
+      .is("merged_into_id", null)
+      .order("id")
+      .range(from, from + 999);
+    if (error) throw error;
+    open.push(...((openRows ?? []) as OpenContact[]));
+    if ((openRows ?? []).length < 1000) break;
+  }
   const ids = open.map((row) => Number(row.mindbody_client_id)).filter((value) => Number.isInteger(value));
   if (ids.length === 0) return;
   // clients.mindbody_unique_id is a Postgres integer: an id past its range
@@ -315,10 +335,20 @@ async function detectMindbodyCloses(admin: SupabaseClient) {
   for (const contact of open) {
     const sale = saleCloses.get(contact.id);
     const client = clientByKey.get(`${contact.organization_id}:${contact.mindbody_client_id}`);
+    // Fallback when no new sale is on file: Active in Mindbody AND the
+    // contract check (runMemberContractLookup) found a new or returning
+    // membership that started after the profile -- never Active alone, which
+    // is also true of long-time members linked to an old lead.
+    const earliestAllowed = new Date(contact.created_at).getTime() - SALE_BEFORE_PROFILE_SLACK_HOURS * 3_600_000;
+    const enrolledNew =
+      client?.status === "Active" &&
+      contact.enrollment_status === "found" &&
+      contact.member_enrolled_at !== null &&
+      new Date(contact.member_enrolled_at).getTime() >= earliestAllowed;
     const update = sale
       ? { closed_at: sale.closedAt, closed_by_staff_id: sale.repStaffId }
-      : client?.status === "Active"
-        ? { closed_at: now }
+      : enrolledNew
+        ? { closed_at: contact.member_enrolled_at }
         : null;
     if (!update) continue;
     await admin
@@ -357,43 +387,77 @@ async function findMembershipSaleCloses(
   }
   if (sales.length === 0) return closes;
 
-  // Sales with a membership line, per org (each org has its own item settings).
+  // Sales with a membership line, per org (each org has its own item settings),
+  // and the contract(s) each of those lines belongs to.
   const membershipSaleKeys = new Set<string>();
+  const contractsBySale = new Map<string, Set<string>>();
   for (const organizationId of new Set(sales.map((sale) => sale.organization_id))) {
     const saleIds = sales.filter((sale) => sale.organization_id === organizationId).map((sale) => sale.mindbody_sale_id);
     const isMembership = await loadItemClassifier(admin, organizationId, "contract");
     for (let index = 0; index < saleIds.length; index += 200) {
       const { data, error } = await admin
         .from("sale_items")
-        .select("mindbody_sale_id, description")
+        .select("mindbody_sale_id, description, client_contract_id")
         .eq("organization_id", organizationId)
         .in("mindbody_sale_id", saleIds.slice(index, index + 200))
         .not("client_contract_id", "is", null);
       if (error) throw error;
       for (const item of data ?? []) {
         if (isMembership(item.description as string | null)) {
-          membershipSaleKeys.add(`${organizationId}:${item.mindbody_sale_id}`);
+          const key = `${organizationId}:${item.mindbody_sale_id}`;
+          membershipSaleKeys.add(key);
+          const contracts = contractsBySale.get(key) ?? new Set<string>();
+          contracts.add(String(item.client_contract_id));
+          contractsBySale.set(key, contracts);
         }
       }
     }
   }
 
+  // Each org's first synced sale: sales history starts there.
+  const historyStart = new Map<string, number>();
+  for (const organizationId of new Set(sales.map((sale) => sale.organization_id))) {
+    const { data, error } = await admin
+      .from("sales")
+      .select("sale_datetime")
+      .eq("organization_id", organizationId)
+      .order("sale_datetime", { ascending: true })
+      .limit(1);
+    if (error) throw error;
+    if (data?.[0]) historyStart.set(organizationId, new Date(data[0].sale_datetime as string).getTime());
+  }
+
   for (const contact of open) {
     const keys = keysFor(contact);
-    const earliestAllowed = new Date(new Date(contact.created_at).getTime() - SALE_BEFORE_PROFILE_SLACK_HOURS * 3_600_000).toISOString();
-    const earliest = sales
+    const earliestAllowed = new Date(contact.created_at).getTime() - SALE_BEFORE_PROFILE_SLACK_HOURS * 3_600_000;
+    const membershipSales = sales
       .filter(
         (sale) =>
           sale.organization_id === contact.organization_id &&
           keys.has(sale.client_id) &&
-          membershipSaleKeys.has(`${sale.organization_id}:${sale.mindbody_sale_id}`) &&
-          new Date(sale.sale_datetime).toISOString() >= earliestAllowed,
+          membershipSaleKeys.has(`${sale.organization_id}:${sale.mindbody_sale_id}`),
       )
-      .sort((a, b) => new Date(a.sale_datetime).getTime() - new Date(b.sale_datetime).getTime())[0];
-    if (earliest) {
+      .map((sale) => ({ ...sale, at: new Date(sale.sale_datetime).getTime() }))
+      .sort((a, b) => a.at - b.at);
+    const firstSaleAt = historyStart.get(contact.organization_id);
+    const newSale = membershipSales.find((sale) => {
+      if (sale.at < earliestAllowed) return false;
+      if (firstSaleAt === undefined || sale.at - firstSaleAt < NEW_SALE_GAP_DAYS * DAY_MS) return false;
+      const contracts = contractsBySale.get(`${sale.organization_id}:${sale.mindbody_sale_id}`) ?? new Set<string>();
+      return !membershipSales.some((earlier) => {
+        if (earlier.at >= sale.at && earlier.mindbody_sale_id !== sale.mindbody_sale_id) return false;
+        if (earlier.mindbody_sale_id === sale.mindbody_sale_id) return false;
+        // An earlier charge on the same contract = an autopay, not a sale.
+        const earlierContracts = contractsBySale.get(`${earlier.organization_id}:${earlier.mindbody_sale_id}`) ?? new Set<string>();
+        if ([...earlierContracts].some((id) => contracts.has(id))) return true;
+        // Any membership charge in the 90 days before = renewal / plan switch.
+        return sale.at - earlier.at < NEW_SALE_GAP_DAYS * DAY_MS;
+      });
+    });
+    if (newSale) {
       closes.set(contact.id, {
-        closedAt: new Date(earliest.sale_datetime).toISOString(),
-        repStaffId: earliest.sales_rep_staff_id,
+        closedAt: new Date(newSale.sale_datetime).toISOString(),
+        repStaffId: newSale.sales_rep_staff_id,
       });
     }
   }

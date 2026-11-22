@@ -132,6 +132,8 @@ export async function applyPlan(admin: Admin, organizationId: string, plan: Impo
       assigned_staff_id: c.assignedStaffId,
       mindbody_client_id: c.mindbodyClientId,
       mindbody_sync_status: c.mindbodyClientId ? "synced" : "not_synced",
+      // Linked only when they're already an Active member: never a sales close.
+      mindbody_member_at_link: Boolean(c.mindbodyClientId),
       email_consent: c.emailConsent,
       email_consent_at: c.emailConsent ? (c.createdAt ?? now) : null,
       sms_consent: c.smsConsent,
