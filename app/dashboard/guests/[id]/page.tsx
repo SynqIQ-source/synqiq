@@ -380,7 +380,7 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
 
           <Card>
             <CardHeader>
-              <CardTitle>Messages</CardTitle>
+              <CardTitle>Conversation</CardTitle>
             </CardHeader>
             <CardContent>
               <MessageThread contactId={contact.id} messages={threadMessages} sms={smsState} email={emailState} />
@@ -580,9 +580,9 @@ export default async function GuestProfilePage({ params }: { params: Promise<{ i
 
         <div className="space-y-6">
           {full && followUp && firstContact ? (
-            <Card>
+            <Card className={followUp.kind === "due" ? "bg-attention-subtle ring-attention-border" : undefined}>
               <CardHeader>
-                <CardTitle>Follow-up</CardTitle>
+                <CardTitle className={followUp.kind === "due" ? "text-attention" : undefined}>Follow-up</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <dl className="space-y-4">

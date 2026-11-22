@@ -200,12 +200,12 @@ type DashboardShellProps = {
   wide?: boolean;
 };
 
-function Logo() {
+function Logo({ onDark }: { onDark?: boolean }) {
   return (
     <Link href="/" className="flex items-center gap-2.5">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/icons/icon-192.png" alt="" className="h-7 w-7 rounded-md" />
-      <span className="text-base font-semibold tracking-tight text-foreground">SynqIQ</span>
+      <span className={`font-display text-base font-semibold tracking-tight ${onDark ? "text-white" : "text-foreground"}`}>SynqIQ</span>
     </Link>
   );
 }
@@ -278,7 +278,7 @@ export async function DashboardShell({ children, title, description, actions, fu
         sidebar={
           <>
             <div className="flex h-16 items-center px-5">
-              <Logo />
+              <Logo onDark />
             </div>
             <div className="flex-1 overflow-y-auto px-3 pb-6">
               <SidebarNav groups={visibleGroups} />
@@ -292,7 +292,7 @@ export async function DashboardShell({ children, title, description, actions, fu
               <div className="mb-3 md:hidden">
                 <Logo />
               </div>
-              <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+              <h1 className="truncate font-display text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
               <p className="mt-0.5 line-clamp-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
             </div>
             <div className="flex shrink-0 items-center gap-3">

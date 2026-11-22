@@ -41,12 +41,12 @@ function NavLink({ item, active, nested }: { item: NavItem; active: boolean; nes
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
         nested && "pl-5",
-        active ? "bg-primary-subtle text-primary" : "text-muted-foreground hover:bg-accent hover:text-foreground",
+        active ? "bg-sidebar-active font-semibold text-white" : "text-sidebar-foreground hover:bg-sidebar-active hover:text-white",
       )}
     >
-      {Icon ? <Icon className="h-4 w-4 shrink-0" /> : null}
+      {Icon ? <Icon className={cn("h-4 w-4 shrink-0", active && "text-primary-subtle")} /> : null}
       <span className="truncate">{item.label}</span>
       {item.badge ? (
         <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-semibold text-primary-foreground tabular-nums">
@@ -80,7 +80,7 @@ export function SidebarNav({ groups }: { groups: NavGroup[] }) {
       {groups.map((group, index) => (
         <div key={group.label ?? `group-${index}`} className="flex flex-col gap-0.5">
           {group.label ? (
-            <p className="px-3 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{group.label}</p>
+            <p className="px-3 pb-1 text-[11px] font-medium tracking-wide text-sidebar-foreground/70 uppercase">{group.label}</p>
           ) : null}
           {group.items.map((item) => {
             const children = item.children ?? [];
@@ -97,13 +97,13 @@ export function SidebarNav({ groups }: { groups: NavGroup[] }) {
                     disabled={childActive}
                     aria-expanded={expanded}
                     aria-label={`${expanded ? "Hide" : "Show"} ${item.label} pages`}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                    className="rounded-md p-1.5 text-sidebar-foreground hover:bg-sidebar-active hover:text-white disabled:opacity-40"
                   >
                     <ChevronRight className={cn("h-4 w-4 transition-transform", expanded && "rotate-90")} />
                   </button>
                 </div>
                 {expanded ? (
-                  <div className="ml-3 flex flex-col gap-0.5 border-l">
+                  <div className="ml-3 flex flex-col gap-0.5 border-l border-white/10">
                     {children.map((child) => (
                       <NavLink key={child.href} item={child} active={child.href === current} nested />
                     ))}

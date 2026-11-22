@@ -85,20 +85,26 @@ export function MessageThread({
 
   return (
     <div className="space-y-4">
-      <div className="max-h-[28rem] space-y-3 overflow-y-auto rounded-lg border bg-muted/30 p-3">
+      <div className="max-h-[32rem] space-y-4 overflow-y-auto px-1 py-2">
         {messages.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">No messages yet.</p>
         ) : (
           messages.map((message) => {
             const outbound = message.direction === "outbound";
+            // Calls and website forms read as notes in the thread, not chat bubbles.
+            const note = message.channel === "call" || message.channel === "web";
             const Icon =
               message.channel === "sms" ? MessageSquare : message.channel === "call" ? Phone : message.channel === "web" ? Globe : Mail;
             return (
               <div key={message.id} className={cn("flex", outbound ? "justify-end" : "justify-start")}>
                 <div
                   className={cn(
-                    "max-w-[85%] space-y-1 rounded-xl px-3 py-2 text-sm",
-                    outbound ? "bg-primary text-primary-foreground" : "border bg-card text-foreground",
+                    "max-w-[80%] space-y-1 px-3.5 py-2.5 text-sm leading-relaxed",
+                    note
+                      ? "rounded-xl border border-dashed border-amber-300 bg-amber-50 text-foreground dark:bg-amber-950/30"
+                      : outbound
+                        ? "rounded-2xl rounded-br-md bg-primary text-primary-foreground"
+                        : "rounded-2xl rounded-bl-md bg-muted text-foreground",
                   )}
                 >
                   {message.subject && message.channel === "email" ? <p className="text-xs font-semibold">{message.subject}</p> : null}
@@ -111,7 +117,7 @@ export function MessageThread({
                   <p
                     className={cn(
                       "flex items-center gap-1.5 text-[11px]",
-                      outbound ? "text-primary-foreground/80" : "text-muted-foreground",
+                      outbound && !note ? "text-primary-foreground/80" : "text-muted-foreground",
                     )}
                   >
                     <Icon className="h-3 w-3" />
@@ -130,16 +136,28 @@ export function MessageThread({
       </div>
 
       <form onSubmit={send} className="space-y-2">
-        <div className="flex gap-2">
-          <Button type="button" size="sm" variant={channel === "sms" ? "default" : "outline"} onClick={() => setChannel("sms")}>
-            <MessageSquare /> Text
-          </Button>
-          <Button type="button" size="sm" variant={channel === "email" ? "default" : "outline"} onClick={() => setChannel("email")}>
-            <Mail /> Email
-          </Button>
-          <Button type="button" size="sm" variant={channel === "call" ? "default" : "outline"} onClick={() => setChannel("call")}>
-            <Phone /> Log call
-          </Button>
+        <div role="tablist" aria-label="Send as" className="flex gap-1 border-b">
+          {(
+            [
+              ["sms", MessageSquare, "Text"],
+              ["email", Mail, "Email"],
+              ["call", Phone, "Log call"],
+            ] as const
+          ).map(([value, TabIcon, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={channel === value}
+              onClick={() => setChannel(value)}
+              className={cn(
+                "-mb-px inline-flex min-h-10 items-center gap-1.5 border-b-2 px-3 text-sm font-medium transition-colors",
+                channel === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <TabIcon className="h-4 w-4" /> {label}
+            </button>
+          ))}
         </div>
         {!selected.ok ? (
           <p className="text-sm text-muted-foreground">{selected.reason}</p>

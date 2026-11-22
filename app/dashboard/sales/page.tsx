@@ -36,14 +36,14 @@ function Stat({
   href?: string;
 }) {
   const className = cn(
-    "rounded-lg border p-3",
-    highlight ? "border-primary/40 bg-primary/5" : "bg-card",
-    href && "block transition-colors hover:border-primary hover:bg-primary/10",
+    "rounded-xl p-3.5",
+    highlight ? "bg-primary-subtle ring-1 ring-primary/30" : "bg-muted/60",
+    href && "block transition-colors hover:bg-primary-subtle hover:ring-1 hover:ring-primary",
   );
   const body = (
     <>
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 font-display text-3xl leading-none font-semibold tabular-nums">{value}</p>
       {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
     </>
   );
@@ -55,6 +55,56 @@ function Stat({
     <div className={className}>{body}</div>
   );
 }
+
+// The headline row at the top of the dashboard.
+function KpiCard({
+  label,
+  value,
+  sub,
+  href,
+  tone = "plain",
+  progress,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub: string;
+  href: string;
+  tone?: "plain" | "dark" | "attention";
+  // 0-100: progress toward the monthly target, shown as a bar.
+  progress?: number | null;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "block rounded-2xl p-5 transition-shadow hover:shadow-md",
+        tone === "dark" && "bg-sidebar text-white",
+        tone === "plain" && "bg-card ring-1 ring-border",
+        tone === "attention" && "bg-attention-subtle text-attention ring-1 ring-attention-border",
+      )}
+    >
+      <p className={cn("text-sm font-medium", tone === "dark" ? "text-white/70" : tone === "plain" && "text-muted-foreground")}>{label}</p>
+      <p className="mt-2 font-display text-5xl leading-none font-semibold tabular-nums">{value}</p>
+      <p className={cn("mt-2 text-sm", tone === "dark" ? "text-white/70" : tone === "plain" && "text-muted-foreground")}>{sub}</p>
+      {progress !== undefined && progress !== null ? (
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15" aria-hidden>
+          <div className="h-full rounded-full bg-primary-subtle" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+        </div>
+      ) : null}
+    </Link>
+  );
+}
+
+// A thin horizontal bar (0-100%), for lists like leads by source.
+function Bar({ value, className }: { value: number; className?: string }) {
+  return (
+    <span className={cn("block h-2 overflow-hidden rounded-full bg-muted", className)} aria-hidden>
+      <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+    </span>
+  );
+}
+
+const ratio = (count: number, of: number) => (of > 0 ? (count / of) * 100 : 0);
 
 type TargetRow = { label: string; target: string; actual: string; progress: number | null };
 
@@ -240,6 +290,10 @@ export default async function SalesDashboardPage({
     return <TargetColumn rows={rows} monthLabel={targetMonthLabel} isAdmin={isClubAdmin(staff)} />;
   };
 
+  // Headline Closing % bar: progress toward the "total" closing target, when one is set.
+  const closingTargetValue = targets?.get("total_close_rate") ?? null;
+  const closingTarget = closingTargetValue && totals.guests > 0 ? (ratio(totals.enrolled, totals.guests) / closingTargetValue) * 100 : null;
+
   return (
     <DashboardShell
       title="Sales"
@@ -256,6 +310,40 @@ export default async function SalesDashboardPage({
       }
     >
       <div className="space-y-6">
+        <section aria-label="Headline numbers" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            tone="dark"
+            label="Closing %"
+            value={percent(totals.enrolled, totals.guests)}
+            sub={`${totals.enrolled} enrolled of ${totals.guests} guests${closingTargetValue ? ` · target ${Math.round(closingTargetValue)}%` : ""}`}
+            href={detailsHref("enrolled")}
+            progress={closingTarget}
+          />
+          <KpiCard
+            label="New leads"
+            value={leads.total}
+            sub={`${leads.contacted} contacted · ${leads.appointments} booked`}
+            href={detailsHref("leads")}
+          />
+          <KpiCard
+            label="Appointments showed"
+            value={
+              <>
+                {appointments.showed}
+                <span className="text-2xl text-muted-foreground"> / {appointments.scheduled}</span>
+              </>
+            }
+            sub={`${percent(appointments.showed, appointments.scheduled)} show rate · ${appointments.closed} closed`}
+            href={detailsHref("appointments_showed")}
+          />
+          <KpiCard
+            tone={sum(followUps.overdue) > 0 ? "attention" : "plain"}
+            label="Follow-ups overdue now"
+            value={sum(followUps.overdue)}
+            sub={`${sum(followUps.dueToday)} more due today · open the list`}
+            href={`/dashboard/sales/follow-ups${isAdmin && staffId ? `?seller=${staffId}` : ""}`}
+          />
+        </section>
         <GuestMessagesFeed />
         <Section
           title="Walk-ins"
@@ -346,15 +434,23 @@ export default async function SalesDashboardPage({
           description="Total leads this period, broken down by how they heard about us. Guests can pick more than one answer, so the sources can add up to more than the total."
         >
           <Stat label="Total leads" value={String(leads.total)} href={detailsHref("leads")} highlight />
-          {leadSources.map((source) => (
-            <Stat
-              key={source.label}
-              label={source.label}
-              value={String(source.count)}
-              sub={`${percent(source.count, leads.total)} of leads`}
-              href={detailsHref(`source:${source.label}`)}
-            />
-          ))}
+          <ul className="col-span-2 flex flex-col gap-2.5 sm:col-span-2 lg:col-span-4">
+            {leadSources.map((source) => (
+              <li key={source.label}>
+                <Link
+                  href={detailsHref(`source:${source.label}`)}
+                  className="grid grid-cols-[minmax(0,9rem)_1fr_3.5rem] items-center gap-3 rounded-md px-1 py-1 text-sm hover:bg-muted"
+                >
+                  <span className="truncate">{source.label}</span>
+                  <Bar value={ratio(source.count, Math.max(1, ...leadSources.map((item) => item.count)))} />
+                  <span className="text-right font-semibold tabular-nums">
+                    {source.count}
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">{percent(source.count, leads.total)}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         </Section>
 
         <Section
@@ -388,30 +484,6 @@ export default async function SalesDashboardPage({
           <Stat label="Appointments made" value={String(appointmentsMade)} href={detailsHref("appointments_made")} highlight />
         </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Follow-ups</CardTitle>
-            <CardDescription>
-              Right now, whatever the period: open leads whose follow-up has passed its due day with no text, email or call.{" "}
-              <Link href="/dashboard/sales/follow-ups" className="text-primary underline-offset-4 hover:underline">
-                See the list
-              </Link>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat
-              label="Overdue"
-              value={String(sum(followUps.overdue))}
-              href={`/dashboard/sales/follow-ups${isAdmin && staffId ? `?seller=${staffId}` : ""}`}
-              highlight
-            />
-            <Stat
-              label="Due today"
-              value={String(sum(followUps.dueToday))}
-              href={`/dashboard/sales/follow-ups?view=today${isAdmin && staffId ? `&seller=${staffId}` : ""}`}
-            />
-          </CardContent>
-        </Card>
 
         <Section
           title="Total"
@@ -451,7 +523,10 @@ export default async function SalesDashboardPage({
                     <TableCell className="text-right tabular-nums">{row.funnel.totals.guests}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.funnel.totals.enrolled}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {percent(row.funnel.totals.enrolled, row.funnel.totals.guests)}
+                      <span className="flex items-center justify-end gap-2">
+                        <Bar value={ratio(row.funnel.totals.enrolled, row.funnel.totals.guests)} className="hidden w-20 sm:block" />
+                        <span className="w-10 font-semibold">{percent(row.funnel.totals.enrolled, row.funnel.totals.guests)}</span>
+                      </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{row.funnel.leads.total}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.funnel.leads.appointments}</TableCell>
@@ -465,7 +540,7 @@ export default async function SalesDashboardPage({
                     <TableCell
                       className={cn(
                         "text-right tabular-nums",
-                        (followUps.overdue.get(row.id) ?? 0) > 0 && "font-semibold text-destructive",
+                        (followUps.overdue.get(row.id) ?? 0) > 0 && "font-semibold text-attention",
                       )}
                     >
                       {followUps.overdue.get(row.id) ?? 0}

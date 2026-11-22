@@ -14,11 +14,60 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 type Guest = { id: string; name: string; status: string; phoneLast4: string | null; assignedStaffId: string | null };
 
 const UNASSIGNED = "__none__";
+
+// Times offered as one-tap buttons (any other time: "Other time").
+const SLOTS = Array.from({ length: 29 }, (_, index) => {
+  const minutes = 6 * 60 + index * 30; // 6:00 AM to 8:00 PM
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+});
+
+// "17:30" -> "5:30 PM"
+function timeLabel(value: string): string {
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
+  const suffix = hours < 12 ? "AM" : "PM";
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+// ISO date -> the 7 days starting there (calendar dates, no time zone shift).
+function weekFrom(iso: string): { iso: string; dow: string; num: number }[] {
+  const [year, month, day] = iso.split("-").map(Number);
+  return Array.from({ length: 7 }, (_, offset) => {
+    const date = new Date(Date.UTC(year, month - 1, day + offset));
+    return {
+      iso: date.toISOString().slice(0, 10),
+      dow: date.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }),
+      num: date.getUTCDate(),
+    };
+  });
+}
+
+function longDay(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0] ?? "")
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+const sectionLabel = "mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase";
 
 // Book an appointment from the calendar: pick the guest (search by name),
 // then the date and time, then who they're meeting. The same booking as the
@@ -50,6 +99,7 @@ export function AddAppointmentButton({
   const [staffId, setStaffId] = useState(currentStaffId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const strip = weekFrom(date < today ? today : date);
 
   // Search as they type (after a short pause).
   useEffect(() => {
@@ -146,9 +196,9 @@ export function AddAppointmentButton({
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="gap-5 rounded-2xl sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Add appointment</DialogTitle>
+          <DialogTitle className="font-display text-xl">Add appointment</DialogTitle>
           <DialogDescription>
             {guest ? `Pick a time for ${guest.name}.` : "Find the guest first. Search by first or last name."}
           </DialogDescription>
@@ -192,16 +242,55 @@ export function AddAppointmentButton({
             ) : null}
           </div>
         ) : (
-          <form onSubmit={book} className="space-y-4">
-            <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-              <span className="font-medium">{guest.name}</span>
-              <Button type="button" size="xs" variant="ghost" onClick={() => setGuest(null)}>
-                <ArrowLeft /> Change
-              </Button>
+          <form onSubmit={book} className="space-y-5">
+            <div>
+              <p className={sectionLabel}>Guest</p>
+              <div className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    aria-hidden
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-subtle text-xs font-bold text-primary"
+                  >
+                    {initials(guest.name)}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold">{guest.name}</span>
+                    {guest.phoneLast4 ? <span className="block text-xs text-muted-foreground">•••{guest.phoneLast4}</span> : null}
+                  </span>
+                </div>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setGuest(null)}>
+                  <ArrowLeft /> Change
+                </Button>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="appointment-day">Date</Label>
+
+            <fieldset>
+              <legend className={sectionLabel}>Day</legend>
+              <div className="grid grid-cols-7 gap-1.5">
+                {strip.map((option) => {
+                  const selected = option.iso === day;
+                  return (
+                    <button
+                      key={option.iso}
+                      type="button"
+                      aria-pressed={selected}
+                      aria-label={longDay(option.iso)}
+                      onClick={() => setDay(option.iso)}
+                      className={cn(
+                        "flex min-h-14 flex-col items-center justify-center rounded-xl border text-center transition-colors",
+                        selected ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:border-primary/60",
+                      )}
+                    >
+                      <span className="text-[11px] font-medium">{option.dow}</span>
+                      <span className="font-display text-lg leading-tight font-semibold">{option.num}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <Label htmlFor="appointment-day" className="text-xs font-normal text-muted-foreground">
+                  Another date
+                </Label>
                 <Input
                   id="appointment-day"
                   type="date"
@@ -209,10 +298,36 @@ export function AddAppointmentButton({
                   value={day}
                   onChange={(event) => setDay(event.target.value)}
                   required
+                  className="h-9 w-auto"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="appointment-time">Time</Label>
+            </fieldset>
+
+            <fieldset>
+              <legend className={sectionLabel}>Time · {longDay(day)}</legend>
+              <div className="grid max-h-40 grid-cols-4 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-6">
+                {SLOTS.map((slot) => {
+                  const selected = slot === time;
+                  return (
+                    <button
+                      key={slot}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setTime(slot)}
+                      className={cn(
+                        "min-h-10 rounded-lg border text-xs font-semibold tabular-nums transition-colors",
+                        selected ? "border-primary bg-primary-subtle text-primary" : "bg-card hover:border-primary/60",
+                      )}
+                    >
+                      {timeLabel(slot)}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <Label htmlFor="appointment-time" className="text-xs font-normal text-muted-foreground">
+                  Other time
+                </Label>
                 <Input
                   id="appointment-time"
                   type="time"
@@ -220,33 +335,52 @@ export function AddAppointmentButton({
                   value={time}
                   onChange={(event) => setTime(event.target.value)}
                   required
+                  className="h-9 w-auto"
                 />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>With</Label>
-              <Select value={staffId} onValueChange={setStaffId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {salespeople.map((person) => (
-                    <SelectItem key={person.id} value={person.id}>
+            </fieldset>
+
+            <fieldset>
+              <legend className={sectionLabel}>With</legend>
+              <div className="flex flex-wrap gap-2">
+                {[...salespeople, { id: UNASSIGNED, name: "No one yet" }].map((person) => {
+                  const selected = person.id === staffId;
+                  return (
+                    <button
+                      key={person.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setStaffId(person.id)}
+                      className={cn(
+                        "inline-flex min-h-11 items-center gap-2 rounded-full border py-1.5 pr-4 pl-1.5 text-sm font-semibold transition-colors",
+                        selected ? "border-primary bg-primary-subtle text-primary" : "bg-card hover:border-primary/60",
+                      )}
+                    >
+                      <span aria-hidden className="flex size-7 items-center justify-center rounded-full bg-muted text-xs font-bold text-foreground">
+                        {person.id === UNASSIGNED ? "-" : initials(person.name)}
+                      </span>
                       {person.name}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={UNASSIGNED}>No one yet</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={busy || !day || !time}>
-                {busy ? "Booking…" : "Book appointment"}
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+              <p className="text-sm font-semibold">
+                {longDay(day)}
+                {time ? ` at ${timeLabel(time)}` : ""}
+                {staffId !== UNASSIGNED ? ` with ${salespeople.find((person) => person.id === staffId)?.name ?? ""}` : ""}
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={busy || !day || !time}>
+                  {busy ? "Booking…" : "Book appointment"}
+                </Button>
+              </div>
             </div>
           </form>
         )}

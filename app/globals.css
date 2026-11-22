@@ -29,7 +29,7 @@
 :root {
   --radius: 0.625rem;
 
-  --background: oklch(0.985 0.002 197);
+  --background: #f4f6f5;
   --foreground: oklch(0.21 0.01 250);
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
@@ -42,7 +42,7 @@
   --secondary: oklch(0.967 0.003 250);
   --secondary-foreground: var(--foreground);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0.004 250);
+  --border: #e3e9e7;
   --input: oklch(0.922 0.004 250);
 
   /* Org branding (overridden per request in app/layout.tsx). */
@@ -72,6 +72,19 @@
   --gold-subtle: #fbf3da;
 
   --font-body: Arial, Helvetica, sans-serif;
+
+  /* Dark dashboard sidebar (same for every studio; the brand color marks
+     the active item). */
+  --sidebar: #0e1a19;
+  --sidebar-foreground: #a9bcb9;
+  --sidebar-active: rgba(255, 255, 255, 0.09);
+
+  /* Status colors used by the redesign: orange = needs attention (overdue),
+     blue = upcoming. Orange/blue rather than red/green so they differ for
+     color-blind staff too. */
+  --attention: #9a3412;
+  --attention-subtle: #fff7ed;
+  --attention-border: #fed7aa;
 }
 
 @theme inline {
@@ -117,6 +130,15 @@
   --color-gold: var(--gold);
   --color-gold-hover: var(--gold-hover);
   --color-gold-subtle: var(--gold-subtle);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-attention: var(--attention);
+  --color-attention-subtle: var(--attention-subtle);
+  --color-attention-border: var(--attention-border);
+
+  --font-display: var(--font-space-grotesk), var(--font-body);
 }
 
 /* @layer base, not unlayered -- Tailwind v4 wraps its own utilities in

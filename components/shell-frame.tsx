@@ -11,7 +11,7 @@ export function ShellFrame({ sidebar, fullWidth, children }: { sidebar: React.Re
   if (!fullWidth) {
     return (
       <>
-        <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col border-r bg-card md:flex">{sidebar}</aside>
+        <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col bg-sidebar text-sidebar-foreground md:flex">{sidebar}</aside>
         <div className="md:pl-60">{children}</div>
       </>
     );
@@ -29,12 +29,12 @@ export function ShellFrame({ sidebar, fullWidth, children }: { sidebar: React.Re
       {open ? (
         <>
           <div className="fixed inset-0 z-40 hidden bg-black/30 md:block" onClick={() => setOpen(false)} />
-          <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r bg-card shadow-xl md:flex">
+          <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col bg-sidebar text-sidebar-foreground shadow-xl md:flex">
             <button
               type="button"
               aria-label="Hide menu"
               onClick={() => setOpen(false)}
-              className="absolute top-4 right-2 flex size-9 items-center justify-center rounded-md hover:bg-muted"
+              className="absolute top-4 right-2 flex size-9 items-center justify-center rounded-md text-white hover:bg-sidebar-active"
             >
               <X className="size-5" />
             </button>

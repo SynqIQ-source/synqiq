@@ -7,6 +7,7 @@ import {
   Plus_Jakarta_Sans,
   DM_Sans,
   Outfit,
+  Space_Grotesk,
 } from "next/font/google";
 
 // next/font/google is a build-time macro -- it can't take a runtime string,
@@ -27,6 +28,8 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans", display: "swap" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit", display: "swap" });
+// Headings and big numbers on the dashboard (font-display), the same for every studio.
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], variable: "--font-space-grotesk", display: "swap" });
 
 // Mirrors the organizations.font_family CHECK constraint exactly -- keep
 // these two lists in sync if the allowlist ever changes.
@@ -58,6 +61,7 @@ export const FONT_VARIABLE_CLASS_NAMES = [
   plusJakartaSans.variable,
   dmSans.variable,
   outfit.variable,
+  spaceGrotesk.variable,
 ].join(" ");
 
 export const FONT_CSS_VAR_BY_NAME: Record<AllowedFont, string> = {
