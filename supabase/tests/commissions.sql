@@ -2,8 +2,8 @@
 -- commission lines; other staff see only their own lines and none of the
 -- settings; nobody writes directly (all writes go through the API).
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Any failed check raises an exception.
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Any failed check raises an exception.
 
 begin;
 

@@ -1,7 +1,7 @@
 -- CRM cross-organization isolation test (acceptance f/g).
 --
--- Runs entirely inside one transaction and ROLLS BACK at the end, so it is
--- safe to run against production. Creates a guest (contact, visit, signed
+-- Runs entirely inside one transaction and ROLLS BACK at the end, and runs
+-- only against the local test database (see README.md). Creates a guest (contact, visit, signed
 -- waiver, photo object, pending match) in The Preserve, then checks what
 -- each kind of caller can see and do through RLS:
 --   - a Preserve admin sees all of it
@@ -13,7 +13,7 @@
 --   - signed waivers can't be updated or deleted even by the table owner
 -- Any failed check raises an exception (the run errors out).
 --
--- Run: psql "$DATABASE_URL" -f supabase/tests/crm_isolation.sql
+-- Run: npm run test:db (local test database; see README.md)
 
 begin;
 

@@ -1,8 +1,8 @@
 -- Trainer calendar: staff in the studio see sessions; pay events are Club
 -- Admin or own only; nobody writes directly (the API does, after role checks).
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Any failed check raises an exception.
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Any failed check raises an exception.
 
 begin;
 

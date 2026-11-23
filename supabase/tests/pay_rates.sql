@@ -2,8 +2,8 @@
 -- see only their own pay settings and none of the rate templates; nobody
 -- writes directly (all writes go through the API).
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Any failed check raises an exception.
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Any failed check raises an exception.
 
 begin;
 

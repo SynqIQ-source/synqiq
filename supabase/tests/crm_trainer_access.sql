@@ -1,7 +1,7 @@
 -- Trainer access test for new-member onboarding.
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Creates two enrolled members in The Preserve -- one assigned
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Creates two enrolled members in The Preserve -- one assigned
 -- to trainer A, one unassigned -- each with a message, note, visit and photo,
 -- then checks through RLS that:
 --   - trainer A (a staff member without can_sell) sees all of their member's
@@ -10,7 +10,7 @@
 --   - a trainer can't write CRM rows directly
 -- Any failed check raises an exception.
 --
--- Run: psql "$DATABASE_URL" -f supabase/tests/crm_trainer_access.sql
+-- Run: npm run test:db (local test database; see README.md)
 
 begin;
 
