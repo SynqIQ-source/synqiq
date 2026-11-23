@@ -9,7 +9,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:db": "node scripts/test-db.mjs"
+    "test:db": "node scripts/test-db.mjs",
+    "test:db:setup": "node scripts/setup-test-db.mjs",
+    "test:db:check": "node scripts/check-test-rollback.mjs"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "7.0.1",
