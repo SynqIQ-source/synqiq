@@ -6,16 +6,21 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadCheckInStatus } from "@/lib/checkin/status";
 import { bookingCoverage } from "@/lib/booking/rules";
 import { canCloseSession, canEditAvailability, canReopenSession, checkBooking, closeSession, type CloseAction } from "@/lib/trainer/rules";
-import { loadTrainerDay, writeSessionPayEvent } from "@/lib/trainer/sessions";
+import { loadPlaceBusy, loadTrainerDay } from "@/lib/trainer/sessions";
+import { getTrainerPilot, reverseCloseOut, writeSessionPayLine } from "@/lib/trainer/pilot";
+import { placeConflicts } from "@/lib/trainer/pilot-rules";
 import { syncTrainerAvailability } from "@/lib/trainer/availability-sync";
-import { memberPacks, recordSessionUse, voidSessionUse } from "@/lib/sessions/packs";
+import { memberPacks, recordSessionUse } from "@/lib/sessions/packs";
 import { choosePack, freeSessions } from "@/lib/sessions/packs-rules";
 
-// Trainer calendar actions (SynqIQ only; nothing is written to Mindbody):
+// Trainer calendar actions (SynqIQ only; nothing is written to Mindbody).
+// Part of the trainer sessions pilot: off unless the studio turns it on.
 //   packs { clientId }                    the client's session packs and what's free
-//   book { trainerId, clientId, sessionTypeId, startsAt, minutes, note?, packId? }
+//   book { trainerId, clientId, sessionTypeId, startsAt, minutes, roomId?, note?, packId? }
 //   close { id, action: complete|no_show|cancel|late_cancel, reason? }
-//   reopen { id, reason }                 Club Admin: back to booked, voids its pay
+//   reopen { id, reason }                 Club Admin correction: reverses the
+//                                         close-out's pay and session (new rows,
+//                                         who + why) and puts it back to booked
 //   availabilityAdd { trainerId, date, start, end, weeks }
 //   availabilityDelete { id }             SynqIQ-added hours only
 //   refresh {}                            re-copy availability from Mindbody
@@ -33,11 +38,17 @@ export async function POST(request: NextRequest) {
   const { data: orgRow } = await admin.from("organizations").select("timezone, trainer_availability_synced_at").eq("id", org).maybeSingle();
   const zone = (orgRow?.timezone as string | null) ?? "America/Chicago";
   const now = new Date();
+  const pilot = await getTrainerPilot(org);
+  if (!pilot.on) return fail("The trainer sessions pilot is off for this studio. A Club Admin can turn it on in Settings.", 403);
+  // While Mindbody is still the record, a Mindbody pack's balance is its last
+  // synced balance plus what SynqIQ recorded since (sessions logged in both
+  // aren't taken twice).
+  const sinceSync = DateTime.now().setZone(zone).toISODate()! < pilot.balancesFrom;
 
   if (body.action === "packs") {
     const clientId = typeof body.clientId === "string" ? body.clientId : "";
     if (!/^[\w-]{1,40}$/.test(clientId)) return fail("Pick a client.");
-    const packs = await memberPacks(admin, org, clientId);
+    const packs = await memberPacks(admin, org, clientId, { sinceSync });
     const today = DateTime.now().setZone(zone).toISODate()!;
     const best = choosePack(packs, today);
     return NextResponse.json({
@@ -55,6 +66,8 @@ export async function POST(request: NextRequest) {
     const typeId = Number(body.sessionTypeId);
     const minutes = Math.round(Number(body.minutes));
     const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
+    const roomId = typeof body.roomId === "string" && body.roomId ? body.roomId : null;
+    if (roomId && !uuid(roomId)) return fail("Pick a room.");
     const start = typeof body.startsAt === "string" ? DateTime.fromISO(body.startsAt, { zone }) : null;
     if (!uuid(trainerId) || !/^[\w-]{1,40}$/.test(clientId) || !start?.isValid) return fail("Pick a trainer, a client and a time.");
     if (!Number.isInteger(minutes) || minutes < 10 || minutes > 240) return fail("Pick a length between 10 minutes and 4 hours.");
@@ -71,6 +84,10 @@ export async function POST(request: NextRequest) {
     if (!trainer) return fail("Trainer not found.", 404);
     if (!type) return fail("Pick a session type.");
     if (!person) return fail("Client not found.", 404);
+    if (roomId) {
+      const { data: room } = await admin.from("rooms").select("id").eq("id", roomId).eq("organization_id", org).maybeSingle();
+      if (!room) return fail("Room not found.", 404);
+    }
     const startsAt = start.toUTC().toISO()!;
     const endsAt = start.plus({ minutes }).toUTC().toISO()!;
     const { data: program } = type.mindbody_program_id
@@ -96,7 +113,7 @@ export async function POST(request: NextRequest) {
       hasCurrentMembership: false,
     });
     // SynqIQ's own session packs: the chosen one, else the best one.
-    const packs = await memberPacks(admin, org, clientId);
+    const packs = await memberPacks(admin, org, clientId, { sinceSync });
     const sessionDate = start.toISODate()!;
     const requested = typeof body.packId === "string" && body.packId ? packs.find((pack) => pack.id === body.packId) : undefined;
     if (body.packId && !requested) return fail("That pack isn't on this client's account.");
@@ -117,6 +134,10 @@ export async function POST(request: NextRequest) {
       covered,
     });
     if (!check.ok) return fail(check.error, 400, { needsReason: Boolean(check.needsReason) });
+    // The client and the room can't be double-booked (no override).
+    const place = await loadPlaceBusy(admin, org, { roomId, clientId, trainerId: trainerId as string, sessionTypeId: typeId, startsAt, endsAt });
+    const placeProblem = placeConflicts({ slot: { startsAt, endsAt }, roomBusy: place.roomBusy, clientBusy: place.clientBusy });
+    if (placeProblem) return fail(placeProblem);
     const { data: saved, error } = await admin
       .from("trainer_sessions")
       .insert({
@@ -133,6 +154,8 @@ export async function POST(request: NextRequest) {
         coverage_name: pack ? pack.name : packs.length ? null : coverage.name,
         mindbody_client_service_id: pack || packs.length ? null : coverage.serviceId,
         session_pack_id: pack?.id ?? null,
+        room_id: roomId,
+        no_balance: !covered,
         note: [note, ...check.warnings.map((w) => `(${w})`)].filter(Boolean).join(" ") || null,
         booked_by_staff_id: me.id,
       })
@@ -144,6 +167,7 @@ export async function POST(request: NextRequest) {
       id: saved.id,
       coverage: pack ? pack.name : coverage.name,
       sessionsLeftAfter: pack ? freeSessions(pack) - 1 : null,
+      noBalance: !covered,
       warnings: check.warnings,
     });
   }
@@ -153,7 +177,7 @@ export async function POST(request: NextRequest) {
     const { data: session } = await admin
       .from("trainer_sessions")
       .select(
-        "id, trainer_staff_id, mindbody_client_id, client_name, session_type_id, session_type_name, coverage_name, local_date, starts_at, status, session_pack_id",
+        "id, trainer_staff_id, mindbody_client_id, client_name, session_type_id, session_type_name, coverage_name, local_date, starts_at, status, session_pack_id, close_no",
       )
       .eq("id", body.id)
       .eq("organization_id", org)
@@ -162,20 +186,21 @@ export async function POST(request: NextRequest) {
     const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
 
     if (body.action === "reopen") {
-      if (!canReopenSession(who)) return fail("Only a Club Admin can reopen a session.", 403);
+      if (!canReopenSession(who)) return fail("Only a Club Admin can correct a closed session.", 403);
       if (session.status === "booked") return fail("This session is still open.");
       if (!reason) return fail("Add a reason.");
-      await admin
-        .from("payroll_events")
-        .update({ voided_at: now.toISOString(), voided_by_staff_id: me.id, void_reason: reason })
-        .eq("trainer_session_id", session.id)
-        .is("voided_at", null);
-      // The session goes back on the client's pack.
-      await voidSessionUse(admin, session.id as string, me.id);
+      try {
+        // Reversal rows (never deletes): the pay line and the session it took.
+        await reverseCloseOut(admin, org, { id: session.id as string, close_no: Number(session.close_no ?? 0) }, me.id, reason);
+      } catch (error) {
+        console.error("[trainer-sessions] correction failed:", error);
+        return fail(error instanceof Error && /locked/i.test(error.message) ? error.message : "Couldn't correct this session. Try again.", 500);
+      }
       await admin
         .from("trainer_sessions")
         .update({ status: "booked", closed_at: null, closed_by_staff_id: null, cancel_reason: null, updated_at: now.toISOString() })
-        .eq("id", session.id);
+        .eq("id", session.id)
+        .neq("status", "booked");
       return NextResponse.json({ success: true });
     }
 
@@ -185,11 +210,15 @@ export async function POST(request: NextRequest) {
     if (!action || !["complete", "no_show", "cancel", "late_cancel"].includes(action)) return fail("Pick what happened.");
     const outcome = closeSession({ status: session.status as string, action, startsAt: session.starts_at as string, now });
     if (!outcome.ok) return fail(outcome.error);
-    // Only one request wins the change from booked.
+    // Only one request wins the change from booked; each close-out gets the
+    // next close_no, which its ledger entry and pay line carry (retries and
+    // double clicks can't add a second one).
+    const closeNo = Number(session.close_no ?? 0) + 1;
     const { data: changed } = await admin
       .from("trainer_sessions")
       .update({
         status: outcome.status,
+        close_no: closeNo,
         closed_at: now.toISOString(),
         closed_by_staff_id: me.id,
         cancel_reason: action === "cancel" || action === "late_cancel" ? reason || null : null,
@@ -197,35 +226,37 @@ export async function POST(request: NextRequest) {
       })
       .eq("id", session.id)
       .eq("status", "booked")
+      .eq("close_no", closeNo - 1)
       .select("id");
     if (!changed?.length) return fail("Someone else just closed this session. Refresh.");
+    const closing = {
+      id: session.id as string,
+      trainer_staff_id: session.trainer_staff_id as string,
+      mindbody_client_id: session.mindbody_client_id as string,
+      client_name: session.client_name as string,
+      session_type_id: session.session_type_id == null ? null : Number(session.session_type_id),
+      session_type_name: session.session_type_name as string,
+      coverage_name: (session.coverage_name as string | null) ?? null,
+      session_pack_id: (session.session_pack_id as string | null) ?? null,
+      local_date: String(session.local_date),
+    };
     if (outcome.pays) {
       try {
-        await writeSessionPayEvent(
-          admin,
-          org,
-          {
-            id: session.id as string,
-            trainer_staff_id: session.trainer_staff_id as string,
-            mindbody_client_id: session.mindbody_client_id as string,
-            client_name: session.client_name as string,
-            session_type_id: session.session_type_id == null ? null : Number(session.session_type_id),
-            session_type_name: session.session_type_name as string,
-            coverage_name: (session.coverage_name as string | null) ?? null,
-            local_date: String(session.local_date),
-          },
-          outcome.status as "completed" | "no_show" | "late_cancelled",
-          me.id,
-        );
+        await writeSessionPayLine(admin, org, closing, closeNo, outcome.status as "completed" | "no_show" | "late_cancelled", me.id, pilot);
       } catch (error) {
-        console.error("[trainer-sessions] pay event failed:", error);
-        await admin.from("trainer_sessions").update({ status: "booked", closed_at: null, closed_by_staff_id: null }).eq("id", session.id);
+        console.error("[trainer-sessions] pay line failed:", error);
+        await admin
+          .from("trainer_sessions")
+          .update({ status: "booked", closed_at: null, closed_by_staff_id: null })
+          .eq("id", session.id)
+          .eq("close_no", closeNo);
         return fail("Couldn't record the pay for this session. Try again.", 500);
       }
     }
-    // Completed, no-show and late cancel each take a session off the pack.
+    // Completed, no-show and late cancel each take a session off the pack
+    // (the studio's settings decide for no-show and late cancel).
     try {
-      await recordSessionUse(admin, org, session.id as string, (session.session_pack_id as string | null) ?? null, outcome.status, me.id);
+      await recordSessionUse(admin, org, session.id as string, closing.session_pack_id, outcome.status, me.id, closeNo);
     } catch (error) {
       console.error("[trainer-sessions] session use not recorded:", error);
     }

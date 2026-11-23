@@ -4,7 +4,9 @@ import { requireAccess } from "@/lib/require-access";
 import { canCheckIn, isClubAdmin } from "@/lib/permissions";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { loadCalendar } from "@/lib/trainer/sessions";
-import { TrainerCalendar, type SessionTypeOption } from "./trainer-calendar";
+import { getTrainerPilot } from "@/lib/trainer/pilot";
+import { PilotOff } from "./pilot-off";
+import { TrainerCalendar, type RoomOption, type SessionTypeOption } from "./trainer-calendar";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +15,22 @@ type Props = { searchParams: Promise<{ trainer?: string; date?: string; view?: s
 // Trainer calendar: book clients with trainers inside their available hours,
 // then the trainer completes the session, which records its pay for that day.
 // SynqIQ only (Mindbody's appointments show as busy; nothing goes back).
+// Trainer sessions pilot: shown only when the studio has the pilot on.
+// Everyone who can open it sees every trainer's sessions; pay figures only
+// for the trainer's own sessions, or every session for Club Admins.
 export default async function TrainerCalendarPage({ searchParams }: Props) {
   const staff = await requireAccess(canCheckIn);
   const admin = createSupabaseAdminClient();
   const org = staff.organizationId;
   const params = await searchParams;
-  const [{ data: orgRow }, { data: trainerRows }, { data: typeRows }] = await Promise.all([
+  const pilot = await getTrainerPilot(org);
+  if (!pilot.on)
+    return (
+      <DashboardShell title="Trainer Calendar" description="Trainer sessions pilot.">
+        <PilotOff admin={isClubAdmin(staff)} />
+      </DashboardShell>
+    );
+  const [{ data: orgRow }, { data: trainerRows }, { data: typeRows }, { data: roomRows }] = await Promise.all([
     admin.from("organizations").select("timezone, trainer_availability_synced_at").eq("id", org).maybeSingle(),
     admin
       .from("staff")
@@ -34,6 +46,7 @@ export default async function TrainerCalendarPage({ searchParams }: Props) {
       .eq("kind", "Appointment")
       .in("mindbody_program_id", [2, 4, 5])
       .order("name"),
+    admin.from("rooms").select("id, name, active").eq("organization_id", org).order("name"),
   ]);
   const zone = (orgRow?.timezone as string | null) ?? "America/Chicago";
   const trainers = (trainerRows ?? []).map((row) => ({ id: row.id as string, name: (row.display_name as string | null) ?? "Trainer" }));
@@ -47,7 +60,15 @@ export default async function TrainerCalendarPage({ searchParams }: Props) {
   const from = view === "week" ? date.minus({ days: date.weekday - 1 }) : date;
   const to = view === "week" ? from.plus({ days: 7 }) : from.plus({ days: 1 });
   const ids = view === "week" ? (trainerId ? [trainerId] : []) : trainers.map((t) => t.id);
-  const data = await loadCalendar(admin, org, ids, from.toUTC().toISO()!, to.toUTC().toISO()!);
+  const loaded = await loadCalendar(admin, org, ids, from.toUTC().toISO()!, to.toUTC().toISO()!);
+  const seesAllPay = isClubAdmin(staff);
+  const data = {
+    ...loaded,
+    sessions: loaded.sessions.map((session) => (seesAllPay || session.trainerId === staff.id ? session : { ...session, pay: null })),
+  };
+  const rooms: RoomOption[] = (roomRows ?? [])
+    .filter((row) => row.active !== false)
+    .map((row) => ({ id: row.id as string, name: (row.name as string | null) ?? "Room" }));
   const sessionTypes: SessionTypeOption[] = (typeRows ?? []).map((row) => ({
     id: Number(row.mindbody_session_type_id),
     name: row.name as string,
@@ -69,6 +90,7 @@ export default async function TrainerCalendarPage({ searchParams }: Props) {
         trainers={trainers}
         trainerId={trainerId}
         sessionTypes={sessionTypes}
+        rooms={rooms}
         me={{ id: staff.id, role: staff.role, isTrainer: staff.isTrainer, isAdmin: isClubAdmin(staff) }}
         syncedAt={(orgRow?.trainer_availability_synced_at as string | null) ?? null}
         {...data}
