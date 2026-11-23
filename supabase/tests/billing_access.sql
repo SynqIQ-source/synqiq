@@ -2,8 +2,8 @@
 -- (contracts, visits, purchases, services, contact details) are also open
 -- to Sales Leads and Sales (Members, 2026-11-18) (The Preserve).
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Signed in through RLS:
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Signed in through RLS:
 --   - a Sales staff member sees member profiles but no plans, Mindbody
 --     AutoPay rows or billing edits, and can't add a billing edit
 --   - a Club Admin can see contracts and add + cancel a billing edit

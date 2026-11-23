@@ -1,8 +1,8 @@
 -- Checkout sales: Club Admins see every sale; other staff see only the sales
 -- they rang up; promo codes are Club Admin only; nobody writes directly.
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Any failed check raises an exception.
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Any failed check raises an exception.
 
 begin;
 

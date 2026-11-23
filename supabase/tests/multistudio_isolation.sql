@@ -1,7 +1,7 @@
 -- Two-studio isolation test: The Preserve and the Demo Studio.
 --
--- Runs entirely inside one transaction and ROLLS BACK at the end, so it is
--- safe to run against production. For every table with an organization_id
+-- Runs entirely inside one transaction and ROLLS BACK at the end, and runs
+-- only against the local test database (see README.md). For every table with an organization_id
 -- column (classes, clients, sales, staff, the CRM, message boards, sub
 -- requests, follow-ups...), signed in through RLS:
 --   - a Demo Studio admin + seller sees none of The Preserve's rows
@@ -12,7 +12,7 @@
 --     link, texting number) or platform_admins
 -- Any failed check raises an exception (the run errors out).
 --
--- Run: psql "$DATABASE_URL" -f supabase/tests/multistudio_isolation.sql
+-- Run: npm run test:db (local test database; see README.md)
 
 begin;
 

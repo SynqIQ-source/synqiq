@@ -2,8 +2,8 @@
 -- Admin signed in through RLS can't read password hashes, sessions or
 -- tokens.
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Any failed check raises an exception.
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Any failed check raises an exception.
 
 begin;
 

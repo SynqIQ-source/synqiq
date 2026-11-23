@@ -1,8 +1,8 @@
 -- Time clock: staff see only their own shifts and can't write them directly;
 -- Club Admins see everyone's shifts and the change log.
 --
--- Runs inside one transaction and ROLLS BACK, so it is safe against
--- production. Any failed check raises an exception.
+-- Runs inside one transaction and ROLLS BACK, and runs only against
+-- the local test database (see README.md). Any failed check raises an exception.
 
 begin;
 

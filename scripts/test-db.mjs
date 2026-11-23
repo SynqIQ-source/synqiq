@@ -1,24 +1,30 @@
-// Runs every supabase/tests/*.sql file against DATABASE_URL. Each file runs in
-// one transaction and ROLLS BACK, so it is safe against production; any failed
-// check raises an exception. Exit code 1 if any file fails.
-//   npm run test:db            (reads DATABASE_URL from .env.local)
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+// Runs every supabase/tests/*.sql file against the LOCAL test database
+// (npm run test:db). Build that database first with `npx supabase start` and
+// `npm run test:db:setup`; see README.md.
+//
+// It only connects to localhost / 127.0.0.1 (scripts/lib/local-db.mjs): the
+// connection string comes from TEST_DATABASE_URL, defaulting to the local
+// Supabase stack. DATABASE_URL and .env.local are not read, so it can't reach
+// the hosted project by accident.
+//
+// Each file runs in one transaction that ends in ROLLBACK (checked by
+// npm run test:db:check). Any failed check raises an exception. Exits 1 if any
+// file fails, or if there are no test files to run.
+import { readdirSync, readFileSync } from "node:fs";
 import postgres from "postgres";
+import { testDatabase } from "./lib/local-db.mjs";
 
-if (!process.env.DATABASE_URL && existsSync(".env.local")) {
-  for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
-    const match = line.match(/^DATABASE_URL=(.*)$/);
-    if (match) process.env.DATABASE_URL = match[1].replace(/^["']|["']$/g, "");
-  }
-}
-if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL is not set.");
+const db = testDatabase();
+const files = readdirSync("supabase/tests").filter((name) => name.endsWith(".sql")).sort();
+if (files.length === 0) {
+  console.error("No test files found in supabase/tests.");
   process.exit(1);
 }
 
+console.log(`Running ${files.length} database tests against ${db.host}`);
 let failed = 0;
-for (const file of readdirSync("supabase/tests").filter((name) => name.endsWith(".sql")).sort()) {
-  const sql = postgres(process.env.DATABASE_URL, { ssl: "require", max: 1, onnotice: () => {} });
+for (const file of files) {
+  const sql = postgres(db.url, { ssl: db.ssl, max: 1, onnotice: () => {} });
   try {
     await sql.unsafe(readFileSync(`supabase/tests/${file}`, "utf8"));
     console.log(`PASS ${file}`);
