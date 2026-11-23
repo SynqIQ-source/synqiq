@@ -1,7 +1,12 @@
 # Runs on every push and pull request to master: install, typecheck, lint,
-# unit tests (npm test) and, when the DATABASE_URL repository secret is set,
-# the database isolation tests (npm run test:db). The SQL tests run inside a
-# transaction that is rolled back, so they are safe against production.
+# unit tests (npm test), then the database isolation tests.
+#
+# The database tests never touch the hosted Supabase project. The job starts a
+# throwaway Supabase stack on the CI machine (`supabase start`), builds the
+# database there from supabase/baseline/ plus any newer migrations, loads fake
+# seed data, and runs `npm run test:db` against it at 127.0.0.1. No secrets are
+# used, and the test scripts refuse any host but localhost. If the local
+# database can't be built or the tests can't run, the job fails.
 name: CI
 
 on:
@@ -20,9 +25,11 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # The local stack started below. Matches supabase/config.toml.
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      SUPABASE_CLI: supabase@2.122.1
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -43,10 +50,18 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: Database isolation tests
-        if: ${{ env.DATABASE_URL != '' }}
-        run: npm run test:db
+      - name: Database tests end in ROLLBACK
+        run: npm run test:db:check
 
-      - name: Database isolation tests skipped
-        if: ${{ env.DATABASE_URL == '' }}
-        run: echo "DATABASE_URL secret not set; skipping npm run test:db."
+      # Only what the tests need: Postgres, plus auth and storage, whose
+      # schemas the tests and storage rules use.
+      - name: Start local Supabase
+        run: >-
+          npx --yes "$SUPABASE_CLI" start
+          -x studio,imgproxy,edge-runtime,logflare,vector,mailpit,realtime,postgres-meta,supavisor,kong,postgrest
+
+      - name: Build test database (baseline, newer migrations, fake seed)
+        run: npm run test:db:setup
+
+      - name: Database isolation tests
+        run: npm run test:db
