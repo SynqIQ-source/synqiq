@@ -47,9 +47,7 @@ export async function loadCommissionReport(admin: Admin, organizationId: string,
     if (!data || data.length < 1000) break;
   }
   const detailIds = [...new Set(lines.map((line) => Number(line.mindbody_sale_detail_id)))];
-  const clientIds = [...new Set(lines.map((line) => String(line.mindbody_client_id ?? "")).filter((id) => /^\d+$/.test(id)))]
-    .map(Number)
-    .filter((id) => id < 2_147_483_647);
+  const clientIds = [...new Set(lines.map((line) => String(line.mindbody_client_id ?? "")).filter(Boolean))];
   const [{ data: staff }, credits, flags, clients] = await Promise.all([
     admin.from("staff").select("id, display_name").eq("organization_id", organizationId),
     Promise.all(
@@ -72,12 +70,12 @@ export async function loadCommissionReport(admin: Admin, organizationId: string,
     ).then((parts) => parts.flatMap((part) => part.data ?? [])),
     Promise.all(
       chunk(clientIds).map((ids) =>
-        admin.from("clients").select("mindbody_unique_id, first_name, last_name").eq("organization_id", organizationId).in("mindbody_unique_id", ids),
+        admin.from("clients").select("mindbody_client_id, first_name, last_name").eq("organization_id", organizationId).in("mindbody_client_id", ids),
       ),
     ).then((parts) => parts.flatMap((part) => part.data ?? [])),
   ]);
   const nameOf = new Map((staff ?? []).map((row) => [row.id as string, (row.display_name as string | null) ?? "Unknown"]));
-  const clientOf = new Map(clients.map((row) => [String(row.mindbody_unique_id), `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim()]));
+  const clientOf = new Map(clients.map((row) => [String(row.mindbody_client_id), `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim()]));
   const when = (iso: unknown) => DateTime.fromISO(String(iso)).setZone(timezone).toFormat("LLL d, h:mm a");
 
   const notes = new Map<number, string[]>();
