@@ -108,6 +108,7 @@ export default async function ProductsPage() {
       return {
         id: row.id as string,
         name: row.name as string,
+        imageUrl: (row.image_url as string | null) ?? null,
         inventoryCategoryId: (row.inventory_category_id as string | null) ?? null,
         parLevel: row.par_level == null ? null : Number(row.par_level),
         reorderLevel: row.reorder_level == null ? null : Number(row.reorder_level),
