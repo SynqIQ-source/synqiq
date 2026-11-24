@@ -39,13 +39,14 @@ export default async function ProductsPage() {
       .eq("organization_id", staff.organizationId)
       .eq("active", true)
       .order("created_at", { ascending: false }),
-    admin.from("inventory_categories").select("id, parent_id, name, sort").eq("organization_id", staff.organizationId).order("sort"),
+    admin.from("inventory_categories").select("id, parent_id, name, sort, image_url").eq("organization_id", staff.organizationId).order("sort"),
   ]);
   const inventoryCategories: InventoryCategory[] = (invCats ?? []).map((row) => ({
     id: row.id as string,
     parentId: (row.parent_id as string | null) ?? null,
     name: row.name as string,
     sort: Number(row.sort ?? 0),
+    imageUrl: (row.image_url as string | null) ?? null,
   }));
   const categoryRows: CatalogCategory[] = (categories ?? []).map((row) => ({
     id: row.id as string,

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ImageIcon, Loader2 } from "lucide-react";
+import { Camera, ImageIcon, Loader2, Trash2 } from "lucide-react";
 
 export const PHOTO_TYPES = "image/png,image/jpeg,image/webp";
 
@@ -97,6 +97,75 @@ export function ItemPhotoButton({
       {error ? (
         <span className="max-w-40 text-xs text-destructive">{error}</span>
       ) : null}
+    </div>
+  );
+}
+
+// Category tile corner: add, replace or remove the category's own picture
+// (without one, the tile shows its first item's picture or first letter).
+export function CategoryPhotoButton({ categoryId, hasOwn, name }: { categoryId: string; hasOwn: boolean; name: string }) {
+  const router = useRouter();
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send(method: "POST" | "DELETE", file?: File) {
+    setBusy(true);
+    setError(null);
+    let body: FormData | undefined;
+    if (file) {
+      body = new FormData();
+      body.append("image", file);
+    }
+    try {
+      const response = await fetch(`/api/pos/categories/${categoryId}/image`, { method, body });
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!response.ok || !result.success) setError(result.error ?? "Couldn't save. Try again.");
+      else router.refresh();
+    } catch {
+      setError("Couldn't reach SynqIQ. Try again.");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+      <div className="flex gap-1">
+        {hasOwn ? (
+          <button
+            type="button"
+            title={`Remove the ${name} picture`}
+            aria-label={`Remove the ${name} picture`}
+            disabled={busy}
+            onClick={() => send("DELETE")}
+            className="rounded-md bg-background/90 p-1.5 text-muted-foreground shadow-sm hover:text-destructive"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          title={hasOwn ? `Replace the ${name} picture` : `Add a picture for ${name}`}
+          aria-label={hasOwn ? `Replace the ${name} picture` : `Add a picture for ${name}`}
+          disabled={busy}
+          onClick={() => input.current?.click()}
+          className="rounded-md bg-background/90 p-1.5 text-muted-foreground shadow-sm hover:text-primary"
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
+        </button>
+      </div>
+      <input
+        ref={input}
+        type="file"
+        accept={PHOTO_TYPES}
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) send("POST", file);
+        }}
+      />
+      {error ? <span className="max-w-40 rounded bg-background/90 px-1 text-xs text-destructive">{error}</span> : null}
     </div>
   );
 }

@@ -46,13 +46,14 @@ export default async function PosPage() {
       .eq("organization_id", staff.organizationId)
       .is("archived_at", null)
       .order("display_name"),
-    admin.from("inventory_categories").select("id, parent_id, name, sort").eq("organization_id", staff.organizationId).order("sort"),
+    admin.from("inventory_categories").select("id, parent_id, name, sort, image_url").eq("organization_id", staff.organizationId).order("sort"),
   ]);
   const inventoryCategories: PosCategory[] = (invCats ?? []).map((row) => ({
     id: row.id as string,
     parentId: (row.parent_id as string | null) ?? null,
     name: row.name as string,
     sort: Number(row.sort ?? 0),
+    imageUrl: (row.image_url as string | null) ?? null,
   }));
   // Only people who earn commission (Admin > Commissions) are in the commission picker.
   const earners = await commissionEarnerIds(admin, staff.organizationId);

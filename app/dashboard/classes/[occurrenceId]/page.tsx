@@ -15,6 +15,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createMindbodyClient } from "@/lib/mindbody/client";
 import { asOccurrenceId } from "@/lib/mindbody/types";
 import { ROSTER_LABELS, buildRoster, rosterCounts, type MindbodyRosterVisit, type RosterEntry } from "@/lib/classes/roster";
+import { MEMBER_PHOTO_BUCKET } from "@/lib/memberships/photos";
+import { RosterPhotoButton, RosterPhotoPanel, RosterPhotos } from "./roster-photos";
 import { loadSessionContext, type BookingRow } from "@/lib/booking/context";
 import { BOOKING_LABELS, bookingWindow, cancellationFor, placeFor } from "@/lib/booking/rules";
 import { BookSomeone, BookingRowActions } from "./booking-actions";
@@ -213,6 +215,36 @@ export default async function ClassPage({ params }: { params: Params }) {
     isClubAdmin(staff) && mindbodyClientId ? `/dashboard/memberships/${mindbodyClientId}` : null;
   const rowCount = roster.length + inClass.length;
 
+  // Member photos (SynqIQ's copy via a signed link, else Mindbody's URL).
+  const photoClientIds = [
+    ...new Set(
+      [
+        ...bookings.map((booking) => booking.mindbody_client_id),
+        ...(clients ?? []).map((client) => client.mindbody_client_id as string | null),
+      ].filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const photoOf = new Map<string, string>();
+  if (photoClientIds.length) {
+    const { data: personal } = await admin
+      .from("member_personal")
+      .select("mindbody_client_id, photo_path, mindbody")
+      .eq("organization_id", orgId)
+      .in("mindbody_client_id", photoClientIds);
+    const paths = (personal ?? []).map((row) => row.photo_path as string | null).filter((path): path is string => Boolean(path));
+    const { data: signed } = paths.length
+      ? await admin.storage.from(MEMBER_PHOTO_BUCKET).createSignedUrls(paths, 3600)
+      : { data: [] as { path: string | null; signedUrl: string }[] };
+    const signedBy = new Map((signed ?? []).filter((row) => row.path && row.signedUrl).map((row) => [row.path as string, row.signedUrl]));
+    for (const row of personal ?? []) {
+      const url =
+        (row.photo_path ? signedBy.get(row.photo_path as string) : undefined) ??
+        ((row.mindbody as { photoUrl?: string | null } | null)?.photoUrl || undefined);
+      if (url) photoOf.set(row.mindbody_client_id as string, url);
+    }
+  }
+  const photo = (mindbodyClientId: string | null | undefined) => (mindbodyClientId ? photoOf.get(mindbodyClientId) : undefined);
+
   return (
     <DashboardShell
       title={title}
@@ -298,6 +330,7 @@ export default async function ClassPage({ params }: { params: Params }) {
           </Card>
         ) : null}
 
+        <RosterPhotos>
         <Card className="py-0">
           <CardHeader className="pt-6">
             <CardTitle>Who&apos;s in this class</CardTitle>
@@ -309,6 +342,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                 : "SynqIQ-only class."}
             </CardDescription>
           </CardHeader>
+          <RosterPhotoPanel />
           {rowCount === 0 ? (
             <p className="px-6 pb-6 text-sm text-muted-foreground">Nobody booked.</p>
           ) : (
@@ -333,6 +367,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                       >
                         <TableCell>
                           <PersonName name={booking.client_name} href={link} />
+                          <RosterPhotoButton url={photo(booking.mindbody_client_id)} name={booking.client_name} />
                           <span className="block text-xs text-muted-foreground">
                             Booked {DateTime.fromISO(booking.booked_at).setZone(timezone).toFormat("LLL d, h:mm a")}
                             {booking.cancel_reason ? ` · ${booking.cancel_reason}` : booking.note ? ` · ${booking.note}` : ""}
@@ -389,6 +424,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                       <TableRow key={`mb-${entry.uniqueId ?? index}`}>
                         <TableCell>
                           <PersonName name={entry.name} href={memberLink(client?.mindbody_client_id as string | undefined)} />
+                          <RosterPhotoButton url={photo(client?.mindbody_client_id as string | undefined)} name={entry.name} />
                           {client?.status && client.status !== "Active" ? (
                             <span className="block text-xs text-muted-foreground">{client.status}</span>
                           ) : null}
@@ -411,6 +447,7 @@ export default async function ClassPage({ params }: { params: Params }) {
             </div>
           )}
         </Card>
+        </RosterPhotos>
 
         {waitlisted.length || (live && mindbodyWaitlist) ? (
           <Card className="py-0">
