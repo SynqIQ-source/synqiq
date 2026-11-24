@@ -461,12 +461,11 @@ export async function valueSessions(
       chunk(clientIds).map((ids) =>
         admin
           .from("clients")
-          .select("mindbody_unique_id, first_name, last_name")
+          // Visits carry Mindbody's client id (clients.mindbody_client_id),
+          // not the numeric unique id.
+          .select("mindbody_client_id, first_name, last_name")
           .eq("organization_id", organizationId)
-          .in(
-            "mindbody_unique_id",
-            ids.map(Number).filter((id) => Number.isInteger(id) && id < 2_147_483_647),
-          ),
+          .in("mindbody_client_id", ids),
       ),
     ).then((parts) => parts.flatMap((result) => result.data ?? [])),
   ]);
@@ -502,9 +501,9 @@ export async function valueSessions(
     purchases.set(key, list);
   }
   const clientName = new Map(
-    clients.map((row) => [String(row.mindbody_unique_id), `${String(row.first_name ?? "").charAt(0)}. ${row.last_name ?? ""}`.trim()]),
+    clients.map((row) => [String(row.mindbody_client_id), `${String(row.first_name ?? "").charAt(0)}. ${row.last_name ?? ""}`.trim()]),
   );
-  const clientFull = new Map(clients.map((row) => [String(row.mindbody_unique_id), `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim()]));
+  const clientFull = new Map(clients.map((row) => [String(row.mindbody_client_id), `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim()]));
   const same = (a: unknown, b: unknown) =>
     String(a ?? "")
       .trim()
