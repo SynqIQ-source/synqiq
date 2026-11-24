@@ -87,6 +87,11 @@ describe("membership packages", () => {
 });
 
 describe("upcomingPaymentDates", () => {
+  it("skips billing dates already charged (a month paid early isn't next)", () => {
+    expect(upcomingPaymentDates("2026-12-24", null, false, "2026-11-24", 1, new Set(["2026-12-24"]))).toEqual([
+      { date: "2027-01-24", number: 2, renewal: false },
+    ]);
+  });
   it("lists the next payments from the first bill date", () => {
     expect(upcomingPaymentDates("2026-12-12", 11, true, "2026-11-12")).toEqual([
       { date: "2026-12-12", number: 1, renewal: false },

@@ -319,7 +319,7 @@ function PayForm({ amountCents, color, onPaid }: { amountCents: number; color: s
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="space-y-4">
-      <PaymentElement options={{ layout: "tabs" }} />
+      <PaymentElement options={{ layout: "tabs", wallets: { link: "never" } }} />
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
       <button
         type="button"

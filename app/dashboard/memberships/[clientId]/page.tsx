@@ -543,6 +543,28 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
         ).data ?? [])
       : [];
   const movedTo = new Map(movedCharges.map((row) => [`${row.schedule_id}|${row.due_date}`, row.next_attempt_on as string]));
+  // Billing dates already charged, declined or skipped: not "next" any more
+  // (a month charged early would otherwise still show as the next payment).
+  const chargedRows = posSchedules?.length
+    ? ((
+        await createSupabaseAdminClient()
+          .from("membership_charges")
+          .select("schedule_id, due_date")
+          .eq("organization_id", orgId)
+          .neq("status", "scheduled")
+          .gte("due_date", today)
+          .in(
+            "schedule_id",
+            posSchedules.map((row) => row.id as string),
+          )
+      ).data ?? [])
+    : [];
+  const chargedBy = new Map<string, Set<string>>();
+  for (const row of chargedRows) {
+    const set = chargedBy.get(row.schedule_id as string) ?? new Set<string>();
+    set.add(row.due_date as string);
+    chargedBy.set(row.schedule_id as string, set);
+  }
 
   return (
     <DashboardShell
@@ -813,7 +835,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                         <CardTitle>SynqIQ payment schedules</CardTitle>
                         <CardDescription>
                           Monthly payments SynqIQ works out itself: memberships sold at SynqIQ&apos;s POS, and Mindbody contracts imported
-                          for the billing test. Practice schedules are never charged.
+                          for the billing test. Practice schedules are only ever charged on Stripe test cards.
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-3">
@@ -821,7 +843,14 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
                           const autopayCount = schedule.autopay_count == null ? null : Number(schedule.autopay_count);
                           const live = schedule.status === "practice" || schedule.status === "active";
                           const next = live
-                            ? upcomingPaymentDates(schedule.first_bill_date as string, autopayCount, Boolean(schedule.auto_renews), today)
+                            ? upcomingPaymentDates(
+                                schedule.first_bill_date as string,
+                                autopayCount,
+                                Boolean(schedule.auto_renews),
+                                today,
+                                3,
+                                chargedBy.get(schedule.id as string),
+                              )
                             : [];
                           const lines =
                             (schedule.recurring_lines as { label: string; revenueCategory?: string | null; amountCents: number }[]) ?? [];
