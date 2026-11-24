@@ -11,9 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PromoCodes, type PromoRow } from "./promo-codes";
 import { StockOnHand, type StockRow } from "./stock-on-hand";
 import { uploadItemPhoto } from "./item-photo";
+import { CategoryPhotoButton } from "./item-photo";
 
 export type CatalogCategory = { id: string; key: string; name: string; taxable: boolean; glAccount: string; active: boolean };
-export type InventoryCategory = { id: string; parentId: string | null; name: string; sort: number };
+export type InventoryCategory = { id: string; parentId: string | null; name: string; sort: number; imageUrl?: string | null };
 export type PackagePartRow = { label: string; revenueCategoryId: string; amountCents: number; recurring: boolean };
 export type CatalogItem = {
   id: string;
@@ -206,6 +207,7 @@ function Items({
   const countUnder = (id: string) =>
     visible.filter((item) => placeOf(item) === id || (id !== UNSORTED && invBy.get(placeOf(item))?.parentId === id)).length;
   const coverUnder = (id: string) =>
+    invBy.get(id)?.imageUrl ??
     visible.find((item) => item.imageUrl && (placeOf(item) === id || invBy.get(placeOf(item))?.parentId === id))?.imageUrl ?? null;
   const open = openId === UNSORTED ? null : openId ? (invBy.get(openId) ?? null) : null;
   const level = inventoryCategories.filter((c) => c.parentId === (openId === UNSORTED ? "none" : (openId ?? null)));
@@ -364,11 +366,11 @@ function Items({
             (c) => {
               const cover = c.id === UNSORTED ? null : coverUnder(c.id);
               return (
+                <div key={c.id} className="relative">
                 <button
-                  key={c.id}
                   type="button"
                   onClick={() => setOpenId(c.id)}
-                  className="overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm"
+                  className="w-full overflow-hidden rounded-xl border bg-card text-left transition hover:border-primary hover:shadow-sm"
                 >
                   <div className="flex aspect-[16/9] items-center justify-center bg-muted">
                     {cover ? (
@@ -383,6 +385,10 @@ function Items({
                     <span className="text-xs text-muted-foreground tabular-nums">{countUnder(c.id)}</span>
                   </div>
                 </button>
+                {c.id !== UNSORTED ? (
+                  <CategoryPhotoButton categoryId={c.id} hasOwn={Boolean(invBy.get(c.id)?.imageUrl)} name={c.name} />
+                ) : null}
+                </div>
               );
             },
           )}

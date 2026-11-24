@@ -31,7 +31,7 @@ export type CheckoutItem = {
   membersOnly: boolean; // personal training / Pilates: needs an active membership
   inventoryCategoryId: string | null;
 };
-export type PosCategory = { id: string; parentId: string | null; name: string; sort: number };
+export type PosCategory = { id: string; parentId: string | null; name: string; sort: number; imageUrl?: string | null };
 const UNSORTED = "__unsorted";
 type Person = { id: string; name: string };
 type Member = { id: string; name: string; status: string; plans: string[]; frozen: boolean };
@@ -549,7 +549,8 @@ export function Checkout({
           {cards.length ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
               {cards.map((c) => {
-                const cover = itemsUnder(c.id).find((item) => item.imageUrl)?.imageUrl ?? null;
+                // The category's own picture, else its first item's.
+                const cover = c.imageUrl ?? itemsUnder(c.id).find((item) => item.imageUrl)?.imageUrl ?? null;
                 return (
                   <button
                     key={c.id}
