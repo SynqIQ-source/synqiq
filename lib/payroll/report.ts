@@ -1,6 +1,7 @@
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { appointmentPayCents, classPayCents, resolveRate, toPayRate, type PayRate } from "@/lib/payroll/rates";
+import { appointmentPayCents, resolveRate, toPayRate, type PayRate } from "@/lib/payroll/rates";
+import { classPaySplit, hourlyPayCents, packPosition, rateDetail, type PackVisit } from "@/lib/payroll/details";
 import { shiftMinutes } from "@/lib/time-clock/hours";
 
 // Payroll for a pay period (studio dates, inclusive), per person:
@@ -22,6 +23,9 @@ export type PayrollClass = {
   name: string;
   heads: number;
   rateName: string | null;
+  rateDetail: string | null; // "$40 + $5/person over 6"
+  baseCents: number;
+  incentiveCents: number; // the per-person bonus above the base
   amountCents: number;
 };
 export type PayrollSession = {
@@ -30,11 +34,14 @@ export type PayrollSession = {
   endsAt: string | null;
   sessionType: string;
   client: string; // "A. Smith"
+  clientFull: string; // "Alex Smith"
   service: string | null;
+  pack: { total: number; used: number; left: number } | null; // "session 5 of 10, 5 left"
   valueCents: number | null;
   estimated: boolean; // value from the pack's usual price (the client's own purchase isn't on file)
   noShow: boolean;
   rateName: string | null;
+  rateDetail: string | null;
   amountCents: number;
 };
 export type PayrollPerson = {
@@ -236,7 +243,8 @@ export async function buildPayroll(organizationId: string, from: string, to: str
       name: (occurrence.class_name as string | null) ?? "Class",
       heads,
       rateName: override !== null ? "Set on class" : (rate?.name ?? null),
-      amountCents: override !== null ? override : rate ? classPayCents(rate, heads) : 0,
+      rateDetail: override !== null ? null : rateDetail(rate),
+      ...classPaySplit(rate, heads, override),
     });
 
     // An assistant (e.g. an instructor in training) is paid separately: the
@@ -255,7 +263,8 @@ export async function buildPayroll(organizationId: string, from: string, to: str
         name: `${(occurrence.class_name as string | null) ?? "Class"} (assistant)`,
         heads,
         rateName: assistantSet !== null ? "Set on class" : (helperRate?.name ?? null),
-        amountCents: assistantSet !== null ? assistantSet : helperRate ? classPayCents(helperRate, heads) : 0,
+        rateDetail: assistantSet !== null ? null : rateDetail(helperRate),
+        ...classPaySplit(helperRate, heads, assistantSet),
       });
     }
   }
@@ -282,11 +291,14 @@ export async function buildPayroll(organizationId: string, from: string, to: str
       endsAt: (appointment.end_datetime as string | null) ?? null,
       sessionType: (typeId != null ? sessionTypeName.get(typeId) : null) ?? "Session",
       client: value?.client ?? "",
+      clientFull: value?.clientFull ?? value?.client ?? "",
       service: value?.service ?? null,
+      pack: value?.pack ?? null,
       valueCents: value?.valueCents ?? null,
       estimated: value?.estimated ?? false,
       noShow: appointment.status === "NoShow",
       rateName: rate?.name ?? null,
+      rateDetail: rateDetail(rate),
       amountCents: rate ? appointmentPayCents(rate, value?.valueCents ?? 0) : 0,
     });
   }
@@ -300,7 +312,7 @@ export async function buildPayroll(organizationId: string, from: string, to: str
   for (const entry of people.values()) {
     const setting = settingBy.get(entry.staffId);
     entry.hourly.rateCents = setting?.hourly_rate_cents == null ? null : Number(setting.hourly_rate_cents);
-    entry.hourly.amountCents = entry.hourly.rateCents == null ? 0 : Math.round((entry.hourly.minutes / 60) * entry.hourly.rateCents);
+    entry.hourly.amountCents = hourlyPayCents(entry.hourly.minutes, entry.hourly.rateCents);
     if (entry.hourly.minutes > 0 && entry.hourly.rateCents == null) entry.missingRates.push("hourly rate");
     entry.totalCents =
       entry.hourly.amountCents +
@@ -321,14 +333,14 @@ export async function buildPayroll(organizationId: string, from: string, to: str
 // names the pack (service); the client's matching service row gives the
 // sessions and product; the client's sale of that product gives the price.
 async function loadSessionValues(admin: Admin, organizationId: string, appointmentIds: number[]) {
-  const values = new Map<number, { valueCents: number | null; estimated: boolean; service: string | null; client: string }>();
+  const values = new Map<number, SessionValue>();
   if (appointmentIds.length === 0) return values;
   const visits = (
     await Promise.all(
       chunk(appointmentIds).map((ids) =>
         admin
           .from("member_visits")
-          .select("appointment_id, mindbody_client_id, service_name, start_local")
+          .select("mindbody_visit_id, appointment_id, mindbody_client_id, service_name, start_local")
           .eq("organization_id", organizationId)
           .in("appointment_id", ids),
       ),
@@ -344,9 +356,62 @@ async function loadSessionValues(admin: Admin, organizationId: string, appointme
       day: String(visit.start_local).slice(0, 10),
     })),
   );
-  for (const [key, value] of valued) values.set(Number(key), value);
+  // Where each session falls in the client's package: the client's visits on
+  // that package (same name) since it started, counted up to this one.
+  const clientIds = [...new Set(visits.map((visit) => visit.mindbody_client_id as string))];
+  const packVisits = (
+    await Promise.all(
+      chunk(clientIds).map((ids) =>
+        all((a, b) =>
+          admin
+            .from("member_visits")
+            .select("mindbody_visit_id, mindbody_client_id, service_name, start_local, signed_in, missed, late_cancelled, appointment_status")
+            .eq("organization_id", organizationId)
+            .in("mindbody_client_id", ids)
+            .not("service_name", "is", null)
+            .order("mindbody_visit_id")
+            .range(a, b),
+        ),
+      ),
+    )
+  ).flat();
+  const packKey = (client: unknown, service: unknown) => `${client}|${String(service ?? "").trim().toLowerCase()}`;
+  const visitsBy = new Map<string, PackVisit[]>();
+  for (const row of packVisits) {
+    const key = packKey(row.mindbody_client_id, row.service_name);
+    const list = visitsBy.get(key) ?? [];
+    list.push({
+      key: String(row.mindbody_visit_id),
+      start: String(row.start_local),
+      usedSession: Boolean(row.signed_in || row.missed || row.late_cancelled) || row.appointment_status === "Completed",
+    });
+    visitsBy.set(key, list);
+  }
+  for (const visit of visits) {
+    const value = valued.get(String(visit.appointment_id));
+    if (!value) continue;
+    const position = packPosition(value.packCount, value.packSince, visitsBy.get(packKey(visit.mindbody_client_id, visit.service_name)) ?? [], {
+      key: String(visit.mindbody_visit_id),
+      start: String(visit.start_local),
+    });
+    values.set(Number(visit.appointment_id), {
+      ...value,
+      pack: position && value.packCount ? { total: value.packCount, ...position } : null,
+    });
+  }
   return values;
 }
+
+export type SessionValue = {
+  valueCents: number | null;
+  estimated: boolean;
+  service: string | null;
+  client: string;
+  clientFull: string;
+  packCount: number | null; // sessions in the package used
+  packSince: string | null; // the package's start date
+  pack?: { total: number; used: number; left: number } | null;
+};
 
 // Session values for any sessions: the pack (by name) each client used on
 // a day -> that pack's pre-tax price / sessions in it. Used for Mindbody's
@@ -356,7 +421,7 @@ export async function valueSessions(
   organizationId: string,
   inputs: { key: string; clientId: string; serviceName: string | null; day: string }[],
 ) {
-  const values = new Map<string, { valueCents: number | null; estimated: boolean; service: string | null; client: string }>();
+  const values = new Map<string, SessionValue>();
   if (inputs.length === 0) return values;
   const visits = inputs.map((input) => ({
     key: input.key,
@@ -439,6 +504,7 @@ export async function valueSessions(
   const clientName = new Map(
     clients.map((row) => [String(row.mindbody_unique_id), `${String(row.first_name ?? "").charAt(0)}. ${row.last_name ?? ""}`.trim()]),
   );
+  const clientFull = new Map(clients.map((row) => [String(row.mindbody_unique_id), `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim()]));
   const same = (a: unknown, b: unknown) =>
     String(a ?? "")
       .trim()
@@ -509,6 +575,9 @@ export async function valueSessions(
       estimated,
       service: (visit.service_name as string | null) ?? null,
       client: clientName.get(client) ?? "",
+      clientFull: clientFull.get(client) || clientName.get(client) || "",
+      packCount: service && Number(service.count) > 0 ? Number(service.count) : null,
+      packSince: service ? String(service.active_date ?? service.payment_date ?? "").slice(0, 10) || null : null,
     });
   }
   return values;

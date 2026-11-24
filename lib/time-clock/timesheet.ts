@@ -78,13 +78,47 @@ export async function loadTimesheet(organizationId: string, from: string, to: st
       staffName: punch ? (nameOf.get(punch.staff_id) ?? "Unknown") : "Unknown",
     };
   });
+  // Every change to the shifts shown (not just the latest 50), oldest first,
+  // and each person's hourly rate, for the per-person timesheet.
+  const punchIds = punches.map((punch) => punch.id);
+  const [shiftEditRows, { data: rateRows }] = await Promise.all([
+    Promise.all(
+      Array.from({ length: Math.ceil(punchIds.length / 300) }, (_, i) => punchIds.slice(i * 300, (i + 1) * 300)).map((ids) =>
+        admin
+          .from("time_punch_edits")
+          .select("punch_id, action, created_at, edited_by_staff_id, reason")
+          .eq("organization_id", organizationId)
+          .in("punch_id", ids)
+          .order("created_at"),
+      ),
+    ).then((parts) => parts.flatMap((part) => part.data ?? [])),
+    admin.from("staff_pay_settings").select("staff_id, hourly_rate_cents").eq("organization_id", organizationId),
+  ]);
+  const shiftEdits = new Map<string, ShiftEdit[]>();
+  for (const row of shiftEditRows) {
+    const list = shiftEdits.get(row.punch_id as string) ?? [];
+    list.push({
+      action: row.action as ShiftEdit["action"],
+      at: row.created_at as string,
+      by: nameOf.get(row.edited_by_staff_id as string) ?? "Unknown",
+      reason: row.reason as string,
+    });
+    shiftEdits.set(row.punch_id as string, list);
+  }
+  const hourlyRates = new Map(
+    (rateRows ?? []).map((row) => [row.staff_id as string, row.hourly_rate_cents == null ? null : Number(row.hourly_rate_cents)]),
+  );
+  for (const punch of punches) punch.edited ||= shiftEdits.has(punch.id);
+
   // People who can clock in (have a sign-in, not archived), for "Add a shift".
   const people = (staffRows ?? [])
     .filter((row) => row.auth_user_id && !row.archived_at)
     .map((row) => ({ id: row.id as string, name: (row.display_name as string | null) ?? "Unknown" }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { timezone, punches, edits, people };
+  return { timezone, punches, edits, people, shiftEdits, hourlyRates };
 }
+
+export type ShiftEdit = { action: "add" | "edit" | "delete"; at: string; by: string; reason: string };
 
 // The range from ?from=&to= (YYYY-MM-DD), defaulting to the last 14 days.
 export function resolveRange(params: { from?: string; to?: string }, timezone: string) {
