@@ -16,6 +16,12 @@ import { emailDecline } from "@/lib/billing/notify";
 // idempotency key is per charge + attempt), so a re-run or two overlapping
 // runs can't charge anyone twice.
 //
+// A membership on hold (billing_state frozen: the last retry failed) is not
+// charged again: each billing date that comes up while it's on hold is
+// recorded as skipped (status cancelled) and never tried. Paying the unpaid
+// month (new card, front desk, or Retry on Member Billing) lifts the hold
+// and autopay resumes from the next billing date.
+//
 // Live charging needs SYNQIQ_RENEWALS_LIVE=true on top of the Connect live
 // switch; until then only test-mode (sandbox) schedules are charged.
 
@@ -43,6 +49,7 @@ type Schedule = {
   stripe_account_id: string;
   stripe_customer_id: string;
   stripe_payment_method_id: string;
+  billing_state?: string | null;
 };
 
 type Charge = {
@@ -58,11 +65,11 @@ type Charge = {
 
 const CHARGE_FIELDS = "id, schedule_id, due_date, total_cents, attempts, status, retry_from, retry_base_attempts";
 
-export type RenewalSummary = { due: number; paid: number; declined: number; frozen: number; pending: number; errors: number };
+export type RenewalSummary = { due: number; paid: number; declined: number; frozen: number; pending: number; errors: number; held: number };
 
 export async function runRenewals(organizationId: string, options: { now?: Date } = {}): Promise<RenewalSummary> {
   const admin = createSupabaseAdminClient();
-  const summary: RenewalSummary = { due: 0, paid: 0, declined: 0, frozen: 0, pending: 0, errors: 0 };
+  const summary: RenewalSummary = { due: 0, paid: 0, declined: 0, frozen: 0, pending: 0, errors: 0, held: 0 };
   const { data: org } = await admin.from("organizations").select("timezone").eq("id", organizationId).maybeSingle();
   const zone = (org?.timezone as string | null) ?? "America/Chicago";
   const today = DateTime.fromJSDate(options.now ?? new Date())
@@ -84,7 +91,7 @@ export async function runRenewals(organizationId: string, options: { now?: Date 
   const { data: rows } = await admin
     .from("member_billing_schedules")
     .select(
-      "id, organization_id, mindbody_client_id, client_name, name, status, first_bill_date, autopay_count, auto_renews, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, stripe_account_id, stripe_customer_id, stripe_payment_method_id",
+      "id, organization_id, mindbody_client_id, client_name, name, status, first_bill_date, autopay_count, auto_renews, recurring_subtotal_cents, recurring_tax_cents, recurring_total_cents, stripe_account_id, stripe_customer_id, stripe_payment_method_id, billing_state",
     )
     .eq("organization_id", organizationId)
     .in("status", ["active", "practice"])
@@ -101,7 +108,31 @@ export async function runRenewals(organizationId: string, options: { now?: Date 
 
   // New billing dates: claim a row for each (the unique key stops repeats).
   for (const schedule of schedules) {
+    const onHold = schedule.billing_state === "frozen";
     for (const due of datesToCharge(schedule.first_bill_date, schedule.autopay_count, schedule.auto_renews, today)) {
+      if (onHold) {
+        // On hold: this month is skipped, never charged (see the header).
+        const { data: skipped } = await admin
+          .from("membership_charges")
+          .upsert(
+            {
+              organization_id: organizationId,
+              schedule_id: schedule.id,
+              mindbody_client_id: schedule.mindbody_client_id,
+              due_date: due,
+              subtotal_cents: schedule.recurring_subtotal_cents,
+              tax_cents: schedule.recurring_tax_cents,
+              total_cents: schedule.recurring_total_cents,
+              status: "cancelled",
+              livemode: chargeable.get(schedule.stripe_account_id) ?? false,
+              stripe_account_id: schedule.stripe_account_id,
+            },
+            { onConflict: "schedule_id,due_date", ignoreDuplicates: true },
+          )
+          .select("id");
+        summary.held += skipped?.length ?? 0;
+        continue;
+      }
       const { data: claimed } = await admin
         .from("membership_charges")
         .upsert(

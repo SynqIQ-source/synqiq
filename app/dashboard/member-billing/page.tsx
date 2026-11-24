@@ -85,7 +85,9 @@ export default async function MemberBillingPage() {
     (charges ?? []).filter((charge) => charge.status === "scheduled").map((charge) => [`${charge.schedule_id}|${charge.due_date}`, charge]),
   );
 
+  // A membership on hold isn't charged, so it's never "due".
   const upcoming = schedules
+    .filter((row) => row.billing_state !== "frozen")
     .flatMap((row) =>
       upcomingPaymentDates(row.first_bill_date as string, row.autopay_count as number | null, Boolean(row.auto_renews), today, 1)
         .map((payment) => {
@@ -126,9 +128,40 @@ export default async function MemberBillingPage() {
     <DashboardShell
       title="Member Billing"
       actions={<RunRenewals />}
-      description={`Monthly dues SynqIQ will charge on the studio's Stripe account. A decline pauses booking (red) and emails the member; it retries ${RETRY_DAYS.join(", ")} days after the billing date, then the membership is frozen. Move any single payment date or retry a decline below. Cards expiring within a month show yellow. Renewals run nightly at 4 AM; live charging isn't switched on yet (test cards only).`}
+      description="Monthly dues SynqIQ charges on the studio's Stripe account. Renewals run nightly at 4 AM; live charging isn't switched on yet (test cards only)."
     >
       <div className="space-y-6">
+        <Card className="py-0">
+          <CardHeader className="pt-4">
+            <CardTitle className="text-base">How declined payments work</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-5 text-sm">
+            <ol className="list-decimal space-y-1.5 pl-5">
+              <li>
+                <strong>Declined:</strong> booking stops right away (red) and the member is emailed a link to update their card.
+              </li>
+              <li>
+                <strong>Retries:</strong> SynqIQ tries the card again {RETRY_DAYS.slice(0, -1).join(", ")} and {RETRY_DAYS[RETRY_DAYS.length - 1]} days
+                after the billing date. A new card, a payment at the front desk, or Retry below can settle it sooner.
+              </li>
+              <li>
+                <strong>On hold after day {RETRY_DAYS[RETRY_DAYS.length - 1]}:</strong> if the last retry fails, the membership goes on hold
+                and the member is emailed. Booking stays off and no more autopays are attempted: monthly payments that come up while it&apos;s
+                on hold are skipped, not charged.
+              </li>
+              <li>
+                <strong>Paid:</strong> once the unpaid month is paid, the hold lifts, booking turns back on and autopay resumes on the
+                member&apos;s next billing date. Months skipped during the hold aren&apos;t charged.
+              </li>
+              <li>
+                <strong>Never paid:</strong> the membership stays on hold and SynqIQ doesn&apos;t try to charge it again.
+              </li>
+            </ol>
+            <p className="mt-3 text-muted-foreground">
+              Move a single payment date or retry a decline below. Cards expiring within a month show yellow.
+            </p>
+          </CardContent>
+        </Card>
         <Link
           href="/dashboard/member-billing/cutover"
           className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary-subtle px-4 py-3 text-sm hover:bg-accent"
@@ -186,7 +219,7 @@ export default async function MemberBillingPage() {
 
         <Card className="py-0">
           <CardHeader className="pt-4">
-            <CardTitle className="text-base">Declined and frozen</CardTitle>
+            <CardTitle className="text-base">Declined and on hold</CardTitle>
           </CardHeader>
           <CardContent className="px-0">
             {declined.length === 0 ? (
@@ -213,7 +246,7 @@ export default async function MemberBillingPage() {
                         </TableCell>
                         <TableCell>
                           {charge.status === "failed" ? (
-                            <Badge className="bg-red-600 text-white hover:bg-red-600">Frozen</Badge>
+                            <Badge className="bg-red-600 text-white hover:bg-red-600">On hold</Badge>
                           ) : (
                             <Badge variant="destructive">Declined ×{Number(charge.attempts)}</Badge>
                           )}

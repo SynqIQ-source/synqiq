@@ -61,13 +61,13 @@ ${DECLINE_TAIL}`,
   payment_on_hold: {
     label: "Membership on hold",
     audience: "Members",
-    when: "The last retry failed and the membership is frozen.",
+    when: "The last retry failed (10 days after the billing date) and the membership goes on hold.",
     subject: "Your {{studio}} membership is on hold",
     body: `Hi {{first_name}},
 
 We weren't able to collect your **{{membership}}** payment of {{amount}} after several tries, so your membership is on hold.
 
-Class and lane booking is paused until the payment is made.
+While it's on hold, class and lane booking stays paused and we won't charge your card for any more monthly payments. Once the {{amount}} is paid, your membership comes off hold, booking turns back on, and your monthly payments start again on your usual billing date.
 
 [button]
 

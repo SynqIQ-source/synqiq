@@ -20,11 +20,11 @@ export function RunRenewals() {
       setResult(body?.error ?? "Couldn't run renewals.");
       return;
     }
-    const s = body.summary as { due: number; paid: number; declined: number; frozen: number; pending: number; errors: number };
+    const s = body.summary as { due: number; paid: number; declined: number; frozen: number; pending: number; errors: number; held?: number };
     setResult(
       s.due === 0
         ? "Nothing due to charge."
-        : `${s.due} due: ${s.paid} paid, ${s.declined} declined, ${s.frozen} frozen${s.pending ? `, ${s.pending} processing` : ""}${s.errors ? `, ${s.errors} errors (will retry)` : ""}.`,
+        : `${s.due} due: ${s.paid} paid, ${s.declined} declined, ${s.frozen} frozen${s.pending ? `, ${s.pending} processing` : ""}${s.errors ? `, ${s.errors} errors (will retry)` : ""}${s.held ? `, ${s.held} skipped (on hold)` : ""}.`,
     );
     router.refresh();
   }
