@@ -159,6 +159,9 @@ export function upcomingPaymentDates(
   autoRenews: boolean,
   today: string,
   limit = 3,
+  // Billing dates already charged, declined or skipped (membership_charges
+  // rows other than a moved, still-scheduled one): not upcoming any more.
+  done: ReadonlySet<string> = new Set(),
 ): { date: string; number: number; renewal: boolean }[] {
   const first = DateTime.fromISO(firstBillDate);
   const out: { date: string; number: number; renewal: boolean }[] = [];
@@ -166,7 +169,7 @@ export function upcomingPaymentDates(
     const ends = autopayCount != null && !autoRenews;
     if (ends && k >= autopayCount) break;
     const date = first.plus({ months: k }).toISODate()!;
-    if (date >= today) out.push({ date, number: k + 1, renewal: autopayCount != null && k >= autopayCount });
+    if (date >= today && !done.has(date)) out.push({ date, number: k + 1, renewal: autopayCount != null && k >= autopayCount });
   }
   return out;
 }

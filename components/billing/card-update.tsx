@@ -121,7 +121,7 @@ function Inner({ onSaved, onCancel, error, setError }: Parameters<typeof SetupFo
 
   return (
     <>
-      <PaymentElement options={{ layout: "tabs", wallets: { applePay: "auto", googlePay: "auto" } }} />
+      <PaymentElement options={{ layout: "tabs", wallets: { applePay: "auto", googlePay: "auto", link: "never" } }} />
       <p className="text-xs text-muted-foreground">
         Saved securely with Stripe for monthly membership payments. Apple Pay or Google Pay fill it in without typing.
       </p>

@@ -47,6 +47,21 @@ export default async function MemberBillingPage() {
       .limit(500),
     admin.from("card_expiry_notices").select("schedule_id, card_exp_month, card_exp_year, notice, sent_at").eq("organization_id", org),
   ]);
+  // Billing dates already charged (or declined / skipped): not "due" again,
+  // even when a month was charged early.
+  const { data: chargedRows } = await admin
+    .from("membership_charges")
+    .select("schedule_id, due_date")
+    .eq("organization_id", org)
+    .neq("status", "scheduled")
+    .gte("due_date", DateTime.now().setZone(zone).minus({ days: 1 }).toISODate()!)
+    .limit(5000);
+  const chargedBy = new Map<string, Set<string>>();
+  for (const row of chargedRows ?? []) {
+    const set = chargedBy.get(row.schedule_id as string) ?? new Set<string>();
+    set.add(row.due_date as string);
+    chargedBy.set(row.schedule_id as string, set);
+  }
   const [{ data: disputes }, account] = await Promise.all([
     admin
       .from("payment_disputes")
@@ -89,7 +104,14 @@ export default async function MemberBillingPage() {
   const upcoming = schedules
     .filter((row) => row.billing_state !== "frozen")
     .flatMap((row) =>
-      upcomingPaymentDates(row.first_bill_date as string, row.autopay_count as number | null, Boolean(row.auto_renews), today, 1)
+      upcomingPaymentDates(
+        row.first_bill_date as string,
+        row.autopay_count as number | null,
+        Boolean(row.auto_renews),
+        today,
+        1,
+        chargedBy.get(row.id as string),
+      )
         .map((payment) => {
           const moved = movedBy.get(`${row.id}|${payment.date}`);
           return { row, due: payment.date, date: (moved?.next_attempt_on as string | null) ?? payment.date, moved: Boolean(moved) };

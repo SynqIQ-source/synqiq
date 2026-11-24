@@ -66,7 +66,7 @@ function CardForm({ amountCents, onPaid, onCancel }: { amountCents: number; onPa
 
   return (
     <div className="space-y-4">
-      <PaymentElement options={{ layout: "tabs" }} />
+      <PaymentElement options={{ layout: "tabs", wallets: { link: "never" } }} />
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <div className="flex gap-2">
         <Button className="flex-1" disabled={!stripe || busy || charged} onClick={pay}>
