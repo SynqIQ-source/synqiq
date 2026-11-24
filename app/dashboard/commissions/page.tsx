@@ -120,7 +120,7 @@ export default async function CommissionsPage({ searchParams }: Props) {
 
   return (
     <DashboardShell
-      title="Commissions"
+      title="Commission Setup"
       description="Commission is figured on the pre-tax price of each sale line, never on tax. Set what each product counts as, the plans, and who is on which plan."
     >
       <CommissionsEditor
