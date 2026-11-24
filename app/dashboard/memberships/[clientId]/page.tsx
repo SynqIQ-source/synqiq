@@ -569,7 +569,7 @@ export default async function MemberBillingPage({ params }: { params: Params }) 
           <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
             {billing.finalFailure ? (
               <>
-                <span className="font-medium">Payment failed, membership frozen.</span> The monthly payment was declined on every retry.
+                <span className="font-medium">Payment failed, membership on hold.</span> The monthly payment was declined on every retry, so no more autopays are attempted until it&apos;s paid.
               </>
             ) : (
               <>
