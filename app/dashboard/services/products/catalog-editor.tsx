@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PromoCodes, type PromoRow } from "./promo-codes";
 import { StockOnHand, type StockRow } from "./stock-on-hand";
+import { uploadItemPhoto } from "./item-photo";
 
 export type CatalogCategory = { id: string; key: string; name: string; taxable: boolean; glAccount: string; active: boolean };
 export type InventoryCategory = { id: string; parentId: string | null; name: string; sort: number };
@@ -515,6 +516,8 @@ function ItemEditor({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [kind, setKind] = useState<CatalogItem["kind"]>(item?.kind ?? "product");
   const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? null);
+  // A new item's picture waits here until the item is saved and has an id.
+  const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
   const [inventoryCategoryId, setInventoryCategoryId] = useState(item ? item.inventoryCategoryId : defaultInventoryCategoryId);
   const [parts, setParts] = useState<PartDraft[] | null>(
     item?.packageParts?.map((part) => ({
@@ -561,28 +564,48 @@ function ItemEditor({
       autopayCount: autopayCount.trim() === "" ? null : Number(autopayCount),
       autoRenews,
     });
+    if (result.error) {
+      setBusy(false);
+      return setError(result.error);
+    }
+    const newId = typeof result.data?.id === "string" ? result.data.id : null;
+    if (!item && pendingPhoto && newId) {
+      const photo = await uploadItemPhoto(newId, pendingPhoto);
+      if (photo.error) {
+        setBusy(false);
+        router.refresh();
+        return setError(`The item was saved, but the picture wasn't: ${photo.error} Open the item to add it again.`);
+      }
+    }
     setBusy(false);
-    if (result.error) return setError(result.error);
     router.refresh();
     onClose();
   }
 
   async function upload(file: File) {
-    if (!item) return;
+    if (!item) {
+      // New item: show it now, upload once it's saved.
+      if (imageUrl?.startsWith("blob:")) URL.revokeObjectURL(imageUrl);
+      setPendingPhoto(file);
+      setImageUrl(URL.createObjectURL(file));
+      return;
+    }
     setBusy(true);
     setError(null);
-    const form = new FormData();
-    form.append("image", file);
-    const response = await fetch(`/api/pos/items/${item.id}/image`, { method: "POST", body: form });
-    const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; imageUrl?: string };
+    const result = await uploadItemPhoto(item.id, file);
     setBusy(false);
-    if (!response.ok || !result.success) return setError(result.error ?? "Couldn't upload. Try again.");
-    setImageUrl(result.imageUrl ?? null);
+    if (result.error) return setError(result.error);
+    setImageUrl(result.url);
     router.refresh();
   }
 
   async function removeImage() {
-    if (!item) return;
+    if (!item) {
+      if (imageUrl?.startsWith("blob:")) URL.revokeObjectURL(imageUrl);
+      setPendingPhoto(null);
+      setImageUrl(null);
+      return;
+    }
     setBusy(true);
     await fetch(`/api/pos/items/${item.id}/image`, { method: "DELETE" });
     setBusy(false);
@@ -610,30 +633,26 @@ function ItemEditor({
               <ImageIcon className="size-8 text-muted-foreground" />
             )}
           </div>
-          {item ? (
-            <div className="flex flex-col gap-1">
-              <label className="cursor-pointer text-sm text-primary underline">
-                {imageUrl ? "Replace picture" : "Upload a picture"}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) upload(file);
-                  }}
-                />
-              </label>
-              {imageUrl ? (
-                <button type="button" className="text-left text-sm text-muted-foreground underline" onClick={removeImage}>
-                  Remove picture
-                </button>
-              ) : null}
-              <span className="text-xs text-muted-foreground">PNG, JPEG or WebP, up to 3 MB. Square works best.</span>
-            </div>
-          ) : (
-            <p className="w-40 text-xs text-muted-foreground">Save the item first, then add a picture.</p>
-          )}
+          <div className="flex flex-col gap-1">
+            <label className="cursor-pointer text-sm text-primary underline">
+              {imageUrl ? "Replace picture" : "Upload a picture"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) upload(file);
+                }}
+              />
+            </label>
+            {imageUrl ? (
+              <button type="button" className="text-left text-sm text-muted-foreground underline" onClick={removeImage}>
+                Remove picture
+              </button>
+            ) : null}
+            <span className="text-xs text-muted-foreground">PNG, JPEG or WebP, up to 3 MB. Square works best.</span>
+          </div>
         </div>
         <div className="grid flex-1 gap-3 sm:grid-cols-2">
           <label className="text-sm sm:col-span-2">

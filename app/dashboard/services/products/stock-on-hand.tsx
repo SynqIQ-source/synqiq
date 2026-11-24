@@ -10,10 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { reorderNeed } from "@/lib/pos/stock";
 import type { InventoryCategory } from "./catalog-editor";
+import { ItemPhotoButton } from "./item-photo";
 
 export type StockRow = {
   id: string;
   name: string;
+  imageUrl: string | null;
   inventoryCategoryId: string | null;
   parLevel: number | null;
   reorderLevel: number | null;
@@ -120,6 +122,7 @@ export function StockOnHand({ rows, inventoryCategories }: { rows: StockRow[]; i
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-16">Photo</TableHead>
               <TableHead>Product</TableHead>
               <TableHead className="w-24 text-right">PAR</TableHead>
               <TableHead className="w-24 text-right">Reorder at</TableHead>
@@ -130,7 +133,7 @@ export function StockOnHand({ rows, inventoryCategories }: { rows: StockRow[]; i
           <TableBody>
             {shown.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                   Nothing matches.
                 </TableCell>
               </TableRow>
@@ -162,6 +165,9 @@ function StockLine({ row, open, onToggle }: { row: StockRow; open: boolean; onTo
 
   return (
     <TableRow>
+      <TableCell>
+        <ItemPhotoButton itemId={row.id} imageUrl={row.imageUrl} name={row.name} />
+      </TableCell>
       <TableCell className="font-medium whitespace-normal">
         {row.name}
         {error ? <span className="block text-xs font-normal text-destructive">{error}</span> : null}
@@ -249,7 +255,7 @@ function StockUpdate({ row }: { row: StockRow }) {
 
   return (
     <TableRow className="bg-muted/30 hover:bg-muted/30">
-      <TableCell colSpan={5} className="whitespace-normal">
+      <TableCell colSpan={6} className="whitespace-normal">
         <div className="flex flex-wrap items-end gap-4 py-1">
           <div className="flex items-end gap-1.5">
             <label className="text-sm">
