@@ -7,7 +7,7 @@ import { stripeLivemode } from "@/lib/payments/connect";
 import { finishCardPayment, noteCardPaymentFailure } from "@/lib/payments/checkout";
 import { finishRenewalFromEvent } from "@/lib/billing/renewal-job";
 import { finishCardUpdate } from "@/lib/billing/cards";
-import { applyStripeRefund, recordDispute } from "@/lib/billing/refunds";
+import { applyStripeRefund, noteFailedRefund, recordDispute } from "@/lib/billing/refunds";
 
 // Stripe event destination, "Connected accounts" scope (snapshot events):
 // payments made in studios' own accounts (direct charges). Every request's
@@ -71,8 +71,11 @@ export async function POST(request: NextRequest) {
       await applyStripeRefund(event.data.object as Stripe.Charge, event.account);
     } else if (event.type.startsWith("charge.dispute.")) {
       await recordDispute(event.data.object as Stripe.Dispute, event.account, event.livemode);
+    } else if (event.type === "refund.failed") {
+      await noteFailedRefund(event.data.object as Stripe.Refund, event.account);
     }
-    // payout.failed is recorded (stripe_connect_events) for the studio's Stripe dashboard.
+    // payout.failed is only recorded (stripe_connect_events): with the full
+    // Stripe Dashboard, Stripe emails the studio about its own payouts.
   } catch (error) {
     console.error("[stripe/connect-payments] failed:", event.type, error);
     await forget();
