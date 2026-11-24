@@ -117,7 +117,7 @@ export default async function PayrollPage({ searchParams }: Props) {
                       <TableCell className="text-right tabular-nums">
                         {cell(
                           person.hourly.amountCents,
-                          `/dashboard/timesheets?${range}${anchor}`,
+                          `/dashboard/payroll/timesheets?${range}${anchor}`,
                           person.hourly.minutes ? `${hoursLabel(person.hourly.minutes)}` : null,
                         )}
                       </TableCell>
