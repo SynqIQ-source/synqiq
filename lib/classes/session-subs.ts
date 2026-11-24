@@ -98,6 +98,7 @@ export async function syncSubsIntoCalendar(
     .from("class_occurrences")
     .select("id, mindbody_class_schedule_id, start_datetime, staff_id, substitute_staff_id")
     .eq("organization_id", organizationId)
+    .eq("is_canceled", false)
     .gte("start_datetime", fromIso)
     .lte("start_datetime", toIso)
     .limit(5000);

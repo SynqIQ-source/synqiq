@@ -67,6 +67,7 @@ async function getActiveSubstitutionRequests(supabase: ScopedSupabaseClient, hid
       `,
     )
     .in("status", ["open", "pending_selection", "approved"])
+    .eq("occurrence.is_canceled", false) // cancelled in Mindbody: hidden
     .gt("occurrence.start_datetime", DateTime.utc().toISO())
     .returns<SubstitutionRequestRow[]>();
 

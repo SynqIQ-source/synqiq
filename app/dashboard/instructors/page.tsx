@@ -114,6 +114,7 @@ async function getOccurrences(
         "id, staff_id, substitute_staff_id, max_capacity, total_signed_in, synqiq_signed_in, department_id, class_name, department:departments!class_occurrences_department_id_fkey ( name )",
       )
       .not("mindbody_occurrence_id", "is", null)
+      .eq("is_canceled", false)
       .lte("start_datetime", nowIso);
 
     if (rangeStart) {

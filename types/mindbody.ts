@@ -6,6 +6,8 @@ export interface MindbodyClass {
   StartDateTime: string;
   EndDateTime: string;
   LastModifiedDateTime: string;
+  /** Cancelled in Mindbody; the class still comes back from /class/classes. */
+  IsCanceled?: boolean;
   MaxCapacity: number;
   WebCapacity: number;
   TotalBooked: number;

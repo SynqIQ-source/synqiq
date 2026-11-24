@@ -20,6 +20,7 @@ type OpenRequestRow = {
     class_name: string | null;
     staff_id: string | null;
     start_datetime: string | null;
+    is_canceled?: boolean | null;
   } | null;
 };
 
@@ -27,7 +28,7 @@ async function getOpenRequestsDueForReminder(supabase: SupabaseAdminClient): Pro
   const { data, error } = await supabase
     .from("substitution_requests")
     .select(
-      "id, requested_by, created_at, last_reminder_sent_at, occurrence:class_occurrences!substitution_requests_occurrence_id_fkey ( id, organization_id, department_id, class_name, staff_id, start_datetime )",
+      "id, requested_by, created_at, last_reminder_sent_at, occurrence:class_occurrences!substitution_requests_occurrence_id_fkey ( id, organization_id, department_id, class_name, staff_id, start_datetime, is_canceled )",
     )
     .eq("status", "open")
     .returns<OpenRequestRow[]>();
@@ -40,7 +41,7 @@ async function getOpenRequestsDueForReminder(supabase: SupabaseAdminClient): Pro
 
   return (data ?? []).filter((request) => {
     const occurrence = request.occurrence;
-    if (!occurrence?.start_datetime) {
+    if (!occurrence?.start_datetime || occurrence.is_canceled) {
       return false;
     }
 

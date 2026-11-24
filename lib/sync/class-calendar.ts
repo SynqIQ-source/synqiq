@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { effective, type CatalogValue } from "@/lib/classes/catalog-edits";
 import { generateSessions, type CalendarSchedule } from "@/lib/classes/calendar";
 import { syncSubsIntoCalendar } from "@/lib/classes/session-subs";
+import { hideCancelledSessions } from "@/lib/classes/cancelled-sessions";
 
 // Builds SynqIQ's class calendar (class_sessions) for the booking window
 // from the class schedules with their SynqIQ edits. Runs after the nightly
@@ -164,6 +165,9 @@ export async function buildClassCalendar(organizationId: string): Promise<BuildC
         .in("id", toDelete.slice(index, index + 200));
     }
     if (toFlag.length) await supabase.from("class_sessions").update({ removed_from_schedule_at: generatedAt }).in("id", toFlag);
+
+    // Dates Mindbody cancelled stay hidden (the upsert above cleared the flag).
+    await hideCancelledSessions(supabase, organizationId);
 
     // Subs: approved in SynqIQ, or set directly in Mindbody.
     const subs = await syncSubsIntoCalendar(

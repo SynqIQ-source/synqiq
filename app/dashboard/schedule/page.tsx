@@ -60,6 +60,7 @@ async function getScheduleForStaffOnDate(supabase: ScopedSupabaseClient, staffId
     // the approved request -- see app/api/substitution-requests/route.ts).
     .or(`staff_id.eq.${staffId},substitute_staff_id.eq.${staffId}`)
     .not("mindbody_occurrence_id", "is", null)
+    .eq("is_canceled", false) // cancelled in Mindbody: hidden
     .gte("start_datetime", dayStart.toUTC().toISO())
     .lt("start_datetime", dayEnd.toUTC().toISO())
     .order("start_datetime", { ascending: true })

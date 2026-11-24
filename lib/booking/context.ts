@@ -113,14 +113,16 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
   // Mindbody's bookings for the same class (from its class sync).
   let mindbodyBooked: number | null = null;
   let countsReadAt: string | null = null;
+  let cancelledInMindbody = false;
   if (row.mindbody_class_schedule_id) {
     const { data: occurrence } = await admin
       .from("class_occurrences")
-      .select("total_booked, sync_timestamp, counts_read_at")
+      .select("total_booked, sync_timestamp, counts_read_at, is_canceled")
       .eq("organization_id", organizationId)
       .eq("mindbody_class_schedule_id", row.mindbody_class_schedule_id)
       .eq("start_datetime", row.starts_at)
       .maybeSingle();
+    if (occurrence?.is_canceled) cancelledInMindbody = true;
     if (occurrence) {
       mindbodyBooked = (occurrence.total_booked as number | null) ?? 0;
       countsReadAt = [occurrence.sync_timestamp, occurrence.counts_read_at].filter(Boolean).sort().pop() ?? null;
@@ -169,7 +171,7 @@ export async function loadSessionContext(organizationId: string, sessionId: stri
       startsAt,
       endsAt,
       capacity: (merged.capacity as number | null) ?? null,
-      active: merged.active !== false && !row.removed_from_schedule_at,
+      active: merged.active !== false && !row.removed_from_schedule_at && !cancelledInMindbody,
       roomId: (merged.mindbody_resource_id as number | null) ?? null,
       staffMindbodyId: (merged.staff_mindbody_id as number | null) ?? null,
       mindbodyClassScheduleId: (row.mindbody_class_schedule_id as number | null) ?? null,

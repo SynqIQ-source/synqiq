@@ -6,6 +6,7 @@ import { delay, withRetry } from "@/lib/retry";
 import { siteIdOr } from "@/lib/sync/sites";
 import { seedEligibilityForNewClassTypes } from "@/lib/eligibility/new-class-types";
 import { archivePastSubBoards } from "@/lib/message-boards/archive-past-sub-boards";
+import { hideCancelledSessions } from "@/lib/classes/cancelled-sessions";
 import type { MindbodyClass, MindbodyStaffMember } from "@/types/mindbody";
 
 type SupabaseAdminClient = ReturnType<typeof createSupabaseAdminClient>;
@@ -252,6 +253,48 @@ export type SyncClassesResult =
 // round trip to itself. app/api/sync/classes/route.ts stays as a thin
 // wrapper so it's still individually callable by hand (as it was before, and
 // as this backfill session used it) with explicit startDateTime/endDateTime.
+// Upcoming Mindbody classes in [start, end) that a complete sync pass didn't
+// return were deleted from the Mindbody schedule: mark them cancelled.
+// SynqIQ's own classes (class_session_id) are never touched. Capped so a
+// partial Mindbody response can't hide a whole schedule.
+export const MAX_REMOVED_PER_RUN = 40;
+
+export async function markRemovedClasses(
+  supabase: SupabaseAdminClient,
+  organizationId: string,
+  start: string,
+  end: string,
+  seenSince: string,
+) {
+  const from = DateTime.max(DateTime.fromISO(start), DateTime.utc()).toUTC().toISO();
+  if (!from || !seenSince || DateTime.fromISO(end) <= DateTime.fromISO(from)) return 0;
+  const { data, error } = await supabase
+    .from("class_occurrences")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("is_canceled", false)
+    .is("class_session_id", null)
+    .not("mindbody_occurrence_id", "is", null)
+    .gte("start_datetime", from)
+    .lt("start_datetime", DateTime.fromISO(end).toUTC().toISO())
+    .lt("sync_timestamp", seenSince)
+    .limit(MAX_REMOVED_PER_RUN + 1);
+  if (error || !data?.length) return 0;
+  if (data.length > MAX_REMOVED_PER_RUN) {
+    console.error(`[syncClasses] More than ${MAX_REMOVED_PER_RUN} upcoming classes missing from Mindbody; not marking any cancelled.`);
+    return 0;
+  }
+  const { error: updateError } = await supabase
+    .from("class_occurrences")
+    .update({ is_canceled: true })
+    .in("id", data.map((row) => row.id as string));
+  if (updateError) {
+    console.error(updateError);
+    return 0;
+  }
+  return data.length;
+}
+
 export async function syncClasses(options: SyncClassesOptions): Promise<SyncClassesResult> {
   // Set once org resolves below -- lets the catch block record a failed run
   // against the right org even though `org` itself is scoped to the try
@@ -470,6 +513,7 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
       let imported = 0;
       let totalClasses = 0;
       let offset = 0;
+      let pageFailed = false;
 
       for (;;) {
         const page = await withRetry(() =>
@@ -584,6 +628,9 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
                 ? departmentIdByProgramId.get(cls.ClassDescription.Program.Id) ?? null
                 : null,
             room_id: roomId,
+            // Mindbody cancelled it: hidden everywhere in SynqIQ. Written
+            // every run, so a class Mindbody reinstates shows again.
+            is_canceled: cls.IsCanceled === true,
             // substitute_staff_id is deliberately NOT sent: it's
             // SynqIQ-owned (set when an admin approves a sub), and sending
             // null here wiped every approved sub on the next nightly sync.
@@ -600,6 +647,7 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
           if (!error) {
             imported += rows.length;
           } else {
+            pageFailed = true;
             console.error(error);
           }
         }
@@ -614,15 +662,32 @@ export async function syncClasses(options: SyncClassesOptions): Promise<SyncClas
         await delay(300);
       }
 
-      return { imported, total: totalClasses };
+      // Every page was walked: an upcoming Mindbody class this run didn't
+      // see was deleted from the Mindbody schedule. Skipped when a page
+      // failed to save, for one location only, or for an implausible number
+      // of classes (a bad Mindbody response must never empty the schedule).
+      let removed = 0;
+      if (!pageFailed && locationId === undefined) {
+        removed = await markRemovedClasses(supabase, org.id, windowStart, windowEnd, syncedAt ?? "");
+      }
+
+      return { imported, total: totalClasses, removed };
     }
 
     let imported = 0;
     let totalClasses = 0;
+    let removedClasses = 0;
     for (const dateWindow of windows) {
       const windowResult = await processWindow(dateWindow.start, dateWindow.end);
       imported += windowResult.imported;
       totalClasses += windowResult.total;
+      removedClasses += windowResult.removed;
+    }
+    if (removedClasses) console.log(`[syncClasses] ${removedClasses} upcoming classes no longer in Mindbody marked cancelled.`);
+    try {
+      await hideCancelledSessions(supabase, org.id);
+    } catch (hideError) {
+      console.error("[syncClasses] Failed to hide cancelled classes on the calendar:", hideError instanceof Error ? hideError.message : hideError);
     }
 
     // One update per distinct room seen this run (a handful of rows), not

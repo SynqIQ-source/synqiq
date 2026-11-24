@@ -82,7 +82,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       admin.from("staff").select("mindbody_staff_id, display_name").eq("organization_id", orgId).not("mindbody_staff_id", "is", null),
       admin
         .from("class_occurrences")
-        .select("mindbody_class_schedule_id, start_datetime, total_booked, sync_timestamp, counts_read_at")
+        .select("mindbody_class_schedule_id, start_datetime, total_booked, sync_timestamp, counts_read_at, is_canceled")
         .eq("organization_id", orgId)
         .gte("start_datetime", today.startOf("day").toUTC().toISO()!)
         .lte("start_datetime", today.plus({ days: CALENDAR_DAYS }).endOf("day").toUTC().toISO()!)
@@ -165,6 +165,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
       {
         booked: Number(row.total_booked ?? 0),
         readAt: [row.sync_timestamp, row.counts_read_at].filter(Boolean).sort().pop() as string | undefined,
+        cancelled: row.is_canceled === true,
       },
     ]),
   );
@@ -177,6 +178,7 @@ export async function loadPublicSchedule(mindbodySiteId: number): Promise<Public
     const type = row.class_type_id ? types[row.class_type_id as string] : undefined;
     const capacity = (merged.capacity as number | null) ?? null;
     const fromMindbody = mindbodyBooked.get(`${row.mindbody_class_schedule_id}|${Date.parse(row.starts_at as string)}`);
+    if (fromMindbody?.cancelled) continue; // cancelled in Mindbody: not shown
     const pushedCounted = fromMindbody?.readAt
       ? (pushed.get(row.id as string) ?? []).filter((at) => Date.parse(at) <= Date.parse(fromMindbody.readAt!)).length
       : 0;
