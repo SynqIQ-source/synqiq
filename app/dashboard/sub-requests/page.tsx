@@ -60,6 +60,7 @@ async function getMyRequests(supabase: ScopedSupabaseClient, staffId: string, hi
     )
     .eq("requested_by", staffId)
     .in("status", ["open", "pending_selection", "approved"])
+    .eq("occurrence.is_canceled", false) // cancelled in Mindbody: hidden
     // Upcoming classes only -- a past class's request is no longer
     // actionable. !inner above makes this filter the parent rows.
     .gt("occurrence.start_datetime", new Date().toISOString())
@@ -151,6 +152,7 @@ async function getOpenRequestsQualifiedFor(
       `,
     )
     .eq("status", "open")
+    .eq("occurrence.is_canceled", false) // cancelled in Mindbody: hidden
     // Only classes that haven't started -- an unfilled request for a class
     // that already happened used to linger here.
     .gt("occurrence.start_datetime", new Date().toISOString())

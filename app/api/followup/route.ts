@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
       .select("id")
       .or(`staff_id.eq.${currentStaff.id},substitute_staff_id.eq.${currentStaff.id}`)
       .not("mindbody_occurrence_id", "is", null)
+      .eq("is_canceled", false)
       .gte("start_datetime", windowStart);
 
     const occurrenceIds = (occurrences ?? []).map((row) => row.id);

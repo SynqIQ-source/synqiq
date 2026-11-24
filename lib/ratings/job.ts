@@ -48,6 +48,7 @@ async function queueRequests(admin: Admin, organizationId: string, zone: string,
       .from("class_occurrences")
       .select("id, class_name, mindbody_class_schedule_id, staff_id, substitute_staff_id, start_datetime, end_datetime")
       .eq("organization_id", organizationId)
+      .eq("is_canceled", false)
       .gte("start_datetime", from)
       .lte("end_datetime", now.toISOString())
       .order("start_datetime")

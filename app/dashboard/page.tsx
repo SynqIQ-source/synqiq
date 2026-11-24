@@ -59,6 +59,7 @@ async function getOverviewRows(supabase: ScopedSupabaseClient, rangeStart: DateT
       // synced-class count next to attendance figures computed from a
       // different scope would be confusing, not just inconsistent.
       .not("mindbody_occurrence_id", "is", null)
+      .eq("is_canceled", false)
       .lte("start_datetime", new Date().toISOString());
 
     if (rangeStart) {

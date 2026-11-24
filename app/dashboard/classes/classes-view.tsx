@@ -72,6 +72,7 @@ async function getOccurrencesForRange(supabase: ScopedSupabaseClient, rangeStart
       `,
     )
     .not("mindbody_occurrence_id", "is", null)
+    .eq("is_canceled", false) // cancelled in Mindbody: hidden
     .gte("start_datetime", rangeStart.toUTC().toISO())
     .lt("start_datetime", rangeEnd.toUTC().toISO())
     .order("start_datetime", { ascending: true })
@@ -169,6 +170,7 @@ async function getHistoricalOccurrences(supabase: ScopedSupabaseClient, windowSt
       .from("class_occurrences")
       .select("department_id, class_name, start_datetime, total_booked, max_capacity")
       .not("mindbody_occurrence_id", "is", null)
+      .eq("is_canceled", false)
       .gte("start_datetime", windowStart.toUTC().toISO())
       .lte("start_datetime", windowEnd.toUTC().toISO())
       .order("start_datetime", { ascending: true })

@@ -52,10 +52,11 @@ export async function POST(request: NextRequest) {
     const { data: occurrence, error: occurrenceError } = await supabase
       .from("class_occurrences")
       .select(
-        "id, organization_id, department_id, class_name, staff_id, start_datetime, department:departments!class_occurrences_department_id_fkey ( name )",
+        "id, organization_id, department_id, class_name, staff_id, start_datetime, is_canceled, department:departments!class_occurrences_department_id_fkey ( name )",
       )
       .eq("id", occurrenceId)
       .single<{
+        is_canceled: boolean;
         id: string;
         organization_id: string;
         department_id: string | null;
@@ -70,6 +71,10 @@ export async function POST(request: NextRequest) {
         { error: "Class occurrence not found." },
         { status: 404 },
       );
+    }
+
+    if (occurrence.is_canceled) {
+      return NextResponse.json({ error: "This class was cancelled in Mindbody." }, { status: 409 });
     }
 
     // Pool Lanes doesn't use the substitution system at all -- see

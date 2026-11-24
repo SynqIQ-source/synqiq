@@ -83,6 +83,7 @@ export async function runPostClassReminders(): Promise<PostClassReminderResult> 
     )
     .is("followup_reminder_sent_at", null)
     .not("mindbody_occurrence_id", "is", null)
+    .eq("is_canceled", false)
     .not("start_datetime", "is", null)
     .lte("end_datetime", now.toISO() ?? "")
     .gte("end_datetime", now.minus({ hours: LOOKBACK_HOURS }).toISO() ?? "")

@@ -16,6 +16,7 @@ import { WidgetTab } from "./widget-tab";
 import { CalendarTab, type SessionRow } from "./calendar-tab";
 import { CALENDAR_DAYS } from "@/lib/sync/class-calendar";
 import type { MindbodyClass } from "@/lib/classes/calendar";
+import { cancelKey } from "@/lib/classes/cancelled-sessions";
 
 // The class catalog: imported from Mindbody nightly, editable here (edits
 // win over Mindbody's copy and are logged). Class types and descriptions,
@@ -238,7 +239,7 @@ export default async function ClassCatalogPage() {
       .returns<SessionRow[]>(),
     supabase
       .from("class_occurrences")
-      .select("mindbody_class_schedule_id, start_datetime, staff_id")
+      .select("mindbody_class_schedule_id, start_datetime, staff_id, is_canceled")
       .eq("organization_id", orgId)
       .gte("start_datetime", today.startOf("day").toUTC().toISO()!)
       .lte("start_datetime", windowEnd.endOf("day").toUTC().toISO()!)
@@ -247,7 +248,15 @@ export default async function ClassCatalogPage() {
   ]);
   const mindbodyStaffById = new Map((staffIdRows ?? []).map((row) => [row.id as string, Number(row.mindbody_staff_id)]));
   const mindbodyByDate = new Map<string, MindbodyClass[]>();
+  // Cancelled in Mindbody: not shown on the calendar at all.
+  const cancelledKeys = new Set(
+    (mindbodyRows ?? []).filter((row) => row.is_canceled).map((row) => cancelKey(row.mindbody_class_schedule_id, row.start_datetime)),
+  );
+  const shownSessions = (calendarRows ?? []).filter(
+    (row) => !row.mindbody_class_schedule_id || !cancelledKeys.has(cancelKey(row.mindbody_class_schedule_id, row.starts_at)),
+  );
   for (const row of mindbodyRows ?? []) {
+    if (row.is_canceled) continue;
     const date = DateTime.fromISO(row.start_datetime as string)
       .setZone(timezone)
       .toISODate()!;
@@ -296,7 +305,7 @@ export default async function ClassCatalogPage() {
 
           <TabsContent value="calendar">
             <CalendarTab
-              sessions={calendarRows ?? []}
+              sessions={shownSessions}
               mindbodyByDate={mindbodyByDate}
               roomName={roomName}
               staffName={staffName}

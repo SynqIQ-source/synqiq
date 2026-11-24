@@ -51,6 +51,7 @@ async function getRoomOccurrences(
     .select("id, start_datetime, max_capacity")
     .eq("room_id", roomId)
     .not("mindbody_occurrence_id", "is", null)
+    .eq("is_canceled", false)
     // Only occurred classes -- an upcoming class's signed-in count is
     // meaningless, same rule the department heat map already applies.
     .lte("start_datetime", DateTime.now().toUTC().toISO() ?? "")

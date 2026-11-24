@@ -85,7 +85,7 @@ export async function respondToSubstitutionRequest(
 
   const { data: occurrence, error: occurrenceError } = await supabase
     .from("class_occurrences")
-    .select("department_id, class_name, staff_id")
+    .select("department_id, class_name, staff_id, is_canceled")
     .eq("id", substitutionRequest.occurrence_id)
     .single();
 
@@ -95,6 +95,10 @@ export async function respondToSubstitutionRequest(
       httpStatus: 500,
       error: occurrenceError?.message ?? "Could not resolve the request's class occurrence.",
     };
+  }
+
+  if (occurrence.is_canceled) {
+    return { ok: false, httpStatus: 409, error: "This class was cancelled in Mindbody." };
   }
 
   if (occurrence.staff_id && staffId === occurrence.staff_id) {

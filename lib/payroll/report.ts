@@ -114,6 +114,7 @@ export async function buildPayroll(organizationId: string, from: string, to: str
           "id, mindbody_class_schedule_id, class_name, staff_id, substitute_staff_id, start_datetime, end_datetime, total_signed_in, synqiq_signed_in, pay_override_cents, assistant_staff_id, assistant_pay_cents",
         )
         .eq("organization_id", organizationId)
+        .eq("is_canceled", false) // a class cancelled in Mindbody isn't paid
         .gte("start_datetime", startIso)
         .lt("start_datetime", endIso)
         .lte("start_datetime", now.toISOString())
