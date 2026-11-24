@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { ChevronLeft, ChevronRight, Clock, Loader2, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +13,7 @@ import type { CalendarAppointment, CalendarBlock, CalendarSession } from "@/lib/
 import { SESSION_STATUS_LABELS, canCloseSession, canEditAvailability, canReopenSession, withinAvailability } from "@/lib/trainer/rules";
 
 export type SessionTypeOption = { id: number; name: string; minutes: number };
+export type RoomOption = { id: string; name: string };
 type Trainer = { id: string; name: string };
 type Me = { id: string; role: string; isTrainer: boolean; isAdmin: boolean };
 
@@ -19,7 +21,7 @@ const START_HOUR = 5;
 const END_HOUR = 22;
 const PX_PER_MIN = 1;
 const SNAP = 15;
-const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+const money = (cents: number) => `${cents < 0 ? "-" : ""}${(Math.abs(cents) / 100).toFixed(2)}`;
 const selectClass = "h-9 rounded-md border bg-background px-2 text-sm";
 
 async function post(body: Record<string, unknown>) {
@@ -60,6 +62,7 @@ export function TrainerCalendar(props: {
   trainers: Trainer[];
   trainerId: string | null;
   sessionTypes: SessionTypeOption[];
+  rooms: RoomOption[];
   me: Me;
   syncedAt: string | null;
   sessions: CalendarSession[];
@@ -139,6 +142,13 @@ export function TrainerCalendar(props: {
 
   return (
     <div className="space-y-3">
+      <p className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        <Badge variant="outline" className="border-amber-400 text-amber-900 dark:text-amber-200">
+          Pilot
+        </Badge>
+        Trainer sessions pilot: sessions, balances and pay here are a test. Keep logging sessions in Mindbody too; nothing here changes
+        Mindbody.
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border p-0.5">
           <Button size="sm" variant={view === "week" ? "default" : "ghost"} onClick={() => go({ view: "week" })}>
@@ -314,6 +324,7 @@ export function TrainerCalendar(props: {
       {booking ? (
         <BookDialog
           key={`${booking.trainerId}|${booking.start.toISO()}`}
+          rooms={props.rooms}
           zone={zone}
           trainerName={trainerName(booking.trainerId)}
           trainerId={booking.trainerId}
@@ -337,6 +348,7 @@ export function TrainerCalendar(props: {
       {openSession ? (
         <SessionDialog
           session={openSession}
+          rooms={props.rooms}
           zone={zone}
           trainerName={trainerName(openSession.trainerId)}
           me={me}
@@ -364,6 +376,7 @@ export function TrainerCalendar(props: {
 }
 
 function BookDialog({
+  rooms,
   zone,
   trainerId,
   trainerName,
@@ -372,6 +385,7 @@ function BookDialog({
   available,
   onClose,
 }: {
+  rooms: RoomOption[];
   zone: string;
   trainerId: string;
   trainerName: string;
@@ -386,6 +400,7 @@ function BookDialog({
   const [time, setTime] = useState(start.toFormat("HH:mm"));
   const [client, setClient] = useState<MemberSuggestion | null>(null);
   const [note, setNote] = useState("");
+  const [roomId, setRoomId] = useState("");
   const [needsReason, setNeedsReason] = useState(false);
   // The client's session packs (SynqIQ balances); "" = the best one.
   const [packs, setPacks] = useState<{ id: string; name: string; free: number; expiresOn: string | null; expired: boolean }[] | null>(null);
@@ -423,6 +438,7 @@ function BookDialog({
       minutes,
       startsAt: startAt.toISO(),
       note,
+      roomId: roomId || undefined,
       packId: packId || undefined,
     });
     setSaving(false);
@@ -477,6 +493,19 @@ function BookDialog({
               />
             </label>
           </div>
+          {rooms.length ? (
+            <label className="block space-y-1 text-sm">
+              <span className="block text-muted-foreground">Room (optional)</span>
+              <select aria-label="Room" className={`${selectClass} w-full`} value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+                <option value="">No room</option>
+                {rooms.map((room) => (
+                  <option key={room.id} value={room.id}>
+                    {room.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <p className={`text-xs ${open ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
             {startAt.isValid
               ? `${startAt.toFormat("h:mm a")} – ${startAt.plus({ minutes }).toFormat("h:mm a")}: ${open ? "inside available hours" : "outside available hours (only the trainer or a Club Admin can book this, with a reason)"}`
@@ -515,7 +544,9 @@ function BookDialog({
                   ))}
                 </select>
               ) : (
-                <span className="block text-amber-700 dark:text-amber-400">No sessions left on their account. Booking needs a reason.</span>
+                <span className="block text-amber-700 dark:text-amber-400">
+                  No sessions left in SynqIQ. You can still book with a reason; the session is flagged &quot;No balance&quot;.
+                </span>
               )}
             </label>
           ) : null}
@@ -540,12 +571,14 @@ function BookDialog({
 
 function SessionDialog({
   session,
+  rooms,
   zone,
   trainerName,
   me,
   onClose,
 }: {
   session: CalendarSession;
+  rooms: RoomOption[];
   zone: string;
   trainerName: string;
   me: Me;
@@ -586,13 +619,26 @@ function SessionDialog({
               <span className="text-muted-foreground"> · no pack on file</span>
             )}
           </p>
+          {session.noBalance || session.roomId ? (
+            <p className="flex flex-wrap items-center gap-2">
+              {session.noBalance ? (
+                <Badge variant="outline" className="border-amber-400 text-amber-800 dark:text-amber-300">
+                  No balance
+                </Badge>
+              ) : null}
+              {session.roomId ? (
+                <span className="text-muted-foreground">Room: {rooms.find((room) => room.id === session.roomId)?.name ?? "Room"}</span>
+              ) : null}
+            </p>
+          ) : null}
           {session.note ? <p className="text-muted-foreground">Note: {session.note}</p> : null}
           {session.cancelReason ? <p className="text-muted-foreground">Reason: {session.cancelReason}</p> : null}
-          {session.pay && !session.pay.voided ? (
+          {session.pay ? (
             <p className="rounded-md bg-muted px-3 py-2">
-              Trainer pay recorded for {start.toFormat("LLL d")}: <span className="font-medium">{money(session.pay.amountCents)}</span>
+              Trainer pay for {start.toFormat("LLL d")}: <span className="font-medium">{money(session.pay.amountCents)}</span>
               {session.pay.valueCents != null ? ` (session value ${money(session.pay.valueCents)}` : " (session value unknown"}
-              {session.pay.rateName ? `, ${session.pay.rateName})` : ", no session rate set)"}. Practice until payroll moves off Mindbody.
+              {session.pay.rateName ? `, ${session.pay.rateName})` : ", no session rate set)"}
+              {session.pay.reversed ? ". Includes a correction." : "."} Pilot: practice pay, not in the payroll export.
             </p>
           ) : null}
           {session.status === "booked" && mayClose ? (
@@ -620,9 +666,13 @@ function SessionDialog({
           ) : null}
           {session.status !== "booked" && canReopenSession(me) ? (
             <div className="space-y-2 border-t pt-3">
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why reopen it?" />
+              <p className="text-xs text-muted-foreground">
+                Correcting adds reversal lines for the pay and the session used (nothing is deleted), records your name and reason, and puts
+                the session back to Booked so it can be closed out again.
+              </p>
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why correct it? (required)" />
               <Button variant="outline" disabled={busy || !reason.trim()} onClick={() => act({ action: "reopen" })}>
-                Reopen (removes its pay)
+                Correct this session
               </Button>
             </div>
           ) : null}

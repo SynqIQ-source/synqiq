@@ -8,6 +8,7 @@ import {
   type PackForBooking,
   type PackKind,
 } from "@/lib/sessions/packs-rules";
+import { sessionValueCents } from "@/lib/trainer/pilot-rules";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
 
@@ -69,14 +70,20 @@ export async function importMindbodyPacks(organizationId: string, now = new Date
 }
 
 // A member's packs with what's left and what's already booked against them.
+//
+// sinceSync (the trainer sessions pilot, while Mindbody is still the record
+// and trainers log sessions there too): a Mindbody pack's balance is its last
+// synced Mindbody balance plus SynqIQ entries made after that sync, so a
+// session logged in both systems isn't taken twice.
 export async function memberPacks(
   admin: Admin,
   organizationId: string,
   clientId: string,
+  options: { sinceSync?: boolean } = {},
 ): Promise<(PackForBooking & { total: number; source: string })[]> {
   const { data: packs } = await admin
     .from("session_pack_balances")
-    .select("id, name, kind, remaining, total_sessions, expires_on, source")
+    .select("id, name, kind, remaining, remaining_since_sync, total_sessions, expires_on, source")
     .eq("organization_id", organizationId)
     .eq("mindbody_client_id", clientId)
     .order("expires_on", { ascending: true, nullsFirst: false });
@@ -96,7 +103,7 @@ export async function memberPacks(
     id: pack.id as string,
     name: pack.name as string,
     kind: pack.kind as PackKind,
-    remaining: Number(pack.remaining),
+    remaining: Number(options.sinceSync && pack.source === "mindbody" ? pack.remaining_since_sync : pack.remaining),
     reserved: reserved.get(pack.id as string) ?? 0,
     expiresOn: (pack.expires_on as string | null)?.slice(0, 10) ?? null,
     total: Number(pack.total_sessions),
@@ -105,7 +112,9 @@ export async function memberPacks(
 }
 
 // A closed session takes its session from the pack (completed, no-show, late
-// cancel); an on-time cancel takes none. One live use per session.
+// cancel); an on-time cancel takes none. One charge per close-out (close_no):
+// a retry hits the unique index and is ignored. Corrections add a reversal
+// (lib/trainer/pilot.ts reverseCloseOut); nothing is voided or deleted.
 export async function recordSessionUse(
   admin: Admin,
   organizationId: string,
@@ -113,6 +122,7 @@ export async function recordSessionUse(
   packId: string | null,
   status: string,
   staffId: string,
+  closeNo: number,
 ) {
   const kind = packUseKind(status);
   if (!packId || !kind) return;
@@ -129,6 +139,7 @@ export async function recordSessionUse(
     organization_id: organizationId,
     session_pack_id: packId,
     trainer_session_id: sessionId,
+    close_no: closeNo,
     kind,
     sessions: -1,
     staff_id: staffId,
@@ -137,14 +148,6 @@ export async function recordSessionUse(
 }
 
 // Reopening a session gives its session back.
-export async function voidSessionUse(admin: Admin, sessionId: string, staffId: string) {
-  await admin
-    .from("session_pack_uses")
-    .update({ voided_at: new Date().toISOString(), voided_by_staff_id: staffId })
-    .eq("trainer_session_id", sessionId)
-    .is("voided_at", null);
-}
-
 // A session pack sold at SynqIQ's POS (an item with a session count) becomes
 // a pack for the buyer.
 export async function createSoldPacks(
@@ -173,7 +176,26 @@ export async function createSoldPacks(
       pos_item_id: line.itemId,
     }));
   if (!rows.length || (!input.mindbodyClientId && !input.crmContactId)) return 0;
-  const { error } = await admin.from("session_packs").insert(rows);
+  // What one session is worth (pre-tax paid / sessions): the base for
+  // trainers paid a percent of the session's value.
+  const { data: saleLines } = await admin
+    .from("pos_sale_lines")
+    .select("pos_item_id, total_cents, tax_cents")
+    .eq("sale_id", input.saleId)
+    .in(
+      "pos_item_id",
+      rows.map((row) => row.pos_item_id),
+    );
+  const valued = rows.map((row) => ({
+    ...row,
+    session_value_cents: sessionValueCents(
+      (saleLines ?? [])
+        .filter((line) => line.pos_item_id === row.pos_item_id)
+        .map((line) => ({ totalCents: Number(line.total_cents), taxCents: Number(line.tax_cents) })),
+      row.total_sessions,
+    ),
+  }));
+  const { error } = await admin.from("session_packs").insert(valued);
   if (error) throw new Error(error.message);
   return rows.length;
 }

@@ -40,7 +40,7 @@ export default async function SettingsPage() {
     admin
       .from("organizations")
       .select(
-        "mindbody_booking_writeback, mindbody_writeback_until, timezone, pt_no_show_uses_session, pt_late_cancel_uses_session, session_balances_from, mindbody_disconnected_at",
+        "mindbody_booking_writeback, mindbody_writeback_until, timezone, pt_no_show_uses_session, pt_late_cancel_uses_session, pt_no_show_pay_percent, pt_late_cancel_pay_percent, trainer_sessions_pilot, session_balances_from, mindbody_disconnected_at",
       )
       .eq("id", currentStaff.organizationId)
       .maybeSingle(),
@@ -69,6 +69,9 @@ export default async function SettingsPage() {
       <PtRulesForm
         noShow={writeback?.pt_no_show_uses_session !== false}
         lateCancel={writeback?.pt_late_cancel_uses_session !== false}
+        pilot={writeback?.trainer_sessions_pilot === true}
+        noShowPayPercent={Number(writeback?.pt_no_show_pay_percent ?? 100)}
+        lateCancelPayPercent={Number(writeback?.pt_late_cancel_pay_percent ?? 100)}
         balancesFrom={((writeback?.session_balances_from as string | null) ?? "2026-12-18").slice(0, 10)}
       />
       <MindbodyConnectionForm

@@ -25,6 +25,7 @@ import { unreadGuestMessageCount } from "@/lib/crm/unread";
 import { TimeClockButton } from "@/components/time-clock-button";
 import { signsOutOnClockOut } from "@/lib/time-clock/hours";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getTrainerPilot } from "@/lib/trainer/pilot";
 
 // who: which staff see the link (lib/permissions.ts); omitted = everyone.
 // The pages enforce the same rule themselves -- hiding a link is not the
@@ -32,6 +33,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 // crm: shown only when the org has the CRM module.
 // platform: shown only to SynqIQ platform admins (lib/platform/admin.ts).
 // modules: shown only when the studio has at least one of these modules on.
+// pilot: shown only when the studio has the trainer sessions pilot on.
 // children: nested under the item in the sidebar (expandable), each
 // filtered by its own rules; hiding the parent hides them too.
 type NavEntry = Omit<NavItem, "children"> & {
@@ -39,6 +41,7 @@ type NavEntry = Omit<NavItem, "children"> & {
   crm?: boolean;
   platform?: boolean;
   modules?: ModuleKey[];
+  pilot?: boolean;
   children?: NavEntry[];
 };
 
@@ -88,7 +91,9 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
       { href: "/dashboard/fitness", label: "Fitness Dashboard", who: isTrainerAccess, modules: ["trainer"] },
       { href: "/dashboard/sales/new-members", label: "New Members", who: isTrainerAccess, modules: ["trainer"] },
       { href: "/dashboard/trainer-health", label: "Trainer Health", who: isTrainerAccess, modules: ["trainer"] },
-      { href: "/dashboard/trainer-calendar", label: "Trainer Calendar", who: canCheckIn, modules: ["trainer"] },
+      { href: "/dashboard/trainer-calendar", label: "Trainer Calendar", who: canCheckIn, modules: ["trainer"], pilot: true },
+      { href: "/dashboard/trainer-pay", label: "Trainer Session Pay", who: isTrainerAccess, modules: ["trainer"], pilot: true },
+      { href: "/dashboard/trainer-reconciliation", label: "Session Reconciliation", who: isClubAdmin, modules: ["trainer"], pilot: true },
       { href: "/dashboard/messages?team=trainers", label: "Trainer Board", who: isTrainerAccess, modules: ["trainer"] },
     ],
   },
@@ -138,6 +143,7 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
         who: isClubAdmin,
         children: [
           { href: "/dashboard/pay-rates", label: "Pay Rates", who: isClubAdmin },
+          { href: "/dashboard/trainer-rates", label: "Trainer Session Rates", who: isClubAdmin, modules: ["trainer"], pilot: true },
           { href: "/dashboard/commissions", label: "Commissions", who: isClubAdmin },
           { href: "/dashboard/payroll", label: "Payroll", who: isClubAdmin },
           { href: "/dashboard/timesheets", label: "Timesheets", who: isClubAdmin },
@@ -237,6 +243,8 @@ export async function DashboardShell({ children, title, description, actions, fu
         .is("deleted_at", null)
         .maybeSingle()
     : { data: null };
+  // No session (dropdown mode): pilot pages stay hidden.
+  const pilotOn = currentStaff ? (await getTrainerPilot(currentStaff.organizationId)).on : false;
   const allowed = (entry: NavEntry) => !entry.who || (currentStaff !== null && entry.who(currentStaff));
 
   const visible = (entries: NavEntry[]): NavItem[] =>
@@ -246,6 +254,7 @@ export async function DashboardShell({ children, title, description, actions, fu
           allowed(item) &&
           (!item.crm || crmEnabled) &&
           (!item.platform || isPlatformAdmin) &&
+          (!item.pilot || pilotOn) &&
           (!item.modules || !enabledModules || item.modules.some((module) => enabledModules.has(module))),
       )
       .map(({ href, label, children }) => {
