@@ -56,7 +56,7 @@ export function PtRulesForm(initial: PtRules) {
               Trainer sessions pilot <Badge variant="outline">Pilot</Badge>
             </span>
             <span className="block text-muted-foreground">
-              Turns on the Trainer Calendar, Trainer Session Pay, Trainer Session Rates and Session Reconciliation. Nothing is written to
+              Turns on the Trainer Calendar, Trainer Session Pay and Session Reconciliation. Nothing is written to
               Mindbody; trainer pay stays practice (not in the payroll export).
             </span>
           </span>

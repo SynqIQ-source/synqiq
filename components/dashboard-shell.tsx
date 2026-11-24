@@ -150,19 +150,17 @@ const navigation: { label: string | null; items: NavEntry[] }[] = [
         children: [{ href: "/dashboard/settings/eligibility", label: "Class Eligibility", who: isClubAdmin, modules: ["group_fitness"] }],
       },
       {
-        // Payroll and every report behind it, then the rates and plans it uses.
+        // Payroll; its reports (Sessions Serviced, Class Pay, Timesheets,
+        // Commission Report) are tabs on the Payroll page, all under
+        // /dashboard/payroll so Payroll stays highlighted. Below it: the pilot
+        // tools, then the rates and plans payroll uses.
         href: "/dashboard/payroll",
         label: "Payroll",
         who: isClubAdmin,
         children: [
-          { href: "/dashboard/payroll/sessions", label: "Sessions Serviced", who: isClubAdmin, modules: ["trainer"] },
-          { href: "/dashboard/payroll/classes", label: "Class Pay", who: isClubAdmin, modules: ["group_fitness"] },
-          { href: "/dashboard/timesheets", label: "Timesheets", who: isClubAdmin },
-          { href: "/dashboard/payroll/commissions", label: "Commission Report", who: isClubAdmin },
           { href: "/dashboard/trainer-pay", label: "Trainer Session Pay", who: isClubAdmin, modules: ["trainer"], pilot: true },
           { href: "/dashboard/trainer-reconciliation", label: "Session Reconciliation", who: isClubAdmin, modules: ["trainer"], pilot: true },
           { href: "/dashboard/pay-rates", label: "Pay Rates", who: isClubAdmin },
-          { href: "/dashboard/trainer-rates", label: "Trainer Session Rates", who: isClubAdmin, modules: ["trainer"], pilot: true },
           { href: "/dashboard/commissions", label: "Commission Setup", who: isClubAdmin },
         ],
       },

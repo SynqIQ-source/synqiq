@@ -11,7 +11,7 @@ export const PAYROLL_REPORTS = [
   { href: "/dashboard/payroll", label: "Payroll" },
   { href: "/dashboard/payroll/sessions", label: "Sessions Serviced" },
   { href: "/dashboard/payroll/classes", label: "Class Pay" },
-  { href: "/dashboard/timesheets", label: "Timesheets" },
+  { href: "/dashboard/payroll/timesheets", label: "Timesheets" },
   { href: "/dashboard/payroll/commissions", label: "Commission Report" },
 ] as const;
 
