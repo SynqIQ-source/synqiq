@@ -1,7 +1,7 @@
 import { DateTime } from "luxon";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendEmailToRecipients } from "@/lib/email/send";
-import { createCardLink } from "@/lib/billing/card-links";
+import { createCardLink, createConfirmLink, needsApproval } from "@/lib/billing/card-links";
 import { cardExpiry, cardNoticeDue } from "@/lib/billing/renewals";
 import { defaultKit, emailButton, renderStudioEmail, type EmailKit } from "@/lib/email/studio-templates";
 import { loadEmailKit, studioFrom } from "@/lib/email/studio-kit";
@@ -23,14 +23,31 @@ export type DeclineEmailInput = {
   card: string | null; // "Visa ending 4242"
   retryOn: string | null; // null = no more retries
   updateUrl?: string | null; // one-time "update your card" link
+  approveUrl?: string | null; // one-time "approve this payment" link (3D Secure)
 };
 
 const LINK_NOTE = "This secure link works for 7 days. Your card goes straight to our payment processor, Stripe.";
+const APPROVE_NOTE = "This secure link works for 7 days. Your bank's check runs through our payment processor, Stripe.";
 
 // The studio's wording and header/footer (Admin > Email > Templates); the
 // defaults when no kit is passed.
 export function declinedPaymentEmail(input: DeclineEmailInput, kit: EmailKit = defaultKit(input.studioName)) {
   const final = input.retryOn === null;
+  // The bank wants the member to approve it (3D Secure): the card is fine,
+  // so the button approves the payment instead of replacing the card.
+  if (input.approveUrl)
+    return renderStudioEmail(
+      final ? "payment_on_hold" : "payment_needs_approval",
+      {
+        studio: input.studioName,
+        first_name: input.firstName,
+        membership: input.membership,
+        amount: money(input.amountCents),
+        card_note: input.card ? ` (${input.card})` : "",
+      },
+      kit,
+      { action: emailButton(input.approveUrl, "Approve my payment", kit.branding.color, APPROVE_NOTE) },
+    );
   return renderStudioEmail(
     final ? "payment_on_hold" : "payment_declined",
     {
@@ -102,7 +119,7 @@ export async function memberEmail(admin: Admin, organizationId: string, clientId
 export async function emailDecline(admin: Admin, chargeId: string, retryOn: string | null): Promise<boolean> {
   const { data: charge } = await admin
     .from("membership_charges")
-    .select("id, organization_id, schedule_id, mindbody_client_id, total_cents, livemode, decline_emailed_at, frozen_emailed_at")
+    .select("id, organization_id, schedule_id, mindbody_client_id, total_cents, livemode, decline_emailed_at, frozen_emailed_at, last_decline")
     .eq("id", chargeId)
     .maybeSingle();
   if (!charge?.livemode || !charge.mindbody_client_id) return false;
@@ -115,7 +132,18 @@ export async function emailDecline(admin: Admin, chargeId: string, retryOn: stri
   ]);
   if (!contact.email) return false;
   const studioName = kit.branding.studioName;
-  const updateUrl = await createCardLink(admin, charge.organization_id as string, charge.mindbody_client_id as string, "declined", null);
+  const approve = needsApproval(charge.last_decline);
+  const approveUrl = approve
+    ? await createConfirmLink(admin, {
+        organizationId: charge.organization_id as string,
+        clientId: charge.mindbody_client_id as string,
+        chargeId: charge.id as string,
+        staffId: null,
+      })
+    : null;
+  const updateUrl = approve
+    ? null
+    : await createCardLink(admin, charge.organization_id as string, charge.mindbody_client_id as string, "declined", null);
   await sendEmailToRecipients([{ email: contact.email }], {
     from: studioFrom(studioName, kit.fromDomain),
     ...declinedPaymentEmail(
@@ -127,6 +155,7 @@ export async function emailDecline(admin: Admin, chargeId: string, retryOn: stri
         card: cardLabel(schedule?.card_brand as string | null, schedule?.card_last4 as string | null),
         retryOn,
         updateUrl,
+        approveUrl,
       },
       kit,
     ),
