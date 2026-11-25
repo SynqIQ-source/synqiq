@@ -339,6 +339,14 @@ export async function savePracticeSale(
     .select("id, sale_number")
     .single();
   if (error || !sale) return { error: "Couldn't save the sale. Try again." };
+  // A dispute Stripe opened before this sale was saved: link it now.
+  if (payment?.paymentIntentId)
+    await admin
+      .from("payment_disputes")
+      .update({ sale_id: sale.id, mindbody_client_id: mindbodyClientId })
+      .eq("organization_id", org)
+      .eq("payment_intent_id", payment.paymentIntentId)
+      .is("sale_id", null);
 
   const { error: lineError } = await admin.from("pos_sale_lines").insert(
     cart.lines.map((line, index) => {

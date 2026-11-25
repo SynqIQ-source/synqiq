@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
     } else if (event.type === "charge.refunded") {
       await applyStripeRefund(event.data.object as Stripe.Charge, event.account);
     } else if (event.type.startsWith("charge.dispute.")) {
-      await recordDispute(event.data.object as Stripe.Dispute, event.account, event.livemode);
+      await recordDispute(event.data.object as Stripe.Dispute, event.account, event.livemode, event.type === "charge.dispute.created");
     } else if (event.type === "refund.failed") {
-      await noteFailedRefund(event.data.object as Stripe.Refund, event.account);
+      await noteFailedRefund(event.data.object as Stripe.Refund, event.account, event.livemode);
     }
     // payout.failed is only recorded (stripe_connect_events): with the full
     // Stripe Dashboard, Stripe emails the studio about its own payouts.
