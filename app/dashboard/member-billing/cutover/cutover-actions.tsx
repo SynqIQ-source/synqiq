@@ -133,6 +133,8 @@ export function RowToggle({ id, included }: { id: string; included: boolean }) {
 // "add your card" links to payers who still need one (confirm the count first).
 export function CardTools() {
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
+  const [importCsv, setImportCsv] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Record<string, unknown> | null>(null);
   const [links, setLinks] = useState<{ due: number; recentlySent: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -156,7 +158,8 @@ export function CardTools() {
         <h3 className="font-semibold">Cards from Mindbody</h3>
         <p className="text-sm text-muted-foreground">
           When Stripe finishes loading Mindbody&apos;s card export, it sends a file linking each member to their new Stripe card. Choose it
-          here to see who it covers. This only previews; nothing is saved yet.
+          here to see who it covers, check every card with Stripe, then save them as members&apos; dues cards. A card a member already
+          added in SynqIQ is kept.
         </p>
         <input
           type="file"
@@ -168,6 +171,8 @@ export function CardTools() {
             if (!file) return;
             run(async () => {
               const csv = await file.text();
+              setImportCsv(csv);
+              setChecked(null);
               setPreview(await post({ action: "import_preview", csv }));
             });
           }}
@@ -191,6 +196,52 @@ export function CardTools() {
                   ))}
                 </ul>
               ) : null}
+              <div className="mt-3 space-y-2">
+                {!checked ? (
+                  <Button
+                    variant="outline"
+                    disabled={busy || !importCsv}
+                    onClick={() =>
+                      run(async () => {
+                        setChecked(await post({ action: "import_check", csv: importCsv }));
+                      })
+                    }
+                  >
+                    {busy ? "Checking with Stripe…" : "Check every card with Stripe"}
+                  </Button>
+                ) : (
+                  <>
+                    <p>
+                      Stripe check: <strong>{String(checked.saved)}</strong> ready to save
+                      {Number(checked.unchanged) ? `, ${checked.unchanged} already saved` : ""}
+                      {Number(checked.keptMemberCard) ? `, ${checked.keptMemberCard} kept (member added their own card)` : ""}
+                      {Number(checked.notMembers) ? `, ${checked.notMembers} not members here` : ""}
+                      {Number(checked.failed) ? `, ${checked.failed} failed` : ""}.
+                    </p>
+                    {((checked.problems as string[] | undefined) ?? []).length ? (
+                      <ul className="list-disc pl-5 text-amber-800">
+                        {(checked.problems as string[]).map((problem) => (
+                          <li key={problem}>{problem}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {checked.dryRun && Number(checked.saved) ? (
+                      <Button
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            const result = await post({ action: "import_save", csv: importCsv });
+                            setChecked(result);
+                            return `Saved ${result.saved} cards. Next: create schedules for payers with cards.`;
+                          })
+                        }
+                      >
+                        {busy ? "Saving…" : `Save ${String(checked.saved)} cards`}
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
           )
         ) : null}

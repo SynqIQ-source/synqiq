@@ -12,6 +12,9 @@ import {
   takeCutoverSnapshot,
 } from "@/lib/billing/cutover-job";
 import { readCardImport } from "@/lib/billing/card-import";
+import { saveImportedCards } from "@/lib/billing/card-import-save";
+
+export const maxDuration = 300;
 
 // Club Admins: the Jan 1 cutover snapshot (take/refresh, lock, include or
 // leave out a contract, create schedules for payers with cards) and a CSV of it.
@@ -73,6 +76,15 @@ export async function POST(request: NextRequest) {
         payersWithoutCard: [...payers].filter((payer) => !matched.has(payer)).length,
         problems: result.problems.slice(0, 20),
       });
+    }
+    case "import_check":
+    case "import_save": {
+      // Every card is checked with Stripe; "check" saves nothing.
+      const csv = typeof body.csv === "string" ? body.csv.slice(0, 5_000_000) : "";
+      const result = readCardImport(csv);
+      if (result.missingColumns.length) return fail(`The file is missing columns: ${result.missingColumns.join(", ")}.`);
+      if (!result.rows.length) return fail("No cards in the file.");
+      return respond(await saveImportedCards(org, staff.id, result.rows, { dryRun: body.action === "import_check" }));
     }
     default:
       return fail("Unknown action.");

@@ -3,8 +3,9 @@
 // Stripe's key); Stripe loads them into the studio's account and returns a
 // file linking each old record to a new Stripe customer and card. That
 // file's exact columns aren't known yet, so this reads any CSV whose headers
-// match the names below and PREVIEWS it (who it would give a card to). Saving
-// comes once the real file is in hand. Pure.
+// match the names below and previews it (who it would give a card to);
+// lib/billing/card-import-save.ts checks each card with Stripe and saves it.
+// Pure.
 
 export const IMPORT_COLUMNS = {
   clientId: ["mindbody_client_id", "client_id", "clientid", "client id", "member id", "member_id", "id"],

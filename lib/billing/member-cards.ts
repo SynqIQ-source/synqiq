@@ -1,7 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 type Admin = ReturnType<typeof createSupabaseAdminClient>;
-export type CardVia = "desk" | "link" | "app" | "pos";
+export type CardVia = "desk" | "link" | "app" | "pos" | "import";
 // dues: monthly membership payments; retail: POS purchases (drinks, retail).
 export type CardPurpose = "dues" | "retail";
 export const CARD_PURPOSES: CardPurpose[] = ["dues", "retail"];
