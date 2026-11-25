@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cardLabel, cardLinkEmail, declinedPaymentEmail } from "@/lib/billing/notify";
-import { hashToken } from "@/lib/billing/card-links";
+import { hashToken, needsApproval } from "@/lib/billing/card-links";
 
 describe("card update emails", () => {
   it("links the member to a secure card form when a payment is declined", () => {
@@ -15,6 +15,25 @@ describe("card update emails", () => {
     });
     expect(email.html).toContain('href="https://synqiq.co/card/abc123"');
     expect(email.html).toContain("Update your card");
+  });
+
+  it("asks the member to approve (not replace the card) when the bank wants 3D Secure", () => {
+    const email = declinedPaymentEmail({
+      studioName: "The Preserve",
+      firstName: "Sam",
+      membership: "Gold",
+      amountCents: 21900,
+      card: "Visa ending 3184",
+      retryOn: "2026-12-04",
+      approveUrl: "https://synqiq.co/pay/abc123",
+    });
+    expect(email.subject).toContain("approve");
+    expect(email.html).toContain('href="https://synqiq.co/pay/abc123"');
+    expect(email.html).toContain("Approve my payment");
+    expect(email.html).not.toContain("Update your card");
+    expect(needsApproval("authentication_required")).toBe(true);
+    expect(needsApproval("insufficient_funds")).toBe(false);
+    expect(needsApproval(null)).toBe(false);
   });
 
   it("warns about an expiring card, then reminds", () => {

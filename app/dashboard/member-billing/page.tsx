@@ -11,6 +11,8 @@ import { upcomingPaymentDates } from "@/lib/pos/packages";
 import { cardExpiry, RETRY_DAYS } from "@/lib/billing/renewals";
 import { RunRenewals } from "./run-renewals";
 import { ChargeControls } from "./charge-controls";
+import { ApprovalLink } from "./approval-link";
+import { needsApproval } from "@/lib/billing/card-links";
 import { getStudioStripeAccount, stripeLivemode } from "@/lib/payments/connect";
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -269,10 +271,16 @@ export default async function MemberBillingPage() {
                         <TableCell>
                           {charge.status === "failed" ? (
                             <Badge className="bg-red-600 text-white hover:bg-red-600">On hold</Badge>
+                          ) : needsApproval(charge.last_decline) ? (
+                            <Badge className="bg-amber-500 text-white hover:bg-amber-500">Needs member&apos;s approval</Badge>
                           ) : (
                             <Badge variant="destructive">Declined ×{Number(charge.attempts)}</Badge>
                           )}
-                          {charge.last_decline ? (
+                          {needsApproval(charge.last_decline) ? (
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              Their bank wants them to approve it; the card is fine. They were emailed a link.
+                            </span>
+                          ) : charge.last_decline ? (
                             <span className="ml-2 text-xs text-muted-foreground">{charge.last_decline as string}</span>
                           ) : null}
                         </TableCell>
@@ -285,6 +293,7 @@ export default async function MemberBillingPage() {
                             canRetry
                           />
                           {charge.moved_at ? <span className="text-xs text-muted-foreground">Date moved by a Club Admin</span> : null}
+                          {needsApproval(charge.last_decline) ? <ApprovalLink chargeId={charge.id as string} /> : null}
                         </TableCell>
                       </TableRow>
                     );

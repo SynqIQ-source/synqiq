@@ -7,6 +7,7 @@
 export type TemplateKey =
   | "payment_declined"
   | "payment_on_hold"
+  | "payment_needs_approval"
   | "card_expiring"
   | "card_expiring_reminder"
   | "card_link"
@@ -73,6 +74,22 @@ While it's on hold, class and lane booking stays paused and we won't charge your
 
 ${DECLINE_TAIL}`,
     fields: { studio: STUDIO, first_name: FIRST, membership: MEMBERSHIP, amount: AMOUNT },
+  },
+  payment_needs_approval: {
+    label: "Payment needs approval",
+    audience: "Members",
+    when: "The member's bank asked them to approve a monthly payment (3D Secure) before it goes through.",
+    subject: "Please approve your {{studio}} membership payment",
+    body: `Hi {{first_name}},
+
+Your bank asked you to approve your **{{membership}}** payment of {{amount}}{{card_note}} before it goes through. Your card is fine and nothing needs to change.
+
+Class and lane booking is paused until it's approved. It only takes a moment:
+
+[button]
+
+If you have any questions, stop by or call the front desk.`,
+    fields: { studio: STUDIO, first_name: FIRST, membership: MEMBERSHIP, amount: AMOUNT, card_note: CARD_NOTE },
   },
   card_expiring: {
     label: "Card expiring",
