@@ -126,7 +126,11 @@ export async function finishPaymentConfirm(link: ConfirmLink, paymentIntentId: s
   const admin = createSupabaseAdminClient();
   const charge = await loadCharge(admin, link);
   if (!charge || !charge.stripe_account_id) return { error: "This payment wasn't found." };
-  if (charge.status === "paid") return { paid: true };
+  // Stripe's webhook can record the payment first: still close the link.
+  if (charge.status === "paid") {
+    await admin.from("card_update_links").update({ used_at: new Date().toISOString() }).eq("id", link.id);
+    return { paid: true };
+  }
   if (!/^pi_[A-Za-z0-9]+$/.test(paymentIntentId)) return { error: "This payment wasn't found." };
   const intent = await getStripe().paymentIntents.retrieve(paymentIntentId, {}, { stripeAccount: charge.stripe_account_id });
   if (intent.metadata?.synqiq_membership_charge_id !== charge.id) return { error: "This payment wasn't found." };
