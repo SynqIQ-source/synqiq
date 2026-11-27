@@ -21,6 +21,7 @@ import { loadSessionContext, type BookingRow } from "@/lib/booking/context";
 import { BOOKING_LABELS, bookingWindow, cancellationFor, placeFor } from "@/lib/booking/rules";
 import { BookSomeone, BookingRowActions } from "./booking-actions";
 import { SpotBoard } from "./spot-board";
+import { ordinal } from "@/lib/email/milestone-content";
 
 type Params = Promise<{ occurrenceId: string }>;
 
@@ -245,6 +246,23 @@ export default async function ClassPage({ params }: { params: Params }) {
   }
   const photo = (mindbodyClientId: string | null | undefined) => (mindbodyClientId ? photoOf.get(mindbodyClientId) : undefined);
 
+  // Which class this is for each person ("12th class"): classes they were
+  // checked into before this one, plus this one. Pool lanes count pool lanes.
+  const classesBefore = new Map<string, number>();
+  if (photoClientIds.length && startIso) {
+    const { data: counts, error: countError } = await admin.rpc("class_counts_before", {
+      p_org: orgId,
+      p_clients: photoClientIds,
+      p_before: startIso,
+      p_pool: /pool lane/i.test(title),
+    });
+    if (countError) console.error("[class-roster] class counts failed:", countError.message);
+    for (const row of (counts ?? []) as { mindbody_client_id: string; classes: number }[])
+      classesBefore.set(row.mindbody_client_id, Number(row.classes));
+  }
+  const classNumber = (mindbodyClientId: string | null | undefined) =>
+    mindbodyClientId ? (classesBefore.get(mindbodyClientId) ?? 0) + 1 : null;
+
   return (
     <DashboardShell
       title={title}
@@ -368,6 +386,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                         <TableCell>
                           <PersonName name={booking.client_name} href={link} />
                           <RosterPhotoButton url={photo(booking.mindbody_client_id)} name={booking.client_name} />
+                          <ClassNumber n={classNumber(booking.mindbody_client_id)} />
                           <span className="block text-xs text-muted-foreground">
                             Booked {DateTime.fromISO(booking.booked_at).setZone(timezone).toFormat("LLL d, h:mm a")}
                             {booking.cancel_reason ? ` · ${booking.cancel_reason}` : booking.note ? ` · ${booking.note}` : ""}
@@ -425,6 +444,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                         <TableCell>
                           <PersonName name={entry.name} href={memberLink(client?.mindbody_client_id as string | undefined)} />
                           <RosterPhotoButton url={photo(client?.mindbody_client_id as string | undefined)} name={entry.name} />
+                          <ClassNumber n={classNumber(client?.mindbody_client_id as string | undefined)} />
                           {client?.status && client.status !== "Active" ? (
                             <span className="block text-xs text-muted-foreground">{client.status}</span>
                           ) : null}
@@ -503,6 +523,14 @@ export default async function ClassPage({ params }: { params: Params }) {
       </div>
     </DashboardShell>
   );
+}
+
+// "12th class" beside a name; a first class stands out so staff can welcome them.
+function ClassNumber({ n }: { n: number | null }) {
+  if (!n) return null;
+  if (n === 1)
+    return <Badge className="ml-2 bg-emerald-600 align-middle text-white hover:bg-emerald-600">First class</Badge>;
+  return <span className="ml-2 align-middle text-xs text-muted-foreground">{ordinal(n)} class</span>;
 }
 
 function PersonName({ name, href }: { name: string; href: string | null }) {
