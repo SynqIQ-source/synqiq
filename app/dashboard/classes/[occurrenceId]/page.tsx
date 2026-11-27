@@ -246,9 +246,11 @@ export default async function ClassPage({ params }: { params: Params }) {
   }
   const photo = (mindbodyClientId: string | null | undefined) => (mindbodyClientId ? photoOf.get(mindbodyClientId) : undefined);
 
-  // Which class this is for each person ("12th class"): classes they were
-  // checked into before this one, plus this one. Pool lanes count pool lanes.
-  const classesBefore = new Map<string, number>();
+  // For each person: which class this is ("12th class": group classes they
+  // were checked into before, plus this one; pool lanes count pool lanes) and
+  // their visits of any kind including this one, like Mindbody's "Visits"
+  // (front-desk check-ins, classes and appointments, each counted).
+  const countsBefore = new Map<string, { classes: number; visits: number }>();
   if (photoClientIds.length && startIso) {
     const { data: counts, error: countError } = await admin.rpc("class_counts_before", {
       p_org: orgId,
@@ -257,11 +259,14 @@ export default async function ClassPage({ params }: { params: Params }) {
       p_pool: /pool lane/i.test(title),
     });
     if (countError) console.error("[class-roster] class counts failed:", countError.message);
-    for (const row of (counts ?? []) as { mindbody_client_id: string; classes: number }[])
-      classesBefore.set(row.mindbody_client_id, Number(row.classes));
+    for (const row of (counts ?? []) as { mindbody_client_id: string; classes: number; visits: number }[])
+      countsBefore.set(row.mindbody_client_id, { classes: Number(row.classes), visits: Number(row.visits) });
   }
-  const classNumber = (mindbodyClientId: string | null | undefined) =>
-    mindbodyClientId ? (classesBefore.get(mindbodyClientId) ?? 0) + 1 : null;
+  const classNumber = (mindbodyClientId: string | null | undefined) => {
+    if (!mindbodyClientId) return null;
+    const before = countsBefore.get(mindbodyClientId) ?? { classes: 0, visits: 0 };
+    return { n: before.classes + 1, visits: before.visits + 1 };
+  };
 
   return (
     <DashboardShell
@@ -386,7 +391,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                         <TableCell>
                           <PersonName name={booking.client_name} href={link} />
                           <RosterPhotoButton url={photo(booking.mindbody_client_id)} name={booking.client_name} />
-                          <ClassNumber n={classNumber(booking.mindbody_client_id)} />
+                          <ClassNumber count={classNumber(booking.mindbody_client_id)} />
                           <span className="block text-xs text-muted-foreground">
                             Booked {DateTime.fromISO(booking.booked_at).setZone(timezone).toFormat("LLL d, h:mm a")}
                             {booking.cancel_reason ? ` · ${booking.cancel_reason}` : booking.note ? ` · ${booking.note}` : ""}
@@ -444,7 +449,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                         <TableCell>
                           <PersonName name={entry.name} href={memberLink(client?.mindbody_client_id as string | undefined)} />
                           <RosterPhotoButton url={photo(client?.mindbody_client_id as string | undefined)} name={entry.name} />
-                          <ClassNumber n={classNumber(client?.mindbody_client_id as string | undefined)} />
+                          <ClassNumber count={classNumber(client?.mindbody_client_id as string | undefined)} />
                           {client?.status && client.status !== "Active" ? (
                             <span className="block text-xs text-muted-foreground">{client.status}</span>
                           ) : null}
@@ -525,12 +530,23 @@ export default async function ClassPage({ params }: { params: Params }) {
   );
 }
 
-// "12th class" beside a name; a first class stands out so staff can welcome them.
-function ClassNumber({ n }: { n: number | null }) {
-  if (!n) return null;
-  if (n === 1)
-    return <Badge className="ml-2 bg-emerald-600 align-middle text-white hover:bg-emerald-600">First class</Badge>;
-  return <span className="ml-2 align-middle text-xs text-muted-foreground">{ordinal(n)} class</span>;
+// "12th class · 240 visits" beside a name; a first class stands out so staff
+// can welcome them.
+function ClassNumber({ count }: { count: { n: number; visits: number } | null }) {
+  if (!count) return null;
+  const visits = `${count.visits.toLocaleString("en-US")} ${count.visits === 1 ? "visit" : "visits"}`;
+  if (count.n === 1)
+    return (
+      <span className="ml-2 align-middle text-xs text-muted-foreground">
+        <Badge className="mr-1 bg-emerald-600 text-white hover:bg-emerald-600">First class</Badge>
+        {visits}
+      </span>
+    );
+  return (
+    <span className="ml-2 align-middle text-xs text-muted-foreground">
+      {ordinal(count.n)} class · {visits}
+    </span>
+  );
 }
 
 function PersonName({ name, href }: { name: string; href: string | null }) {

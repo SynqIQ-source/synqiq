@@ -27,7 +27,7 @@ const MAX_PAGES = 50; // 10,000 rows per kind per member
 
 type MindbodyClient = ReturnType<typeof createMindbodyClient>;
 
-async function allPages<T>(fetchPage: (offset: number) => Promise<Record<string, unknown>>, key: string): Promise<T[]> {
+export async function allPages<T>(fetchPage: (offset: number) => Promise<Record<string, unknown>>, key: string): Promise<T[]> {
   const rows: T[] = [];
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const response = await withRetry(() => fetchPage(page * 200));
@@ -40,7 +40,7 @@ async function allPages<T>(fetchPage: (offset: number) => Promise<Record<string,
 }
 
 // Mindbody's purchases call covers at most a year per request.
-function yearWindows(from: string, to: string): [string, string][] {
+export function yearWindows(from: string, to: string): [string, string][] {
   const windows: [string, string][] = [];
   let start = DateTime.fromISO(from);
   const end = DateTime.fromISO(to);
