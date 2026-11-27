@@ -23,6 +23,17 @@ export function connectCreationAllowed(secretKey: string | undefined): boolean {
   return process.env.STRIPE_CONNECT_LIVE === "true";
 }
 
+// What a Club Admin sees when Stripe refuses a Connect request: Stripe's own
+// reason (with a plain hint for the ones we know), not a generic "try again".
+export function connectErrorMessage(error: unknown): string {
+  const err = error as { type?: string; code?: string; message?: string } | null;
+  if (!err?.type?.startsWith("Stripe")) return "Couldn't reach Stripe. Try again in a minute.";
+  if (err.code === "account_create_activation_required")
+    return "SynqIQ's Stripe platform hasn't finished its Connect setup yet (Stripe: Settings -> Connect), so studio accounts can't be created. Contact SynqIQ support.";
+  if (/Connect enabled/i.test(err.message ?? "")) return "SynqIQ's Stripe platform isn't set up for Connect yet.";
+  return `Stripe said: ${err.message ?? "the request was refused"}${err.code ? ` (${err.code})` : ""}`;
+}
+
 // Test or live, from the server's Stripe key. A studio can have one account
 // of each; only the one matching the key is ever used.
 export function stripeLivemode(secretKey: string | undefined = process.env.STRIPE_SECRET_KEY): boolean {
