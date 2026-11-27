@@ -1,21 +1,46 @@
--- Shown on the class roster for each person, before this class:
---   classes: group classes they were checked into (Pilates, The Yard, yoga,
---     cycle...). Pool lanes are counted separately: a pool-lane page counts
---     pool lanes, any other class page counts classes.
---   visits: every visit of any kind, like Mindbody's "Visits": front-desk
---     check-ins, classes (pool lanes included) and appointments (PT). A
---     check-in and a class on the same day are two visits.
+-- Visit counts on the class roster: for each person, how many visits of each
+-- kind they had before this class. Categories (The Preserve): Group Fitness,
+-- Yoga, Cycle, Group Reformer and Pool (classes, sorted by name with
+-- private.class_category, the same rules as lib/classes/visit-categories.ts),
+-- PT (appointments) and front-desk check-ins. Their sum is all-time visits,
+-- like Mindbody's "Visits": a check-in and a class on the same day are two.
+--
 -- Sources: Mindbody's visit history (member_visits), the class roster sync
 -- (class_visits), SynqIQ class check-ins (class_bookings) and SynqIQ
 -- front-desk check-ins (check_ins). The same class from several sources
 -- counts once (same member, same start minute). Until the switch staff may
 -- check someone in at both desks, so front-desk check-ins per day are the
 -- larger of Mindbody's arrivals and SynqIQ's check-ins, not their sum.
+--
 -- Also tracks the one-time pull of all-time visit history.
 alter table public.member_profile_sync add column if not exists all_time_visits_at timestamptz;
 
-create or replace function private.class_counts_before(p_org uuid, p_clients text[], p_before timestamptz, p_pool boolean)
-returns table (mindbody_client_id text, classes integer, visits integer)
+create or replace function private.class_category(p_name text)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when n ~ 'pool lane|swim' then 'pool'
+    when n ~ 'reformer|pilates heat|small group pilates|intro to pilates|pilates 101' or n = 'pilates' then 'reformer'
+    when n ~ 'cycl|ride|r\.i\.d\.e|spin|rpm' then 'cycle'
+    when n ~ 'yoga|vinyasa|flow|hatha|yin|restorative|mat fusion|spinal strength|meditation' then 'yoga'
+    else 'group_fitness'
+  end
+  from (select lower(trim(coalesce(p_name, ''))) as n) x
+$$;
+
+create or replace function private.visit_counts_before(p_org uuid, p_clients text[], p_before timestamptz)
+returns table (
+  mindbody_client_id text,
+  group_fitness integer,
+  yoga integer,
+  cycle integer,
+  reformer integer,
+  pool integer,
+  pt integer,
+  check_ins integer
+)
 language sql
 stable
 security definer
@@ -41,27 +66,29 @@ as $$
     where b.organization_id = p_org and b.status = 'checked_in' and b.mindbody_client_id = any (p_clients)
   ),
   classes as (
-    select distinct c.mindbody_client_id, date_trunc('minute', c.class_start) as at, (coalesce(c.class_name, '') ~* 'pool lane') as pool
+    -- One row per class attended; the category of the first name seen.
+    select c.mindbody_client_id, date_trunc('minute', c.class_start) as at, min(private.class_category(c.class_name)) as category
     from class_rows c
     where c.class_start < p_before
+    group by 1, 2
   ),
   appointments as (
     select v.mindbody_client_id, count(*)::integer as n
     from member_visits v, org
     where v.organization_id = p_org and v.kind = 'appointment' and v.signed_in and v.mindbody_client_id = any (p_clients)
       and v.start_local at time zone org.tz < p_before
-    group by v.mindbody_client_id
+    group by 1
   ),
   arrivals_by_day as (
     select a.mindbody_client_id, a.day, max(a.n) as n
     from (
-      select v.mindbody_client_id, v.start_local::date as day, count(*) as n, 'mindbody' as src
+      select v.mindbody_client_id, v.start_local::date as day, count(*) as n
       from member_visits v, org
       where v.organization_id = p_org and v.kind = 'arrival' and v.signed_in and v.mindbody_client_id = any (p_clients)
         and v.start_local at time zone org.tz < p_before
       group by 1, 2
       union all
-      select c.mindbody_client_id, c.local_date, count(*), 'synqiq'
+      select c.mindbody_client_id, c.local_date, count(*)
       from check_ins c
       where c.organization_id = p_org and c.voided_at is null and c.mindbody_client_id = any (p_clients) and c.checked_in_at < p_before
       group by 1, 2
@@ -71,25 +98,43 @@ as $$
   arrivals as (
     select mindbody_client_id, sum(n)::integer as n from arrivals_by_day group by 1
   ),
-  ids as (
-    select unnest(p_clients) as mindbody_client_id
+  by_class as (
+    select mindbody_client_id,
+      count(*) filter (where category = 'group_fitness')::integer as group_fitness,
+      count(*) filter (where category = 'yoga')::integer as yoga,
+      count(*) filter (where category = 'cycle')::integer as cycle,
+      count(*) filter (where category = 'reformer')::integer as reformer,
+      count(*) filter (where category = 'pool')::integer as pool
+    from classes
+    group by 1
   )
-  select ids.mindbody_client_id,
-    (select count(*) from classes c where c.mindbody_client_id = ids.mindbody_client_id and c.pool = p_pool)::integer as classes,
-    ((select count(*) from classes c where c.mindbody_client_id = ids.mindbody_client_id)
-      + coalesce((select n from appointments a where a.mindbody_client_id = ids.mindbody_client_id), 0)
-      + coalesce((select n from arrivals a where a.mindbody_client_id = ids.mindbody_client_id), 0))::integer as visits
-  from ids
+  select ids.id,
+    coalesce(b.group_fitness, 0), coalesce(b.yoga, 0), coalesce(b.cycle, 0), coalesce(b.reformer, 0), coalesce(b.pool, 0),
+    coalesce(ap.n, 0), coalesce(ar.n, 0)
+  from unnest(p_clients) as ids(id)
+  left join by_class b on b.mindbody_client_id = ids.id
+  left join appointments ap on ap.mindbody_client_id = ids.id
+  left join arrivals ar on ar.mindbody_client_id = ids.id
 $$;
 
-create or replace function public.class_counts_before(p_org uuid, p_clients text[], p_before timestamptz, p_pool boolean)
-returns table (mindbody_client_id text, classes integer, visits integer)
+create or replace function public.visit_counts_before(p_org uuid, p_clients text[], p_before timestamptz)
+returns table (
+  mindbody_client_id text,
+  group_fitness integer,
+  yoga integer,
+  cycle integer,
+  reformer integer,
+  pool integer,
+  pt integer,
+  check_ins integer
+)
 language sql
 stable
 security definer
 set search_path = public
-as $$ select * from private.class_counts_before(p_org, p_clients, p_before, p_pool) $$;
+as $$ select * from private.visit_counts_before(p_org, p_clients, p_before) $$;
 
-revoke all on function private.class_counts_before(uuid, text[], timestamptz, boolean) from public, anon, authenticated;
-revoke all on function public.class_counts_before(uuid, text[], timestamptz, boolean) from public, anon, authenticated;
-grant execute on function public.class_counts_before(uuid, text[], timestamptz, boolean) to service_role;
+revoke all on function private.class_category(text) from public, anon, authenticated;
+revoke all on function private.visit_counts_before(uuid, text[], timestamptz) from public, anon, authenticated;
+revoke all on function public.visit_counts_before(uuid, text[], timestamptz) from public, anon, authenticated;
+grant execute on function public.visit_counts_before(uuid, text[], timestamptz) to service_role;

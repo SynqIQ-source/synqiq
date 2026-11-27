@@ -22,6 +22,7 @@ import { BOOKING_LABELS, bookingWindow, cancellationFor, placeFor } from "@/lib/
 import { BookSomeone, BookingRowActions } from "./booking-actions";
 import { SpotBoard } from "./spot-board";
 import { ordinal } from "@/lib/email/milestone-content";
+import { VISIT_CATEGORY_LABELS, categoryNoun, classCategory, type VisitCategory } from "@/lib/classes/visit-categories";
 
 type Params = Promise<{ occurrenceId: string }>;
 
@@ -246,26 +247,37 @@ export default async function ClassPage({ params }: { params: Params }) {
   }
   const photo = (mindbodyClientId: string | null | undefined) => (mindbodyClientId ? photoOf.get(mindbodyClientId) : undefined);
 
-  // For each person: which class this is ("12th class": group classes they
-  // were checked into before, plus this one; pool lanes count pool lanes) and
-  // their visits of any kind including this one, like Mindbody's "Visits"
-  // (front-desk check-ins, classes and appointments, each counted).
-  const countsBefore = new Map<string, { classes: number; visits: number }>();
+  // For each person: visits before this class by category (Group Fitness,
+  // Yoga, Cycle, Group Reformer, Pool, PT, front-desk check-ins). The roster
+  // shows which class of this kind this is ("12th yoga class") and all-time
+  // visits including this one, like Mindbody's "Visits".
+  const category = classCategory(title);
+  const countsBefore = new Map<string, Record<VisitCategory, number>>();
   if (photoClientIds.length && startIso) {
-    const { data: counts, error: countError } = await admin.rpc("class_counts_before", {
+    const { data: counts, error: countError } = await admin.rpc("visit_counts_before", {
       p_org: orgId,
       p_clients: photoClientIds,
       p_before: startIso,
-      p_pool: /pool lane/i.test(title),
     });
-    if (countError) console.error("[class-roster] class counts failed:", countError.message);
-    for (const row of (counts ?? []) as { mindbody_client_id: string; classes: number; visits: number }[])
-      countsBefore.set(row.mindbody_client_id, { classes: Number(row.classes), visits: Number(row.visits) });
+    if (countError) console.error("[class-roster] visit counts failed:", countError.message);
+    for (const row of (counts ?? []) as ({ mindbody_client_id: string; check_ins: number } & Record<string, number>)[])
+      countsBefore.set(row.mindbody_client_id, {
+        group_fitness: Number(row.group_fitness),
+        yoga: Number(row.yoga),
+        cycle: Number(row.cycle),
+        reformer: Number(row.reformer),
+        pool: Number(row.pool),
+        pt: Number(row.pt),
+        check_in: Number(row.check_ins),
+      });
   }
   const classNumber = (mindbodyClientId: string | null | undefined) => {
     if (!mindbodyClientId) return null;
-    const before = countsBefore.get(mindbodyClientId) ?? { classes: 0, visits: 0 };
-    return { n: before.classes + 1, visits: before.visits + 1 };
+    const before = countsBefore.get(mindbodyClientId);
+    const byCategory = { ...(before ?? { group_fitness: 0, yoga: 0, cycle: 0, reformer: 0, pool: 0, pt: 0, check_in: 0 }) };
+    byCategory[category] += 1; // this class
+    const visits = Object.values(byCategory).reduce((sum, n) => sum + n, 0);
+    return { n: byCategory[category], category, visits, byCategory };
   };
 
   return (
@@ -530,21 +542,24 @@ export default async function ClassPage({ params }: { params: Params }) {
   );
 }
 
-// "12th class · 240 visits" beside a name; a first class stands out so staff
-// can welcome them.
-function ClassNumber({ count }: { count: { n: number; visits: number } | null }) {
+// "12th yoga class · 240 visits" beside a name (hover for every category); a
+// first class of this kind stands out so staff can welcome them.
+type ClassCount = { n: number; category: VisitCategory; visits: number; byCategory: Record<VisitCategory, number> };
+
+function ClassNumber({ count }: { count: ClassCount | null }) {
   if (!count) return null;
   const visits = `${count.visits.toLocaleString("en-US")} ${count.visits === 1 ? "visit" : "visits"}`;
-  if (count.n === 1)
-    return (
-      <span className="ml-2 align-middle text-xs text-muted-foreground">
-        <Badge className="mr-1 bg-emerald-600 text-white hover:bg-emerald-600">First class</Badge>
-        {visits}
-      </span>
-    );
+  const breakdown = (Object.keys(VISIT_CATEGORY_LABELS) as VisitCategory[])
+    .map((key) => `${VISIT_CATEGORY_LABELS[key]} ${count.byCategory[key].toLocaleString("en-US")}`)
+    .join(" · ");
   return (
-    <span className="ml-2 align-middle text-xs text-muted-foreground">
-      {ordinal(count.n)} class · {visits}
+    <span className="ml-2 align-middle text-xs text-muted-foreground" title={`All-time visits: ${breakdown}`}>
+      {count.n === 1 ? (
+        <Badge className="mr-1 bg-emerald-600 text-white hover:bg-emerald-600">First {categoryNoun(count.category)}</Badge>
+      ) : (
+        `${ordinal(count.n)} ${categoryNoun(count.category)} · `
+      )}
+      {visits}
     </span>
   );
 }
