@@ -5,6 +5,7 @@ import { getOptionalEnv } from "@/lib/env";
 import { resolveRequestOrigin } from "@/lib/request-origin";
 import {
   connectCreationAllowed,
+  connectErrorMessage,
   createStudioAccount,
   getStudioStripeAccount,
   onboardingLink,
@@ -44,8 +45,6 @@ export async function POST(request: NextRequest) {
     return fail("Unknown action.");
   } catch (error) {
     console.error("[payments/connect]", error);
-    const message = error instanceof Error ? error.message : "";
-    if (/Connect enabled/i.test(message)) return fail("SynqIQ's Stripe platform isn't set up for Connect yet.", 503);
-    return fail("Stripe didn't respond. Try again.", 502);
+    return fail(connectErrorMessage(error), 502);
   }
 }

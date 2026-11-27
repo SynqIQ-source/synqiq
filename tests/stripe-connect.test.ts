@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type Stripe from "stripe";
-import { CONNECT_RESPONSIBILITIES, connectCreationAllowed, readinessFrom } from "@/lib/payments/connect";
+import { CONNECT_RESPONSIBILITIES, connectCreationAllowed, connectErrorMessage, readinessFrom } from "@/lib/payments/connect";
 
 const account = (status: string | undefined, entries: { description: string; minimum_deadline: { status: string } }[] = []) =>
   ({
@@ -36,5 +36,21 @@ describe("creating studio accounts", () => {
     process.env.STRIPE_CONNECT_LIVE = "true";
     expect(connectCreationAllowed("sk_live_abc")).toBe(true);
     expect(connectCreationAllowed(undefined)).toBe(false);
+  });
+});
+
+describe("Connect error messages", () => {
+  it("explains the platform activation block", () => {
+    expect(connectErrorMessage({ type: "StripeInvalidRequestError", code: "account_create_activation_required", message: "x" })).toMatch(
+      /hasn't finished its Connect setup/,
+    );
+  });
+  it("passes Stripe's own reason through", () => {
+    expect(connectErrorMessage({ type: "StripeInvalidRequestError", code: "parameter_invalid", message: "Bad email." })).toBe(
+      "Stripe said: Bad email. (parameter_invalid)",
+    );
+  });
+  it("keeps non-Stripe failures generic", () => {
+    expect(connectErrorMessage(new Error("socket hang up"))).toBe("Couldn't reach Stripe. Try again in a minute.");
   });
 });

@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 export function ConnectActions({ connected, ready }: { connected: boolean; ready: boolean }) {
-  const router = useRouter();
   const [busy, setBusy] = useState<"onboard" | "refresh" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,7 +22,9 @@ export function ConnectActions({ connected, ready }: { connected: boolean; ready
       window.location.href = result.url; // Stripe's hosted onboarding
       return;
     }
-    router.refresh();
+    // Reload without ?returned so the new status shows straight away (a soft
+    // refresh could keep showing the old "Stripe still needs" list).
+    window.location.replace(window.location.pathname);
   }
 
   return (
