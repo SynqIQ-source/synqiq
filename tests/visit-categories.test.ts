@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classCategory } from "@/lib/classes/visit-categories";
+import { categoryCount, classCategory } from "@/lib/classes/visit-categories";
 
 describe("The Preserve's class categories", () => {
   it.each([
@@ -21,5 +21,14 @@ describe("The Preserve's class categories", () => {
     [null, "group_fitness"],
   ])("%s -> %s", (name, category) => {
     expect(classCategory(name)).toBe(category);
+  });
+});
+
+describe("category totals", () => {
+  it("pluralizes each kind", () => {
+    expect(categoryCount(11, "yoga")).toBe("11 yoga classes");
+    expect(categoryCount(1, "group_fitness")).toBe("1 group fitness class");
+    expect(categoryCount(3, "pool")).toBe("3 pool visits");
+    expect(categoryCount(1200, "check_in")).toBe("1,200 check-ins");
   });
 });

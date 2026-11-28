@@ -49,3 +49,10 @@ export function categoryNoun(category: VisitCategory): string {
       return "check-in";
   }
 }
+
+// "11 yoga classes", "1 pool visit".
+export function categoryCount(n: number, category: VisitCategory): string {
+  const noun = categoryNoun(category);
+  const plural = n === 1 ? noun : noun.endsWith("class") ? `${noun}es` : `${noun}s`;
+  return `${n.toLocaleString("en-US")} ${plural}`;
+}
