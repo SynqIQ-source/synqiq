@@ -22,7 +22,7 @@ import { BOOKING_LABELS, bookingWindow, cancellationFor, placeFor } from "@/lib/
 import { BookSomeone, BookingRowActions } from "./booking-actions";
 import { SpotBoard } from "./spot-board";
 import { ordinal } from "@/lib/email/milestone-content";
-import { VISIT_CATEGORY_LABELS, categoryNoun, classCategory, type VisitCategory } from "@/lib/classes/visit-categories";
+import { VISIT_CATEGORY_LABELS, categoryCount, categoryNoun, classCategory, type VisitCategory } from "@/lib/classes/visit-categories";
 
 type Params = Promise<{ occurrenceId: string }>;
 
@@ -271,13 +271,15 @@ export default async function ClassPage({ params }: { params: Params }) {
         check_in: Number(row.check_ins),
       });
   }
-  const classNumber = (mindbodyClientId: string | null | undefined) => {
+  // This class counts only for people checked in to it (physically there):
+  // not for bookings yet to come, late cancels or no-shows.
+  const classNumber = (mindbodyClientId: string | null | undefined, attended: boolean) => {
     if (!mindbodyClientId) return null;
     const before = countsBefore.get(mindbodyClientId);
     const byCategory = { ...(before ?? { group_fitness: 0, yoga: 0, cycle: 0, reformer: 0, pool: 0, pt: 0, check_in: 0 }) };
-    byCategory[category] += 1; // this class
+    if (attended) byCategory[category] += 1; // this class
     const visits = Object.values(byCategory).reduce((sum, n) => sum + n, 0);
-    return { n: byCategory[category], category, visits, byCategory };
+    return { n: byCategory[category], category, visits, byCategory, attended };
   };
 
   return (
@@ -403,7 +405,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                         <TableCell>
                           <PersonName name={booking.client_name} href={link} />
                           <RosterPhotoButton url={photo(booking.mindbody_client_id)} name={booking.client_name} />
-                          <ClassNumber count={classNumber(booking.mindbody_client_id)} />
+                          <ClassNumber count={classNumber(booking.mindbody_client_id, booking.status === "checked_in")} />
                           <span className="block text-xs text-muted-foreground">
                             Booked {DateTime.fromISO(booking.booked_at).setZone(timezone).toFormat("LLL d, h:mm a")}
                             {booking.cancel_reason ? ` · ${booking.cancel_reason}` : booking.note ? ` · ${booking.note}` : ""}
@@ -461,7 +463,7 @@ export default async function ClassPage({ params }: { params: Params }) {
                         <TableCell>
                           <PersonName name={entry.name} href={memberLink(client?.mindbody_client_id as string | undefined)} />
                           <RosterPhotoButton url={photo(client?.mindbody_client_id as string | undefined)} name={entry.name} />
-                          <ClassNumber count={classNumber(client?.mindbody_client_id as string | undefined)} />
+                          <ClassNumber count={classNumber(client?.mindbody_client_id as string | undefined, entry.status === "checked_in")} />
                           {client?.status && client.status !== "Active" ? (
                             <span className="block text-xs text-muted-foreground">{client.status}</span>
                           ) : null}
@@ -542,9 +544,17 @@ export default async function ClassPage({ params }: { params: Params }) {
   );
 }
 
-// "12th yoga class · 240 visits" beside a name (hover for every category); a
-// first class of this kind stands out so staff can welcome them.
-type ClassCount = { n: number; category: VisitCategory; visits: number; byCategory: Record<VisitCategory, number> };
+// Beside a name (hover for every category). Checked in: "12th yoga class ·
+// 240 visits". Not (yet) in this class: their totals so far, "11 yoga classes
+// · 239 visits", or "New to yoga" when this would be their first, so staff
+// can welcome them.
+type ClassCount = {
+  n: number;
+  category: VisitCategory;
+  visits: number;
+  byCategory: Record<VisitCategory, number>;
+  attended: boolean;
+};
 
 function ClassNumber({ count }: { count: ClassCount | null }) {
   if (!count) return null;
@@ -554,10 +564,14 @@ function ClassNumber({ count }: { count: ClassCount | null }) {
     .join(" · ");
   return (
     <span className="ml-2 align-middle text-xs text-muted-foreground" title={`All-time visits: ${breakdown}`}>
-      {count.n === 1 ? (
+      {count.attended && count.n === 1 ? (
         <Badge className="mr-1 bg-emerald-600 text-white hover:bg-emerald-600">First {categoryNoun(count.category)}</Badge>
-      ) : (
+      ) : !count.attended && count.n === 0 ? (
+        <Badge className="mr-1 bg-emerald-600 text-white hover:bg-emerald-600">New to {VISIT_CATEGORY_LABELS[count.category].toLowerCase()}</Badge>
+      ) : count.attended ? (
         `${ordinal(count.n)} ${categoryNoun(count.category)} · `
+      ) : (
+        `${categoryCount(count.n, count.category)} · `
       )}
       {visits}
     </span>
